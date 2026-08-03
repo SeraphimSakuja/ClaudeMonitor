@@ -7,23 +7,92 @@ struct AccountRankingTests {
 
     private let now = TestSupport.now
 
-    @Test("Sortiert primär nach niedrigster 5-Stunden-Auslastung")
-    func sortsByFiveHour() {
+    @Test("Sortiert primär nach der bindenden Auslastung — dem schlechteren der beiden Limits")
+    func sortsByBindingUtilization() {
         let accounts = [
-            TestSupport.account("b", fiveHour: 80, sevenDay: 10),
-            TestSupport.account("a", fiveHour: 20, sevenDay: 90),
-            TestSupport.account("c", fiveHour: 50, sevenDay: 50)
+            TestSupport.account("b", fiveHour: 80, sevenDay: 10),   // bindend: 80
+            TestSupport.account("a", fiveHour: 20, sevenDay: 90),   // bindend: 90
+            TestSupport.account("c", fiveHour: 50, sevenDay: 50)    // bindend: 50
         ]
-        #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["a", "c", "b"])
+        // Nach der alten 5h-Kaskade wäre „a" (20 %) vorne gewesen.
+        #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["c", "b", "a"])
+        #expect(AccountRanking.bindingPercent(for: accounts[1], usable: true) == 90)
     }
 
-    @Test("Bei gleicher 5h-Auslastung entscheidet die Wochen-Auslastung")
-    func tiebreakSevenDay() {
+    @Test("Der bessere 5h-Wert nützt nichts, wenn das Wochenlimit schlechter ist")
+    func weeklyLimitCanOutweighFiveHour() {
         let accounts = [
-            TestSupport.account("a", fiveHour: 40, sevenDay: 70),
-            TestSupport.account("b", fiveHour: 40, sevenDay: 10)
+            TestSupport.account("a", fiveHour: 5, sevenDay: 95),    // bindend: 95
+            TestSupport.account("b", fiveHour: 60, sevenDay: 60)    // bindend: 60
         ]
         #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["b", "a"])
+    }
+
+    @Test("Bei gleichem 5h-Wert entscheidet das Wochenlimit — es ist dann das bindende")
+    func tiebreakSevenDay() {
+        let accounts = [
+            TestSupport.account("a", fiveHour: 40, sevenDay: 70),   // bindend: 70
+            TestSupport.account("b", fiveHour: 40, sevenDay: 10)    // bindend: 40
+        ]
+        #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["b", "a"])
+    }
+
+    @Test("Realfall: 5h 49 % / 7d 100 % verliert gegen 5h 100 % / 7d 89 % mit frühem Reset")
+    func realWorldCaseWeeklyExhausted() {
+        // Beobachtet an echten Daten: #1 ist wegen des Wochenlimits ~70 Stunden
+        // unbrauchbar, #2 füllt sein 5h-Fenster in drei Stunden wieder auf.
+        // Ein Durchschnitt (74,5 gegen 94,5) hätte #1 empfohlen — max() macht
+        // beide zu 100 und lässt den früheren Reset entscheiden.
+        let first = TestSupport.account("1", fiveHour: 49, sevenDay: 100,
+                                        fiveHourResetsIn: 2 * 3_600,
+                                        sevenDayResetsIn: 70 * 3_600)
+        let second = TestSupport.account("2", fiveHour: 100, sevenDay: 89,
+                                         fiveHourResetsIn: 3 * 3_600,
+                                         sevenDayResetsIn: 4 * 86_400)
+        #expect(AccountRanking.bindingPercent(for: first, usable: true) == 100)
+        #expect(AccountRanking.bindingPercent(for: second, usable: true) == 100)
+        #expect(AccountRanking.ranked([first, second], now: now).map(\.id) == ["2", "1"])
+    }
+
+    @Test("Maßgeblich ist der Reset des Engpass-Fensters, nicht der früheste überhaupt")
+    func bottleneckResetNotEarliestOverall() {
+        // Das 5h-Fenster wird in 10 Minuten zurückgesetzt — das hilft nicht,
+        // solange das Wochenlimit bei 100 % steht und erst in 70 Stunden fällt.
+        let account = TestSupport.account("a", fiveHour: 49, sevenDay: 100,
+                                          fiveHourResetsIn: 600,
+                                          sevenDayResetsIn: 70 * 3_600)
+        #expect(AccountRanking.bottleneckReset(for: account, now: now) == 70 * 3_600)
+
+        let unknown = TestSupport.account("b", fiveHour: 49, sevenDay: 100,
+                                          fiveHourResetsIn: 600)
+        #expect(AccountRanking.bottleneckReset(for: unknown, now: now)
+                == AccountRanking.worstSortValue)
+    }
+
+    @Test("Bei gleicher bindender Auslastung entscheidet der frühere Reset")
+    func equalBindingDecidedByEarliestReset() {
+        let accounts = [
+            TestSupport.account("a", fiveHour: 30, sevenDay: 70,
+                                fiveHourResetsIn: 7_200, sevenDayResetsIn: 86_400),
+            TestSupport.account("b", fiveHour: 70, sevenDay: 30,
+                                fiveHourResetsIn: 900, sevenDayResetsIn: 86_400)
+        ]
+        // Beide bindend bei 70 — unterschiedlich verteilt, aber gleich bewertet.
+        #expect(AccountRanking.bindingPercent(for: accounts[0], usable: true) == 70)
+        #expect(AccountRanking.bindingPercent(for: accounts[1], usable: true) == 70)
+        #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["b", "a"])
+    }
+
+    @Test("Der oberste Account trägt nie ein rotes Ampelsignal, wenn ein grüner verfügbar ist")
+    func topAccountMatchesTrafficLight() {
+        let accounts = [
+            TestSupport.account("a", fiveHour: 10, sevenDay: 95, fiveHourResetsIn: 600),
+            TestSupport.account("b", fiveHour: 40, sevenDay: 40, fiveHourResetsIn: 600)
+        ]
+        let best = AccountRanking.ranked(accounts, now: now).first
+        #expect(best?.id == "b")
+        #expect(best?.overallStatus == .green)
+        #expect(accounts[0].overallStatus == .red)
     }
 
     @Test("Bei gleichen Prozentwerten gewinnt der frühere Reset — die längere Restzeit ist kein Vorteil")
@@ -72,7 +141,11 @@ struct AccountRankingTests {
             id: "a",
             displayName: "a@example.com",
             windows: [
+                // 5h und 7d sind bestens — nur das Modellkontingent ist leer.
+                // Genau dafür trägt der Verfügbarkeitsrang noch, denn
+                // max(5h, 7d) sieht dieses Fenster nicht.
                 TestSupport.window(.fiveHour, percent: 1, resetsIn: 600),
+                TestSupport.window(.sevenDay, percent: 2, resetsIn: 600),
                 TestSupport.window(.scoped(name: "Fable"), percent: 100, resetsIn: 600)
             ],
             fetchedAt: now,
@@ -86,13 +159,14 @@ struct AccountRankingTests {
     func blockedRanksAheadOfNoData() {
         let accounts = [
             TestSupport.accountWithoutData("a-nodata", state: .noData),
-            TestSupport.account("b-blocked-high", fiveHour: 100, sevenDay: 100, fiveHourResetsIn: 600),
-            TestSupport.account("c-blocked-low", fiveHour: 100, sevenDay: 10, fiveHourResetsIn: 600),
+            // Beide blockiert und bindend bei 100 — der frühere Reset entscheidet.
+            TestSupport.account("b-blocked-late", fiveHour: 100, sevenDay: 100, fiveHourResetsIn: 3_600),
+            TestSupport.account("c-blocked-early", fiveHour: 100, sevenDay: 10, fiveHourResetsIn: 600),
             TestSupport.account("d-free", fiveHour: 99, sevenDay: 99, fiveHourResetsIn: 600)
         ]
         #expect(
             AccountRanking.ranked(accounts, now: now).map(\.id)
-                == ["d-free", "c-blocked-low", "b-blocked-high", "a-nodata"]
+                == ["d-free", "c-blocked-early", "b-blocked-late", "a-nodata"]
         )
     }
 
@@ -121,20 +195,17 @@ struct AccountRankingTests {
     func strictWeakOrdering() {
         var keys: [AccountRanking.Key] = []
         for rank in [0, 1, 2] {
-            for five in [10.0, 40.0, AccountRanking.worstSortValue] {
-                for seven in [10.0, 40.0] {
-                    for reset in [600.0, 3_600.0, AccountRanking.worstSortValue] {
-                        for id in ["a", "b", "10", "2"] {
-                            keys.append(
-                                AccountRanking.Key(
-                                    availabilityRank: rank,
-                                    fiveHourPercent: five,
-                                    sevenDayPercent: seven,
-                                    earliestReset: reset,
-                                    identifier: id
-                                )
+            for binding in [10.0, 40.0, 100.0, AccountRanking.worstSortValue] {
+                for reset in [0.0, 600.0, 3_600.0, AccountRanking.worstSortValue] {
+                    for id in ["a", "b", "10", "2"] {
+                        keys.append(
+                            AccountRanking.Key(
+                                availabilityRank: rank,
+                                bindingPercent: binding,
+                                earliestReset: reset,
+                                identifier: id
                             )
-                        }
+                        )
                     }
                 }
             }

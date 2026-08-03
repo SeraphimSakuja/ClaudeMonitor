@@ -10,14 +10,30 @@ import Foundation
 ///    nie als Empfehlung oben stehen), `2` ohne verwertbare Daten (keine Daten
 ///    oder toter Token). Ein blockierter Account rangiert also hinter jedem
 ///    freien und vor den datenlosen: Er hat echte Zahlen, die die UI zeigen kann.
-/// 2. **Niedrigste 5-Stunden-Auslastung** — das ist das Fenster, das die
-///    unmittelbare Arbeitsfähigkeit begrenzt.
-/// 3. **Niedrigste Wochen-Auslastung.**
-/// 4. **Frühester Reset**, aufsteigend: die *kürzeste* Restzeit über alle
-///    Fenster. `resets_at` ist der Zeitpunkt des Auffüllens — wer zuerst
-///    zurückgesetzt wird, ist zuerst wieder verfügbar. Ein Account ohne jeden
-///    bekannten Reset sortiert hier ans Ende.
-/// 5. **Kennung** — stabiler, locale-freier Tiebreaker (``AccountIdentifierOrder``),
+///
+///    Für 5h und 7d ist dieser Rang seit Kriterium 2 weitgehend redundant — ein
+///    dort ausgeschöpfter Account hat automatisch die schlechteste bindende
+///    Auslastung. Er bleibt trotzdem, weil er zwei Fälle abdeckt, die Kriterium 2
+///    **nicht** sieht: ein ausgeschöpftes Fenster jenseits von 5h/7d (ein
+///    `scoped`-Modellkontingent oder das Ausgabenbudget `spend`) und den
+///    Datenlos-/Toter-Token-Fall.
+/// 2. **Niedrigste bindende Auslastung** = `max(5h-Prozent, 7d-Prozent)`,
+///    aufsteigend. Bewusst **kein Durchschnitt**: Maßgeblich ist das Fenster,
+///    das den Account tatsächlich begrenzt. 5h 49 % / 7d 100 % ergäbe gemittelt
+///    74,5 und stünde vor 5h 100 % / 7d 89 % (94,5) — obwohl der erste Account
+///    tagelang unbrauchbar ist. Mit `max` sind beide bei 100 und der frühere
+///    Reset entscheidet. Dieselbe „schlechtestes Fenster"-Logik benutzt
+///    ``MonitoredAccount/overallStatus`` für die Ampel; der oberste Account
+///    trägt damit nie ein rotes Signal, während ein grüner darunter steht.
+/// 3. **Frühester Reset des Engpass-Fensters**, aufsteigend. `resets_at` ist der
+///    Zeitpunkt des Auffüllens — wer zuerst zurückgesetzt wird, ist zuerst wieder
+///    verfügbar. Gemessen wird die Restzeit **des Fensters, das den Account
+///    ausbremst** (des am höchsten ausgelasteten), nicht die kürzeste über alle
+///    Fenster: Der Realfall 5h 49 % / 7d 100 % hat einen 5h-Reset in zwei
+///    Stunden, der dem Nutzer nichts nützt, solange das Wochenlimit noch 70
+///    Stunden dicht ist. Ein Account ohne bekannten Reset am Engpass sortiert
+///    hier ans Ende.
+/// 4. **Kennung** — stabiler, locale-freier Tiebreaker (``AccountIdentifierOrder``),
 ///    damit die Reihenfolge bei völligem Gleichstand deterministisch ist.
 ///
 /// Alle Kriterien sind Total-Ordnungen über endliche Werte; das Prädikat
@@ -34,10 +50,10 @@ public enum AccountRanking {
     struct Key: Sendable, Equatable {
         /// 0 = nutzbar, 1 = blockiert (Fenster >= 100 %), 2 = ohne Daten.
         let availabilityRank: Int
-        /// Auslastung 5h; fehlendes Fenster zählt als maximal ausgelastet.
-        let fiveHourPercent: Double
-        /// Auslastung 7d; fehlendes Fenster zählt als maximal ausgelastet.
-        let sevenDayPercent: Double
+        /// Bindende Auslastung: das Maximum aus 5h und 7d. Ein fehlendes Fenster
+        /// zählt als maximal ausgelastet und macht damit die ganze Bewertung
+        /// schlechtestmöglich.
+        let bindingPercent: Double
         /// Kürzeste Restzeit über alle Fenster; ohne bekannten Reset maximal.
         let earliestReset: TimeInterval
         /// Stabiler Tiebreaker.
@@ -57,22 +73,34 @@ public enum AccountRanking {
     static func key(for account: MonitoredAccount, now: Date = Date()) -> Key {
         let usable = account.hasUsableData
 
-        // Restzeiten aller Fenster mit bekanntem Reset, geklemmt auf >= 0.
-        let remainings: [TimeInterval] = account.windows.compactMap { window in
-            switch window.resetTiming(now: now) {
-            case .unknown: return nil
-            case .due: return 0
-            case .remaining(let seconds): return seconds
-            }
-        }
-
         return Key(
             availabilityRank: availabilityRank(for: account, usable: usable),
-            fiveHourPercent: sanitized(usable ? account.fiveHourPercent : nil),
-            sevenDayPercent: sanitized(usable ? account.sevenDayPercent : nil),
-            earliestReset: remainings.min() ?? worstSortValue,
+            bindingPercent: bindingPercent(for: account, usable: usable),
+            earliestReset: bottleneckReset(for: account, now: now),
             identifier: account.id
         )
+    }
+
+    /// Bindende Auslastung eines Accounts: das schlechtere der beiden Limits.
+    static func bindingPercent(for account: MonitoredAccount, usable: Bool) -> Double {
+        guard usable else { return worstSortValue }
+        return max(
+            sanitized(account.fiveHourPercent),
+            sanitized(account.sevenDayPercent)
+        )
+    }
+
+    /// Restzeit bis zum Reset des Engpass-Fensters, also des am höchsten
+    /// ausgelasteten. Sind mehrere Fenster gleich hoch ausgelastet, zählt das
+    /// mit dem frühesten Reset. ``worstSortValue``, wenn dort kein Reset
+    /// bekannt ist — dann ist über die Rückkehr des Kontingents nichts gesagt.
+    static func bottleneckReset(for account: MonitoredAccount, now: Date) -> TimeInterval {
+        let finitePercents = account.windows.map(\.percent).filter { $0.isFinite }
+        guard let peak = finitePercents.max() else { return worstSortValue }
+        let remainings = account.windows
+            .filter { $0.percent.isFinite && $0.percent >= peak }
+            .compactMap { $0.resetTiming(now: now).remainingSeconds }
+        return remainings.min() ?? worstSortValue
     }
 
     /// Verfügbarkeitsklasse eines Accounts (0 nutzbar, 1 blockiert, 2 ohne Daten).
@@ -95,8 +123,7 @@ public enum AccountRanking {
     /// Vergleich zweier Sortierschlüssel — die Kriterienkaskade an einer Stelle.
     static func isOrderedBefore(_ lhs: Key, _ rhs: Key) -> Bool {
         if lhs.availabilityRank != rhs.availabilityRank { return lhs.availabilityRank < rhs.availabilityRank }
-        if lhs.fiveHourPercent != rhs.fiveHourPercent { return lhs.fiveHourPercent < rhs.fiveHourPercent }
-        if lhs.sevenDayPercent != rhs.sevenDayPercent { return lhs.sevenDayPercent < rhs.sevenDayPercent }
+        if lhs.bindingPercent != rhs.bindingPercent { return lhs.bindingPercent < rhs.bindingPercent }
         if lhs.earliestReset != rhs.earliestReset { return lhs.earliestReset < rhs.earliestReset }
         return AccountIdentifierOrder.isOrderedBefore(lhs.identifier, rhs.identifier)
     }
