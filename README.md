@@ -29,7 +29,22 @@ das Alter des letzten bekannten Werts an, statt veraltete Zahlen als aktuell aus
 | Pfad | Inhalt |
 |---|---|
 | `Core/` | Framework-freie Kernlogik (Parsing, Ranking, Status, Restzeiten) als SwiftPM-Package — mit `swift test` ohne Xcode testbar |
+| `Shared/` | Gemeinsame Schicht von App und Widget: Snapshot-Transport über den App-Group-Container und alle Anzeigeregeln — ebenfalls SwiftPM, ebenfalls ohne Xcode testbar |
 | `App/` | Menüleisten-App und WidgetKit-Extension (Xcode-Projekt) |
+
+Anzeigeregeln liegen bewusst in `Shared/` und nicht im App-Target: Die Widget-Extension
+braucht exakt dieselbe Formatierung, und zwei Kopien laufen garantiert auseinander.
+
+## Bauen und testen
+
+```sh
+cd Core   && swift test        # Kernlogik
+cd Shared && swift test        # Transport + Anzeigeregeln
+xcodebuild -project App/ClaudeMonitor.xcodeproj -scheme ClaudeMonitor -destination 'platform=macOS' build
+```
+
+Die Team-ID ist noch offen; bis dahin wird ad hoc und ohne App-Group-Entitlement
+signiert. Alles Nötige steht kommentiert in `App/Signing.xcconfig`.
 
 ## Status
 

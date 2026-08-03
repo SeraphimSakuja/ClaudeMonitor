@@ -1,0 +1,478 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "5 hours" : {
+      "comment" : "Name des rollierenden 5-Stunden-Limitfensters",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "5 Stunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "5 hours"
+          }
+        }
+      }
+    },
+    "7 days" : {
+      "comment" : "Name des Wochenlimit-Fensters",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7 Tage"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7 days"
+          }
+        }
+      }
+    },
+    "Cache not readable right now" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache gerade nicht lesbar"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache not readable right now"
+          }
+        }
+      }
+    },
+    "Checked %@ ago" : {
+      "comment" : "Alter des zuletzt gelesenen Snapshots, %@ = laufende Zeitangabe",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vor %@ geprüft"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checked %@ ago"
+          }
+        }
+      }
+    },
+    "Claude usage" : {
+      "comment" : "Bedienhilfen-Bezeichnung des Menüleisten-Symbols",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude-Auslastung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude usage"
+          }
+        }
+      }
+    },
+    "claude-swap is probably writing right now. This usually resolves itself with the next read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-swap schreibt vermutlich gerade. Das erledigt sich normalerweise mit dem nächsten Lesevorgang."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-swap is probably writing right now. This usually resolves itself with the next read."
+          }
+        }
+      }
+    },
+    "claude-swap not found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-swap nicht gefunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-swap not found"
+          }
+        }
+      }
+    },
+    "ClaudeMonitor" : {
+      "comment" : "Programmname — in beiden Sprachen gleich",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ClaudeMonitor"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ClaudeMonitor"
+          }
+        }
+      }
+    },
+    "ClaudeMonitor reads the local cache of claude-swap. Install claude-swap and let it run once." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ClaudeMonitor liest den lokalen Cache von claude-swap. Installiere claude-swap und lass es einmal laufen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ClaudeMonitor reads the local cache of claude-swap. Install claude-swap and let it run once."
+          }
+        }
+      }
+    },
+    "Data is outdated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten sind veraltet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data is outdated"
+          }
+        }
+      }
+    },
+    "Last fetch failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzter Abruf fehlgeschlagen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last fetch failed"
+          }
+        }
+      }
+    },
+    "Loading…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lade…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading…"
+          }
+        }
+      }
+    },
+    "No accounts in claude-swap" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Accounts in claude-swap"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No accounts in claude-swap"
+          }
+        }
+      }
+    },
+    "No data yet" : {
+      "comment" : "Pflichtzustand: last_good ist null — ausdrücklich nicht 0 %",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Daten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No data yet"
+          }
+        }
+      }
+    },
+    "No limit windows reported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Limitfenster gemeldet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No limit windows reported"
+          }
+        }
+      }
+    },
+    "No usage data" : {
+      "comment" : "Bedienhilfen-Bezeichnung des neutralen Menüleisten-Symbols",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Auslastungsdaten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No usage data"
+          }
+        }
+      }
+    },
+    "Paused, retrying in %@" : {
+      "comment" : "claude-swap pausiert Abfragen, %@ = laufender Countdown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausiert, neuer Versuch in %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused, retrying in %@"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
+          }
+        }
+      }
+    },
+    "Re-login required in claude-swap" : {
+      "comment" : "Pflichtzustand: toter Token",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neuanmeldung in claude-swap nötig"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Re-login required in claude-swap"
+          }
+        }
+      }
+    },
+    "Refresh now" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt aktualisieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh now"
+          }
+        }
+      }
+    },
+    "Reset due" : {
+      "comment" : "Pflichtzustand: Reset liegt in der Vergangenheit — kein negativer Countdown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset fällig"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset due"
+          }
+        }
+      }
+    },
+    "Reset time unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset-Zeitpunkt unbekannt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset time unknown"
+          }
+        }
+      }
+    },
+    "Resets in %@" : {
+      "comment" : "Restzeit bis zum Reset, %@ = laufender Countdown",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset in %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resets in %@"
+          }
+        }
+      }
+    },
+    "Spend" : {
+      "comment" : "Name des Ausgabenfensters",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgaben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spend"
+          }
+        }
+      }
+    },
+    "The cache format of claude-swap has changed. Values stay hidden so that no wrong numbers are shown." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Cache-Format von claude-swap hat sich geändert. Die Werte bleiben ausgeblendet, damit keine falschen Zahlen angezeigt werden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cache format of claude-swap has changed. Values stay hidden so that no wrong numbers are shown."
+          }
+        }
+      }
+    },
+    "Unsupported data format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unbekanntes Datenformat"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unsupported data format"
+          }
+        }
+      }
+    },
+    "Updated %@ ago" : {
+      "comment" : "Datenalter eines Accounts, %@ = laufende Zeitangabe",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vor %@ aktualisiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updated %@ ago"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

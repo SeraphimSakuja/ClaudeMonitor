@@ -1,0 +1,30 @@
+// Signierung von ClaudeMonitor — die einzige Stelle, die beim Einrichten
+// angefasst werden muss.
+//
+// Stand: Die Apple-Developer-Team-ID ist noch offen (SSOT-Punkt CM-01).
+// Ohne Team-ID lässt sich das App-Group-Entitlement nicht signieren: Xcode
+// verlangt dafür ein Provisioning-Profil und bricht sonst mit
+// „requires a provisioning profile" ab. Deshalb wird bis dahin ad hoc und
+// ohne Entitlement gebaut.
+//
+// Auswirkung im Betrieb: `FileManager.containerURL(forSecurityApplication…)`
+// liefert nil, der SnapshotWriter meldet `containerUnavailable` und
+// protokolliert das. Die Menüleiste funktioniert vollständig; nur die
+// Widget-Extension aus Teilaufgabe 3 bekommt noch keine Daten.
+//
+// SOBALD DIE TEAM-ID FESTSTEHT — hier zwei Zeilen ändern, sonst nichts:
+//
+//   CLAUDEMONITOR_TEAM = 94794Q4RW7          // Beispiel: DragonSphere-Team
+//   CLAUDEMONITOR_ENTITLEMENTS = ClaudeMonitor.entitlements
+//
+// und zusätzlich CODE_SIGN_STYLE auf Automatic stellen:
+//
+//   CODE_SIGN_STYLE = Automatic
+//   CODE_SIGN_IDENTITY = Apple Development
+
+CLAUDEMONITOR_TEAM =
+CLAUDEMONITOR_ENTITLEMENTS =
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+PROVISIONING_PROFILE_SPECIFIER =
