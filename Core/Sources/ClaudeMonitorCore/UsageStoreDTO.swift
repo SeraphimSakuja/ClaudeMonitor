@@ -88,9 +88,9 @@ struct RawAccount: Decodable {
     var email: String?
     var lastGood: [String: RawLastGoodEntry]?
     var fetchedAt: Double?
-    var lastAttemptAt: Double?
     var backoffUntil: Double?
-    var consecutiveFailures: Int?
+    /// Nächster geplanter Abruf — macht sichtbar, ob claude-swap überhaupt noch pollt.
+    var nextPollAt: Double?
     var authDeadStrikes: Int?
     var lastError: String?
 
@@ -98,9 +98,8 @@ struct RawAccount: Decodable {
         case email
         case lastGood
         case fetchedAt
-        case lastAttemptAt
         case backoffUntil
-        case consecutiveFailures
+        case nextPollAt
         case authDeadStrikes
         case lastError
     }
@@ -110,9 +109,8 @@ struct RawAccount: Decodable {
         email = container.lenient(String.self, .email)
         lastGood = container.lenient([String: RawLastGoodEntry].self, .lastGood)
         fetchedAt = container.lenient(Double.self, .fetchedAt)
-        lastAttemptAt = container.lenient(Double.self, .lastAttemptAt)
         backoffUntil = container.lenient(Double.self, .backoffUntil)
-        consecutiveFailures = container.lenient(Int.self, .consecutiveFailures)
+        nextPollAt = container.lenient(Double.self, .nextPollAt)
         authDeadStrikes = container.lenient(Int.self, .authDeadStrikes)
         lastError = container.lenient(String.self, .lastError)
     }

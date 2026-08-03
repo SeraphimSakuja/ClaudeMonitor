@@ -1,6 +1,6 @@
 import Foundation
 
-/// Kernlogik des ClaudeMonitor — Gerüst, Implementierung folgt.
+/// Kernlogik des ClaudeMonitor.
 ///
 /// Der Monitor liest ausschließlich den lokalen Cache von `claude-swap`
 /// (`usage.json`) und schreibt niemals hinein: claude-swap serialisiert seine

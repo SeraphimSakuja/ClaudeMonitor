@@ -25,7 +25,14 @@ public enum UsageStoreReadResult: Sendable, Equatable {
 public struct UsageStoreReader: Sendable {
 
     /// Ab dieser Anzahl Fehlversuche gilt der hinterlegte Token als tot.
-    public static let defaultAuthDeadStrikeThreshold = 3
+    ///
+    /// Quelle: claude-swap 0.22.0, `usage_store.py:86` → `AUTH_DEAD_STRIKES = 1`.
+    /// `_row_eligible` (`usage_store.py:505`) stellt das Abrufen bereits ab dem
+    /// **ersten** Strike vollständig ein und quarantänisiert den Account als
+    /// „re-login needed". Eine höhere Schwelle hier würde solche Accounts mit
+    /// eingefrorenen (oft niedrigen) Prozentwerten dauerhaft als „bester
+    /// Account" anzeigen.
+    public static let defaultAuthDeadStrikeThreshold = 1
 
     /// Schwelle für ``AccountState/authDead(strikes:)``.
     public let authDeadStrikeThreshold: Int
@@ -53,12 +60,16 @@ public struct UsageStoreReader: Sendable {
                 .map(\.path)
             return .storeNotFound(searchedPaths: searched)
         }
-        return read(contentsOf: url, now: now)
+        return read(contentsOf: url, fileManager: fileManager, now: now)
     }
 
     /// Liest einen konkreten Store-Pfad.
-    public func read(contentsOf url: URL, now: Date = Date()) -> UsageStoreReadResult {
-        guard FileManager.default.fileExists(atPath: url.path) else {
+    public func read(
+        contentsOf url: URL,
+        fileManager: FileManager = .default,
+        now: Date = Date()
+    ) -> UsageStoreReadResult {
+        guard fileManager.fileExists(atPath: url.path) else {
             return .storeNotFound(searchedPaths: [url.path])
         }
         do {
@@ -66,6 +77,14 @@ public struct UsageStoreReader: Sendable {
             let data = try Data(contentsOf: url, options: [.uncached])
             return decode(data, now: now)
         } catch {
+            // TOCTOU: Zwischen Existenzprüfung und Lesen kann claude-swap die
+            // Datei ersetzt haben. „Verschwunden" ist kein Lesefehler, sondern
+            // derselbe Zustand wie „nie da gewesen".
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError {
+                return .storeNotFound(searchedPaths: [url.path])
+            }
             return .unreadable(reason: error.localizedDescription)
         }
     }
@@ -90,7 +109,7 @@ public struct UsageStoreReader: Sendable {
 
         let accounts = (raw.accounts ?? [:])
             .map { account(id: $0.key, raw: $0.value, now: now) }
-            .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+            .sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
 
         return .success(
             AccountsSnapshot(
@@ -106,6 +125,7 @@ public struct UsageStoreReader: Sendable {
     private func account(id: String, raw: RawAccount, now: Date) -> MonitoredAccount {
         let windows = Self.windows(from: raw.lastGood)
         let fetchedAt = raw.fetchedAt.map { Date(timeIntervalSince1970: $0) }
+        let nextPollAt = raw.nextPollAt.map { Date(timeIntervalSince1970: $0) }
         let backoffUntil = raw.backoffUntil.map { Date(timeIntervalSince1970: $0) }
 
         // Reihenfolge der Zustände: Ein toter Token ist die gravierendste
@@ -130,6 +150,7 @@ public struct UsageStoreReader: Sendable {
             displayName: raw.email.flatMap { $0.isEmpty ? nil : $0 } ?? "Account \(id)",
             windows: windows,
             fetchedAt: fetchedAt,
+            nextPollAt: nextPollAt,
             state: state
         )
     }
@@ -151,9 +172,12 @@ public struct UsageStoreReader: Sendable {
             case "scoped":
                 for (index, raw) in entry.windows.enumerated() {
                     let name = raw.name ?? "scoped \(index + 1)"
+                    // Der Index gehört in die Kennung: claude-swap kann zwei
+                    // scoped-Fenster mit gleichem Namen liefern, und doppelte
+                    // `id`-Werte machen SwiftUI-`ForEach` undefiniert.
                     if let window = window(
                         from: raw,
-                        id: "scoped:\(name)",
+                        id: "scoped:\(index):\(name)",
                         kind: .scoped(name: name),
                         label: name
                     ) {
@@ -205,15 +229,17 @@ public struct UsageStoreReader: Sendable {
         )
     }
 
-    /// `pct` hat Vorrang; beim Ausgabenfenster kann der Wert notfalls aus
-    /// `used`/`limit` gerechnet werden.
+    /// Der Prozentwert kommt ausschließlich aus `pct`.
+    ///
+    /// Ein negativer oder nicht-endlicher Wert ist ein korrupter Wert und wird
+    /// wie ein fehlendes Fenster behandelt (`nil`) — auf 0 zu klemmen würde ihn
+    /// zum *besten* aller Werte machen und den Account fälschlich empfehlen.
+    ///
+    /// Ein Rückfall auf `used`/`limit` gibt es bewusst nicht: claude-swap
+    /// schreibt den `spend`-Block nur mit non-null `utilization`
+    /// (`oauth.py:419-421`), der Zweig wäre toter Code.
     private static func percent(from raw: RawWindow) -> Double? {
-        if let pct = raw.pct, pct.isFinite {
-            return max(0, pct)
-        }
-        if let used = raw.used, let limit = raw.limit, limit > 0, used.isFinite {
-            return max(0, used / limit * 100)
-        }
-        return nil
+        guard let pct = raw.pct, pct.isFinite, pct >= 0 else { return nil }
+        return pct
     }
 }

@@ -72,6 +72,25 @@ enum TestSupport {
     }
 }
 
+extension TestSupport {
+
+    /// FileManager, der jede Existenzprüfung verneint — belegt, dass der
+    /// injizierte Manager wirklich benutzt wird.
+    final class DenyingFileManager: FileManager, @unchecked Sendable {
+        private(set) var didAnswer = false
+        override func fileExists(atPath path: String) -> Bool {
+            didAnswer = true
+            return false
+        }
+    }
+
+    /// FileManager, der die Existenz einer nicht vorhandenen Datei behauptet —
+    /// stellt das TOCTOU-Fenster her.
+    final class ClaimingFileManager: FileManager, @unchecked Sendable {
+        override func fileExists(atPath path: String) -> Bool { true }
+    }
+}
+
 extension UsageStoreReadResult {
     /// Snapshot, falls erfolgreich — sonst `nil`.
     var snapshot: AccountsSnapshot? {

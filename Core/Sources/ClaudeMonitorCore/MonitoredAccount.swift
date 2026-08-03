@@ -32,6 +32,10 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
     public let windows: [LimitWindow]
     /// Zeitpunkt, zu dem claude-swap die Daten geholt hat (Basis für das Datenalter).
     public let fetchedAt: Date?
+    /// Zeitpunkt, zu dem claude-swap das nächste Mal abfragen will; `nil`, wenn
+    /// die Quelle nichts dazu sagt. Liegt er weit in der Vergangenheit, pollt
+    /// claude-swap gerade nicht — die UI kann die Daten als veraltet kennzeichnen.
+    public let nextPollAt: Date?
     /// Zustand jenseits der Zahlen.
     public let state: AccountState
 
@@ -40,12 +44,14 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
         displayName: String,
         windows: [LimitWindow],
         fetchedAt: Date?,
+        nextPollAt: Date? = nil,
         state: AccountState
     ) {
         self.id = id
         self.displayName = displayName
         self.windows = windows
         self.fetchedAt = fetchedAt
+        self.nextPollAt = nextPollAt
         self.state = state
     }
 

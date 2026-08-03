@@ -3,10 +3,16 @@ import Foundation
 /// Parser für die `resets_at`-Zeitstempel von claude-swap.
 ///
 /// Die Quelle liefert ISO-8601 mit **Mikrosekunden** und Offset, z. B.
-/// `2026-08-03T16:50:00.191164+00:00`. `ISO8601DateFormatter` erwartet mit
-/// `.withFractionalSeconds` aber Millisekunden; sechsstellige Bruchteile würden
-/// als Millisekunden gelesen und den Zeitpunkt um Minuten verschieben. Deshalb
-/// wird der Bruchteil vor dem Parsen auf drei Stellen gekürzt.
+/// `2026-08-03T16:50:00.191164+00:00`. `.withFractionalSeconds` ist auf
+/// Millisekunden ausgelegt; wie ein Formatter mit *mehr* als drei
+/// Nachkommastellen umgeht, ist nicht dokumentiert.
+///
+/// Gemessen auf macOS 26 liefern `.191164` und `.191` denselben Instant
+/// (Differenz 0,0 s) — dort gibt es also keinen Versatz. Für das
+/// Deployment-Target macOS 14 mit älterer ICU konnte das **nicht** verifiziert
+/// werden. Die Kürzung auf drei Stellen bleibt deshalb als reine Absicherung
+/// stehen: Sie ist auf der gemessenen Plattform ein No-op und schützt auf
+/// älteren gegen ein möglicherweise abweichendes Parserverhalten.
 enum ISO8601Parsing {
 
     /// Wandelt einen Zeitstempel der Quelle in ein `Date`; `nil`, wenn er fehlt

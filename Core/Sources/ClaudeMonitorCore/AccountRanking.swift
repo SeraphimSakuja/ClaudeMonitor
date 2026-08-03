@@ -4,45 +4,57 @@ import Foundation
 ///
 /// Reihenfolge der Kriterien (jeweils nur bei Gleichstand das nächste):
 ///
-/// 1. **Verwertbare Daten zuerst.** Accounts ohne Daten oder mit totem Token
-///    stehen immer am Ende und dürfen nie als „bester Account" erscheinen.
+/// 1. **Verfügbarkeitsrang.** Drei Klassen, in dieser Ordnung:
+///    `0` nutzbar, `1` nutzbar aber **blockiert** (irgendein Fenster steht auf
+///    100 % oder mehr — der Account ist bis zu seinem Reset unbrauchbar und darf
+///    nie als Empfehlung oben stehen), `2` ohne verwertbare Daten (keine Daten
+///    oder toter Token). Ein blockierter Account rangiert also hinter jedem
+///    freien und vor den datenlosen: Er hat echte Zahlen, die die UI zeigen kann.
 /// 2. **Niedrigste 5-Stunden-Auslastung** — das ist das Fenster, das die
 ///    unmittelbare Arbeitsfähigkeit begrenzt.
 /// 3. **Niedrigste Wochen-Auslastung.**
-/// 4. **Längste verbleibende Nutzungsdauer**, absteigend: die *längste* Restzeit
-///    über alle Fenster. Bei gleicher Auslastung ist der Account besser, dessen
-///    Fenster noch lange läuft — es steht mehr Zeit zur Verfügung, bis das
-///    Kontingent überhaupt wieder relevant wird.
-/// 5. **Frühester Reset**, aufsteigend: die *kürzeste* Restzeit über alle
-///    Fenster. Wer zuerst zurückgesetzt wird, füllt sich zuerst wieder auf.
-/// 6. **Kennung** — stabiler Tiebreaker, damit die Reihenfolge bei völligem
-///    Gleichstand deterministisch ist.
+/// 4. **Frühester Reset**, aufsteigend: die *kürzeste* Restzeit über alle
+///    Fenster. `resets_at` ist der Zeitpunkt des Auffüllens — wer zuerst
+///    zurückgesetzt wird, ist zuerst wieder verfügbar. Ein Account ohne jeden
+///    bekannten Reset sortiert hier ans Ende.
+/// 5. **Kennung** — stabiler, locale-freier Tiebreaker (``AccountIdentifierOrder``),
+///    damit die Reihenfolge bei völligem Gleichstand deterministisch ist.
+///
+/// Alle Kriterien sind Total-Ordnungen über endliche Werte; das Prädikat
+/// ``isOrderedBefore(_:_:)`` ist damit eine strikte schwache Ordnung, wie es
+/// `sort` verlangt (NaN und Sentinel-Werte werden vorher abgefangen).
 public enum AccountRanking {
 
-    /// Sortierschlüssel eines Accounts. Öffentlich, damit die Kriterien
-    /// einzeln testbar sind, statt nur über das Sortierergebnis.
-    public struct Key: Sendable, Equatable {
-        /// Accounts ohne verwertbare Daten sortieren hinter allen anderen.
-        public let hasUsableData: Bool
+    /// Sortierschlüssel eines Accounts.
+    ///
+    /// Bewusst **intern**: Die Felder tragen Sentinel-Werte
+    /// (``worstSortValue``) für „nicht vorhanden". Wären sie öffentlich, könnte
+    /// die UI-Schicht sie versehentlich als „1,797e308 %" rendern. Die UI liest
+    /// Prozentwerte ausschließlich über ``MonitoredAccount`` (dort optional).
+    struct Key: Sendable, Equatable {
+        /// 0 = nutzbar, 1 = blockiert (Fenster >= 100 %), 2 = ohne Daten.
+        let availabilityRank: Int
         /// Auslastung 5h; fehlendes Fenster zählt als maximal ausgelastet.
-        public let fiveHourPercent: Double
+        let fiveHourPercent: Double
         /// Auslastung 7d; fehlendes Fenster zählt als maximal ausgelastet.
-        public let sevenDayPercent: Double
-        /// Längste Restzeit über alle Fenster (0, wenn keine bekannt ist).
-        public let longestRemaining: TimeInterval
+        let sevenDayPercent: Double
         /// Kürzeste Restzeit über alle Fenster; ohne bekannten Reset maximal.
-        public let earliestReset: TimeInterval
+        let earliestReset: TimeInterval
         /// Stabiler Tiebreaker.
-        public let identifier: String
+        let identifier: String
     }
 
-    /// Wert, mit dem fehlende oder unbrauchbare Zahlen einsortiert werden:
-    /// so schlecht wie möglich, aber endlich (NaN würde die Sortierordnung
-    /// verletzen).
-    static let worstPercent = Double.greatestFiniteMagnitude
+    /// Wert, mit dem fehlende oder unbrauchbare Zahlen einsortiert werden —
+    /// egal ob Prozent- oder Zeitwert: so schlecht wie möglich, aber endlich
+    /// (NaN würde die Sortierordnung verletzen).
+    static let worstSortValue = Double.greatestFiniteMagnitude
+
+    /// Ab diesem Prozentwert gilt ein Fenster als ausgeschöpft und der Account
+    /// bis zu seinem Reset als blockiert.
+    static let blockedThreshold: Double = 100
 
     /// Bildet den Sortierschlüssel eines Accounts.
-    public static func key(for account: MonitoredAccount, now: Date = Date()) -> Key {
+    static func key(for account: MonitoredAccount, now: Date = Date()) -> Key {
         let usable = account.hasUsableData
 
         // Restzeiten aller Fenster mit bekanntem Reset, geklemmt auf >= 0.
@@ -55,13 +67,21 @@ public enum AccountRanking {
         }
 
         return Key(
-            hasUsableData: usable,
+            availabilityRank: availabilityRank(for: account, usable: usable),
             fiveHourPercent: sanitized(usable ? account.fiveHourPercent : nil),
             sevenDayPercent: sanitized(usable ? account.sevenDayPercent : nil),
-            longestRemaining: remainings.max() ?? 0,
-            earliestReset: remainings.min() ?? worstPercent,
+            earliestReset: remainings.min() ?? worstSortValue,
             identifier: account.id
         )
+    }
+
+    /// Verfügbarkeitsklasse eines Accounts (0 nutzbar, 1 blockiert, 2 ohne Daten).
+    static func availabilityRank(for account: MonitoredAccount, usable: Bool) -> Int {
+        guard usable else { return 2 }
+        let blocked = account.windows.contains { window in
+            window.percent.isFinite ? window.percent >= blockedThreshold : true
+        }
+        return blocked ? 1 : 0
     }
 
     /// Sortiert Accounts, bester zuerst. Stabil und deterministisch.
@@ -73,19 +93,18 @@ public enum AccountRanking {
     }
 
     /// Vergleich zweier Sortierschlüssel — die Kriterienkaskade an einer Stelle.
-    public static func isOrderedBefore(_ lhs: Key, _ rhs: Key) -> Bool {
-        if lhs.hasUsableData != rhs.hasUsableData { return lhs.hasUsableData }
+    static func isOrderedBefore(_ lhs: Key, _ rhs: Key) -> Bool {
+        if lhs.availabilityRank != rhs.availabilityRank { return lhs.availabilityRank < rhs.availabilityRank }
         if lhs.fiveHourPercent != rhs.fiveHourPercent { return lhs.fiveHourPercent < rhs.fiveHourPercent }
         if lhs.sevenDayPercent != rhs.sevenDayPercent { return lhs.sevenDayPercent < rhs.sevenDayPercent }
-        if lhs.longestRemaining != rhs.longestRemaining { return lhs.longestRemaining > rhs.longestRemaining }
         if lhs.earliestReset != rhs.earliestReset { return lhs.earliestReset < rhs.earliestReset }
-        return lhs.identifier < rhs.identifier
+        return AccountIdentifierOrder.isOrderedBefore(lhs.identifier, rhs.identifier)
     }
 
     /// Fehlende oder nicht-endliche Prozentwerte auf den schlechtestmöglichen
     /// endlichen Wert abbilden.
     private static func sanitized(_ percent: Double?) -> Double {
-        guard let percent, percent.isFinite else { return worstPercent }
+        guard let percent, percent.isFinite else { return worstSortValue }
         return percent
     }
 }

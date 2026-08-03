@@ -43,7 +43,6 @@ struct UsageStoreReaderTests {
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let expected = try #require(calendar.date(from: components)).addingTimeInterval(0.191)
 
-        // Ohne Kürzung des Bruchteils läge der Wert um über drei Minuten daneben.
         #expect(abs(resetsAt.timeIntervalSince(expected)) < 0.001)
     }
 
@@ -140,6 +139,34 @@ struct UsageStoreReaderTests {
         #expect(account.hasUsableData == false)
     }
 
+    @Test("Schon ein einziger Strike ist ein toter Token — claude-swap ruft dann nicht mehr ab")
+    func singleStrikeIsAuthDead() throws {
+        #expect(UsageStoreReader.defaultAuthDeadStrikeThreshold == 1)
+        let snapshot = try #require(
+            reader.decode(try TestSupport.fixtureData("usage_states"), now: now).snapshot
+        )
+        // Account „4" hat genau einen Strike — und zusätzlich einen laufenden
+        // Backoff. Der tote Token muss trotzdem gewinnen.
+        let account = try #require(snapshot.accounts.first { $0.id == "4" })
+        #expect(account.state == .authDead(strikes: 1))
+        #expect(account.hasUsableData == false)
+        // Und er darf nie als bester Account empfohlen werden.
+        #expect(snapshot.rankedAccounts(now: now).first?.id != "4")
+    }
+
+    @Test("Toter Token hat Vorrang vor „noch keine Daten“")
+    func authDeadOutranksNoData() throws {
+        let snapshot = try #require(
+            reader.decode(try TestSupport.fixtureData("usage_states"), now: now).snapshot
+        )
+        // Account „5": Strikes über der Schwelle UND lastGood = null.
+        let account = try #require(snapshot.accounts.first { $0.id == "5" })
+        #expect(account.windows.isEmpty)
+        #expect(account.state == .authDead(strikes: 2))
+        #expect(account.state != .noData)
+        #expect(account.hasUsableData == false)
+    }
+
     @Test("backoffUntil in der Zukunft ⇒ Backoff aktiv")
     func backoffActive() throws {
         let snapshot = try #require(
@@ -168,6 +195,82 @@ struct UsageStoreReaderTests {
         let account = try #require(snapshot.accounts.first { $0.id == "3" })
         #expect(account.state == .failing(message: "http 500"))
         #expect(account.hasUsableData)
+    }
+
+    // MARK: - Prozentwerte
+
+    @Test("Negativer pct ist ein korrupter Wert und ergibt kein Fenster — schon gar nicht 0 %")
+    func negativePercentIsNoData() throws {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "accounts": {
+            "1": {
+              "email": "user1@example.com",
+              "lastGood": {
+                "five_hour": { "pct": -5.0 },
+                "seven_day": { "pct": 80.0 }
+              },
+              "fetchedAt": 1754230000.0
+            }
+          }
+        }
+        """
+        let snapshot = try #require(reader.decode(Data(json.utf8), now: now).snapshot)
+        let account = try #require(snapshot.accounts.first)
+        #expect(account.fiveHourPercent == nil)   // kein 0 %
+        #expect(account.window(kind: .fiveHour) == nil)
+        #expect(account.sevenDayPercent == 80.0)
+
+        // Der korrupte Wert darf den Account nicht zum besten machen.
+        let healthy = TestSupport.account("2", fiveHour: 10, sevenDay: 10)
+        #expect(AccountRanking.ranked([account, healthy], now: now).map(\.id) == ["2", "1"])
+    }
+
+    @Test("Nicht-endlicher und fehlender pct ergeben ebenfalls kein Fenster")
+    func nonFinitePercentIsNoData() throws {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "accounts": {
+            "1": {
+              "lastGood": {
+                "five_hour": { "used": 10.0, "limit": 100.0 },
+                "spend": { "used": 4.2, "limit": 25.0, "currency": "USD" }
+              }
+            }
+          }
+        }
+        """
+        let snapshot = try #require(reader.decode(Data(json.utf8), now: now).snapshot)
+        let account = try #require(snapshot.accounts.first)
+        // Ohne pct wird nichts gerechnet — claude-swap liefert spend nur mit pct.
+        #expect(account.windows.isEmpty)
+        #expect(account.state == .noData)
+    }
+
+    @Test("Gleichnamige scoped-Fenster bekommen trotzdem eindeutige Kennungen")
+    func duplicateScopedNamesGetUniqueIDs() throws {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "accounts": {
+            "1": {
+              "lastGood": {
+                "scoped": [
+                  { "name": "Fable", "pct": 10.0 },
+                  { "name": "Fable", "pct": 90.0 }
+                ]
+              }
+            }
+          }
+        }
+        """
+        let snapshot = try #require(reader.decode(Data(json.utf8), now: now).snapshot)
+        let windows = try #require(snapshot.accounts.first).windows
+        #expect(windows.count == 2)
+        #expect(Set(windows.map(\.id)).count == 2)
+        #expect(windows.map(\.percent) == [10.0, 90.0])
     }
 
     // MARK: - Defensives Decodieren
@@ -214,6 +317,22 @@ struct UsageStoreReaderTests {
         #expect(account.sevenDayPercent == nil)       // unbrauchbares Fenster entfällt
         #expect(account.fetchedAt == nil)
         #expect(account.state == .ok)
+    }
+
+    @Test("Leerer accounts-Block ergibt einen gültigen Snapshot mit 0 Accounts")
+    func emptyAccountsBlock() throws {
+        let result = reader.decode(Data("{\"schemaVersion\":2,\"accounts\":{}}".utf8), now: now)
+        let snapshot = try #require(result.snapshot)
+        #expect(snapshot.accounts.isEmpty)
+        #expect(snapshot.capturedAt == now)
+    }
+
+    @Test("Fehlender accounts-Schlüssel ergibt ebenfalls 0 Accounts, keinen Fehler")
+    func missingAccountsBlock() throws {
+        let result = reader.decode(Data("{\"schemaVersion\":2}".utf8), now: now)
+        let snapshot = try #require(result.snapshot)
+        #expect(snapshot.accounts.isEmpty)
+        #expect(snapshot.rankedAccounts(now: now).isEmpty)
     }
 
     // MARK: - Fehlfälle
@@ -290,6 +409,39 @@ struct UsageStoreReaderTests {
         #expect(
             attributesBefore[.modificationDate] as? Date == attributesAfter[.modificationDate] as? Date
         )
+    }
+
+    @Test("Der injizierte FileManager wird auch beim Pfad-Lesen benutzt")
+    func honorsInjectedFileManager() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "ClaudeMonitorTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "usage.json")
+        try TestSupport.fixtureData("usage_real_format").write(to: file)
+
+        // Der Test-FileManager behauptet, es gebe die Datei nicht — das Ergebnis
+        // muss davon abhängen, sonst ist die Injektion wirkungslos.
+        let denying = TestSupport.DenyingFileManager()
+        #expect(reader.read(contentsOf: file, fileManager: denying, now: now)
+                == .storeNotFound(searchedPaths: [file.path]))
+        #expect(denying.didAnswer)
+        #expect(reader.read(contentsOf: file, now: now).snapshot?.accounts.count == 2)
+    }
+
+    @Test("Verschwindet die Datei zwischen Prüfung und Lesen, ist das „nicht gefunden“, kein Lesefehler")
+    func vanishingFileIsStoreNotFound() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "ClaudeMonitorTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "usage.json")
+
+        // Existenzprüfung sagt ja, das Lesen scheitert mit „no such file" —
+        // genau das TOCTOU-Fenster, in dem claude-swap die Datei ersetzt.
+        let claiming = TestSupport.ClaimingFileManager()
+        let result = reader.read(contentsOf: file, fileManager: claiming, now: now)
+        #expect(result == .storeNotFound(searchedPaths: [file.path]))
     }
 
     // MARK: - Snapshot-Transport

@@ -17,7 +17,7 @@
         "five_hour": { "pct": 7.0, "resets_at": "2026-08-03T16:50:00.000000+00:00" }
       },
       "fetchedAt": 1754230000.0,
-      "authDeadStrikes": 1,
+      "authDeadStrikes": 0,
       "backoffUntil": 1754233600.0,
       "lastError": "http 429"
     },
@@ -30,6 +30,24 @@
       "authDeadStrikes": 0,
       "backoffUntil": null,
       "lastError": "http 500"
+    },
+    "4": {
+      "email": "user4@example.com",
+      "lastGood": {
+        "five_hour": { "pct": 2.0, "resets_at": "2026-08-03T16:50:00.000000+00:00" }
+      },
+      "fetchedAt": 1754230000.0,
+      "authDeadStrikes": 1,
+      "backoffUntil": 1754233600.0,
+      "lastError": "auth: refresh token rejected"
+    },
+    "5": {
+      "email": "user5@example.com",
+      "lastGood": null,
+      "fetchedAt": null,
+      "authDeadStrikes": 2,
+      "backoffUntil": null,
+      "lastError": "auth: refresh token rejected"
     }
   }
 }

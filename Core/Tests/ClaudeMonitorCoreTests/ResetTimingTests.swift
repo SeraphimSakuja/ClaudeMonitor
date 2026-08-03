@@ -40,6 +40,41 @@ struct ResetTimingTests {
         #expect(timing.isDue == false)
     }
 
+    // MARK: - Zeitzonen (SSOT: Pflichtfall „Zeitzonenwechsel")
+
+    @Test("Derselbe Instant in verschiedenen Offsets ergibt denselben Zeitpunkt")
+    func timeZoneOffsetsAgree() throws {
+        let utc = try #require(ISO8601Parsing.date(from: "2026-08-03T16:50:00.191164+00:00"))
+        let newYork = try #require(ISO8601Parsing.date(from: "2026-08-03T11:50:00.191164-05:00"))
+        let vienna = try #require(ISO8601Parsing.date(from: "2026-08-03T18:50:00.191164+02:00"))
+        #expect(newYork == utc)
+        #expect(vienna == utc)
+    }
+
+    @Test("Restzeit hängt nicht von der Zeitzone des Geräts ab")
+    func remainingIsIndependentOfDeviceTimeZone() throws {
+        let reference = try #require(ISO8601Parsing.date(from: "2026-08-03T16:50:00.000+00:00"))
+        let base = reference.addingTimeInterval(-3_600)
+
+        let originalDefault = NSTimeZone.default
+        defer { NSTimeZone.default = originalDefault }
+
+        var results: [TimeInterval] = []
+        for identifier in ["UTC", "America/New_York", "Europe/Vienna", "Pacific/Kiritimati"] {
+            NSTimeZone.default = try #require(TimeZone(identifier: identifier))
+            // Bewusst neu geparst: Auch das Parsen darf nicht an TimeZone.current hängen.
+            let parsed = try #require(ISO8601Parsing.date(from: "2026-08-03T11:50:00.191164-05:00"))
+            let window = LimitWindow(
+                id: "five_hour", kind: .fiveHour, label: "5h",
+                percent: 10, resetsAt: parsed
+            )
+            let timing = window.resetTiming(now: base)
+            results.append(try #require(timing.remainingSeconds))
+        }
+        #expect(Set(results).count == 1)
+        #expect(abs((results.first ?? 0) - 3_600.191) < 0.01)
+    }
+
     @Test("LimitWindow rechnet die Restzeit live aus resets_at")
     func windowTiming() {
         let future = TestSupport.window(.fiveHour, percent: 10, resetsIn: 900)
