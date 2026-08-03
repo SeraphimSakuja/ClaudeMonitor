@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "accounts": {
+    "1": {
+      "email": "user1@example.com",
+      "organizationUuid": "00000000-0000-4000-8000-000000000001",
+      "lastGood": null,
+      "fetchedAt": null,
+      "lastAttemptAt": 1754230000.0,
+      "nextPollAt": 1754230030.0,
+      "pollIntervalS": 30,
+      "consecutiveFailures": 1,
+      "authDeadStrikes": 0,
+      "backoffUntil": null,
+      "lastError": null
+    },
+    "2": {
+      "email": "user2@example.com",
+      "organizationUuid": "00000000-0000-4000-8000-000000000002",
+      "lastAttemptAt": 1754230000.0,
+      "consecutiveFailures": 0,
+      "authDeadStrikes": 0
+    }
+  }
+}

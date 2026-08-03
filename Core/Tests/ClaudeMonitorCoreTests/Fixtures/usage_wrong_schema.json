@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 3,
+  "accounts": {
+    "1": {
+      "email": "user1@example.com",
+      "lastGood": {
+        "five_hour": { "pct": 10.0, "resets_at": "2026-08-03T16:50:00.191164+00:00" }
+      },
+      "fetchedAt": 1754230000.0
+    }
+  }
+}

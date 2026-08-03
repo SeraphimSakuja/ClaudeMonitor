@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "accounts": {
+    "1": {
+      "email": "user1@example.com",
+      "organizationUuid": "00000000-0000-4000-8000-000000000001",
+      "lastGood": {
+        "five_hour": {
+          "pct": 49.0,
+          "resets_at": "2026-08-03T16:50:00.191164+00:00",
+          "countdown": "2h 44m",
+          "clock": "18:50"
+        },
+        "seven_day": {
+          "pct": 100.0,
+          "resets_at": "2026-08-06T13:00:00.191184+00:00",
+          "countdown": "2d 22h",
+          "clock": "Aug 6 15:00"
+        }
+      },
+      "fetchedAt": 1754230000.0,
+      "lastAttemptAt": 1754230000.0,
+      "nextPollAt": 1754230030.0,
+      "pollIntervalS": 30,
+      "consecutiveFailures": 0,
+      "authDeadStrikes": 0,
+      "backoffUntil": null,
+      "lastError": null
+    },
+    "2": {
+      "email": "user2@example.com",
+      "organizationUuid": "00000000-0000-4000-8000-000000000002",
+      "lastGood": {
+        "five_hour": {
+          "pct": 12.5,
+          "resets_at": "2026-08-03T15:00:00.000000+00:00",
+          "countdown": "0h 54m",
+          "clock": "17:00"
+        },
+        "seven_day": {
+          "pct": 30.0,
+          "resets_at": "2026-08-07T13:00:00.000000+00:00",
+          "countdown": "3d 22h",
+          "clock": "Aug 7 15:00"
+        },
+        "spend": {
+          "used": 4.2,
+          "limit": 25.0,
+          "pct": 16.8,
+          "currency": "USD",
+          "resets_at": "2026-09-01T00:00:00.000000+00:00",
+          "countdown": "28d 9h",
+          "clock": "Sep 1 02:00"
+        },
+        "scoped": [
+          {
+            "name": "Fable",
+            "pct": 88.0,
+            "resets_at": "2026-08-06T13:00:00.000000+00:00",
+            "countdown": "2d 22h",
+            "clock": "Aug 6 15:00"
+          },
+          {
+            "name": "Sonnet",
+            "pct": 5.0,
+            "resets_at": "2026-08-06T13:00:00.000000+00:00",
+            "countdown": "2d 22h",
+            "clock": "Aug 6 15:00"
+          }
+        ]
+      },
+      "fetchedAt": 1754230000.0,
+      "lastAttemptAt": 1754230000.0,
+      "nextPollAt": 1754230030.0,
+      "pollIntervalS": 30,
+      "consecutiveFailures": 0,
+      "authDeadStrikes": 0,
+      "backoffUntil": null,
+      "lastError": null
+    }
+  }
+}

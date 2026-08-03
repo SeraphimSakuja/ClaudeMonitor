@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "generatedBy": "claude-swap 0.23.0",
+  "somethingNew": { "nested": [1, 2, 3] },
+  "accounts": {
+    "1": {
+      "email": "user1@example.com",
+      "organizationUuid": "00000000-0000-4000-8000-000000000001",
+      "planTier": "max20",
+      "lastGood": {
+        "five_hour": {
+          "pct": 20.0,
+          "resets_at": "2026-08-03T16:50:00.191164+00:00",
+          "countdown": "2h 44m",
+          "clock": "18:50",
+          "brandNewField": true
+        },
+        "thirty_day": {
+          "pct": 61.5,
+          "resets_at": "2026-09-01T00:00:00.000000+00:00",
+          "countdown": "28d 9h",
+          "clock": "Sep 1 02:00"
+        }
+      },
+      "fetchedAt": 1754230000.0,
+      "authDeadStrikes": 0,
+      "backoffUntil": null,
+      "lastError": null,
+      "futureCounter": 7
+    }
+  }
+}
