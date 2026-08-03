@@ -1,0 +1,16 @@
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+build/
+
+# Lokale Konfiguration (Team-ID, Pfade) — nie einchecken
+*.local.xcconfig
