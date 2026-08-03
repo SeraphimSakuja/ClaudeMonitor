@@ -6,6 +6,10 @@ import ClaudeMonitorShared
 struct LimitWindowRowView: View {
 
     let window: LimitWindow
+    /// Bezugszeitpunkt für die Restzeit. Kommt vom Sekunden-Ticker des
+    /// Kärtchens, damit der Umschlag auf „Reset fällig" nicht bis zum nächsten
+    /// `body`-Aufruf wartet.
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -46,7 +50,7 @@ struct LimitWindowRowView: View {
     /// Restzeit läuft live gegen das Reset-Datum — kein zum Anzeigezeitpunkt
     /// eingefrorener String, und nie ein negativer Countdown.
     @ViewBuilder private var resetLine: some View {
-        switch ResetDisplay.make(for: window) {
+        switch ResetDisplay.make(for: window, now: now) {
         case .unknown:
             Text("Reset time unknown")
         case .due:

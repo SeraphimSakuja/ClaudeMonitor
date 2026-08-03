@@ -7,7 +7,11 @@ import ClaudeMonitorShared
 struct ClaudeMonitorApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var monitor = UsageMonitor.shared
+    // `@ObservedObject` und nicht `@StateObject`: Der Monitor ist ein
+    // Singleton, dessen Lebenszyklus am `NSApplicationDelegate` hängt. Die
+    // Szene erzeugt und besitzt ihn nicht — `@StateObject` würde genau das
+    // behaupten.
+    @ObservedObject private var monitor = UsageMonitor.shared
 
     var body: some Scene {
         MenuBarExtra {

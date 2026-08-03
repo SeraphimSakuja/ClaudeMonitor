@@ -1,5 +1,4 @@
-// Signierung von ClaudeMonitor — die einzige Stelle, die beim Einrichten
-// angefasst werden muss.
+// Signierung von ClaudeMonitor.
 //
 // Stand: Die Apple-Developer-Team-ID ist noch offen (SSOT-Punkt CM-01).
 // Ohne Team-ID lässt sich das App-Group-Entitlement nicht signieren: Xcode
@@ -7,20 +6,71 @@
 // „requires a provisioning profile" ab. Deshalb wird bis dahin ad hoc und
 // ohne Entitlement gebaut.
 //
-// Auswirkung im Betrieb: `FileManager.containerURL(forSecurityApplication…)`
-// liefert nil, der SnapshotWriter meldet `containerUnavailable` und
-// protokolliert das. Die Menüleiste funktioniert vollständig; nur die
-// Widget-Extension aus Teilaufgabe 3 bekommt noch keine Daten.
+// AUSWIRKUNG IM BETRIEB — und was dabei WIRKLICH passiert:
 //
-// SOBALD DIE TEAM-ID FESTSTEHT — hier zwei Zeilen ändern, sonst nichts:
+//   `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)` liefert
+//   bei diesem (nicht sandboxed) Programm auch OHNE Entitlement einen Pfad
+//   unter ~/Library/Group Containers/. Der Pfad existiert also — er ist nur
+//   nicht autorisiert. Jeder Zugriff darauf öffnet den macOS-Zustimmungs-
+//   dialog „Zugriff auf Daten anderer Apps"; ohne sichtbares Fenster (etwa
+//   unter einem Testrunner) blockiert er ENDLOS. Zweimal reproduziert.
 //
-//   CLAUDEMONITOR_TEAM = 94794Q4RW7          // Beispiel: DragonSphere-Team
-//   CLAUDEMONITOR_ENTITLEMENTS = ClaudeMonitor.entitlements
+//   `containerUnavailable` kommt deshalb AUSSCHLIESSLICH aus der Entitlement-
+//   Wache (Shared/Sources/ClaudeMonitorShared/AppGroupEntitlement.swift),
+//   niemals aus einem nil-Ergebnis von containerURL. Wer diese Wache für
+//   redundant hält und entfernt, holt sich die Blockade zurück.
 //
-// und zusätzlich CODE_SIGN_STYLE auf Automatic stellen:
+//   Die Menüleiste funktioniert vollständig; nur die Widget-Extension aus
+//   Teilaufgabe 3 bekommt noch keine Daten.
 //
-//   CODE_SIGN_STYLE = Automatic
-//   CODE_SIGN_IDENTITY = Apple Development
+// ---------------------------------------------------------------------------
+// CHECKLISTE, SOBALD DIE TEAM-ID FESTSTEHT — alle sechs Punkte, nicht nur die
+// zwei Variablen ganz unten. Es sind ausdrücklich MEHR als „zwei Zeilen".
+//
+// 1) Diese Datei: Team-ID und Entitlements-Datei eintragen.
+//
+//      CLAUDEMONITOR_TEAM = 94794Q4RW7          // Beispiel
+//      CLAUDEMONITOR_ENTITLEMENTS = ClaudeMonitor.entitlements
+//
+// 2) Diese Datei: auf automatische Signierung mit echter Identität umstellen.
+//
+//      CODE_SIGN_STYLE = Automatic
+//      CODE_SIGN_IDENTITY = Apple Development
+//      PROVISIONING_PROFILE_SPECIFIER =         // leer lassen, Xcode wählt
+//
+//    ⚠️ GEFAHR — der häufigste Fehler: Entitlement setzen, aber
+//    `CODE_SIGN_IDENTITY = -` (ad hoc) stehen lassen. Dann ist die App Group
+//    DEKLARIERT, aber nicht AUTORISIERT. Die Wache prüft die Deklaration, nicht
+//    die Autorisierung: Sie meldet `isDeclared() == true` und gibt den Zugriff
+//    frei — der läuft dann in genau den Systemdialog, den die Wache verhindern
+//    soll, und blockiert endlos. Punkt 1 und Punkt 2 gehören zusammen; nie nur
+//    einen davon machen.
+//
+// 3) App-Group-ID auf macOS mit der TEAM-ID PRÄFIXEN. Auf macOS (anders als
+//    auf iOS) muss die Kennung `<TeamID>.group.…` lauten. Damit ändert sich
+//    `AppGroup.identifier` in Shared/Sources/ClaudeMonitorShared/AppGroup.swift
+//    von
+//      "group.at.markusfricke.claudemonitor.shared"
+//    auf
+//      "<TeamID>.group.at.markusfricke.claudemonitor.shared"
+//    Diese Kennung ist zugleich der Vertrag mit der Widget-Extension und die
+//    Kennung, gegen die die Wache prüft — sie muss an allen drei Stellen
+//    (AppGroup.swift, .entitlements, Developer-Portal) ZEICHENGLEICH sein.
+//
+// 4) `ClaudeMonitor.entitlements` anlegen mit
+//      com.apple.security.application-groups = [ "<TeamID>.group.at.markus…" ]
+//
+// 5) App Group im Developer-Portal registrieren (Certificates, Identifiers &
+//    Profiles → Identifiers → App Groups) UND sie dort an der App-ID
+//    `at.markusfricke.claudemonitor` aktivieren. Ohne diesen Schritt lässt
+//    sich kein Profil erzeugen, das die Gruppe autorisiert.
+//
+// 6) Gegenprobe nach dem Umbau:
+//      codesign -d --entitlements - <Pfad zur .app>
+//    muss die Gruppe zeigen — und die App muss den Snapshot tatsächlich
+//    schreiben (Log: „Snapshot in den App-Group-Container geschrieben").
+//    Erscheint stattdessen `containerUnavailable`, ist Punkt 2 oder 5 offen.
+// ---------------------------------------------------------------------------
 
 CLAUDEMONITOR_TEAM =
 CLAUDEMONITOR_ENTITLEMENTS =

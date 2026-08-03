@@ -11,20 +11,26 @@ import Foundation
 ///    oder toter Token). Ein blockierter Account rangiert also hinter jedem
 ///    freien und vor den datenlosen: Er hat echte Zahlen, die die UI zeigen kann.
 ///
-///    Für 5h und 7d ist dieser Rang seit Kriterium 2 weitgehend redundant — ein
-///    dort ausgeschöpfter Account hat automatisch die schlechteste bindende
-///    Auslastung. Er bleibt trotzdem, weil er zwei Fälle abdeckt, die Kriterium 2
-///    **nicht** sieht: ein ausgeschöpftes Fenster jenseits von 5h/7d (ein
-///    `scoped`-Modellkontingent oder das Ausgabenbudget `spend`) und den
-///    Datenlos-/Toter-Token-Fall.
-/// 2. **Niedrigste bindende Auslastung** = `max(5h-Prozent, 7d-Prozent)`,
+///    Seit Kriterium 2 über **alle** Fenster misst, ist dieser Rang für die
+///    Prozentwerte weitgehend redundant — ein irgendwo ausgeschöpfter Account
+///    hat automatisch die schlechteste bindende Auslastung. Er bleibt trotzdem,
+///    weil er den Datenlos-/Toter-Token-Fall abdeckt, den Kriterium 2 **nicht**
+///    sieht, und weil er die Schwelle „ab 100 % blockiert" ausdrücklich macht.
+/// 2. **Niedrigste bindende Auslastung** = ``MonitoredAccount/bindingPercent``,
+///    also das Maximum über **alle** Limitfenster (5h, 7d, `spend`, `scoped`),
 ///    aufsteigend. Bewusst **kein Durchschnitt**: Maßgeblich ist das Fenster,
 ///    das den Account tatsächlich begrenzt. 5h 49 % / 7d 100 % ergäbe gemittelt
 ///    74,5 und stünde vor 5h 100 % / 7d 89 % (94,5) — obwohl der erste Account
 ///    tagelang unbrauchbar ist. Mit `max` sind beide bei 100 und der frühere
-///    Reset entscheidet. Dieselbe „schlechtestes Fenster"-Logik benutzt
-///    ``MonitoredAccount/overallStatus`` für die Ampel; der oberste Account
-///    trägt damit nie ein rotes Signal, während ein grüner darunter steht.
+///    Reset entscheidet.
+///
+///    Bewusst **alle** Fenster statt nur 5h/7d: Ein leergelaufenes
+///    Modellkontingent (`scoped`) oder Ausgabenbudget (`spend`) macht den
+///    Account real unbrauchbar. Und es ist **dieselbe** Größe, aus der die
+///    Menüleiste ihre Zahl und ihre Ampelfarbe zieht
+///    (``MonitoredAccount/overallStatus``). Nur dadurch gilt die Zusage: Der
+///    oberste Account trägt nie ein rotes Signal, während ein grüner darunter
+///    steht. Maß und Anzeige messen dasselbe, weil sie dieselbe Property lesen.
 /// 3. **Frühester Reset des Engpass-Fensters**, aufsteigend. `resets_at` ist der
 ///    Zeitpunkt des Auffüllens — wer zuerst zurückgesetzt wird, ist zuerst wieder
 ///    verfügbar. Gemessen wird die Restzeit **des Fensters, das den Account
@@ -50,9 +56,9 @@ public enum AccountRanking {
     struct Key: Sendable, Equatable {
         /// 0 = nutzbar, 1 = blockiert (Fenster >= 100 %), 2 = ohne Daten.
         let availabilityRank: Int
-        /// Bindende Auslastung: das Maximum aus 5h und 7d. Ein fehlendes Fenster
-        /// zählt als maximal ausgelastet und macht damit die ganze Bewertung
-        /// schlechtestmöglich.
+        /// Bindende Auslastung: das Maximum über alle Limitfenster. Fehlen
+        /// Fenster ganz, zählt der Account als maximal ausgelastet und die
+        /// Bewertung wird schlechtestmöglich.
         let bindingPercent: Double
         /// Kürzeste Restzeit über alle Fenster; ohne bekannten Reset maximal.
         let earliestReset: TimeInterval
@@ -81,13 +87,15 @@ public enum AccountRanking {
         )
     }
 
-    /// Bindende Auslastung eines Accounts: das schlechtere der beiden Limits.
+    /// Bindende Auslastung eines Accounts: das am höchsten ausgelastete
+    /// Fenster — **genau** die Größe, die die Menüleiste anzeigt.
+    ///
+    /// Nicht nachgebaut, sondern ``MonitoredAccount/bindingPercent`` gelesen:
+    /// Eine zweite Implementierung derselben Regel wäre genau der Weg, auf dem
+    /// Ranking und Anzeige wieder auseinanderlaufen.
     static func bindingPercent(for account: MonitoredAccount, usable: Bool) -> Double {
         guard usable else { return worstSortValue }
-        return max(
-            sanitized(account.fiveHourPercent),
-            sanitized(account.sevenDayPercent)
-        )
+        return sanitized(account.bindingPercent)
     }
 
     /// Restzeit bis zum Reset des Engpass-Fensters, also des am höchsten

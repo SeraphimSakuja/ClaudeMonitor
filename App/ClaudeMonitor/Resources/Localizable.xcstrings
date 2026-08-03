@@ -90,6 +90,42 @@
         }
       }
     },
+    "Claude usage: %@, %@" : {
+      "comment" : "Bedienhilfen-Bezeichnung der Menüleiste, %1$@ = Prozentwert, %2$@ = Ampelstufe in Worten",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude-Auslastung: %@, %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude usage: %@, %@"
+          }
+        }
+      }
+    },
+    "Claude usage: no data" : {
+      "comment" : "Bedienhilfen-Bezeichnung der Menüleiste ohne verwertbare Zahlen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude-Auslastung: keine Daten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude usage: no data"
+          }
+        }
+      }
+    },
     "claude-swap is probably writing right now. This usually resolves itself with the next read." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -159,6 +195,24 @@
         }
       }
     },
+    "critical" : {
+      "comment" : "Ampelstufe rot, für Bedienhilfen ausgesprochen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kritisch"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "critical"
+          }
+        }
+      }
+    },
     "Data is outdated" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -172,6 +226,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Data is outdated"
+          }
+        }
+      }
+    },
+    "Data is outdated: %@" : {
+      "comment" : "Veraltete Daten mit Altersangabe, %@ = Alter der Daten",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten sind veraltet: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data is outdated: %@"
+          }
+        }
+      }
+    },
+    "elevated" : {
+      "comment" : "Ampelstufe gelb, für Bedienhilfen ausgesprochen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "erhöht"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "elevated"
           }
         }
       }
@@ -245,19 +335,20 @@
         }
       }
     },
-    "No limit windows reported" : {
+    "No usable data" : {
+      "comment" : "Statt Prozentzeilen, wenn ein Account keine verwertbaren Zahlen hat (auch bei totem Token)",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Limitfenster gemeldet"
+            "value" : "Keine verwertbaren Daten"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No limit windows reported"
+            "value" : "No usable data"
           }
         }
       }
@@ -276,6 +367,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No usage data"
+          }
+        }
+      }
+    },
+    "normal" : {
+      "comment" : "Ampelstufe grün, für Bedienhilfen ausgesprochen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "normal"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "normal"
           }
         }
       }
@@ -434,6 +543,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The cache format of claude-swap has changed. Values stay hidden so that no wrong numbers are shown."
+          }
+        }
+      }
+    },
+    "unknown" : {
+      "comment" : "Ampelstufe unbekannt, für Bedienhilfen ausgesprochen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "unbekannt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "unknown"
           }
         }
       }

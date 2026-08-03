@@ -73,13 +73,82 @@ struct MenuBarDisplayTests {
             windows: [Fixture.window(.fiveHour, percent: 3)],
             state: .authDead(strikes: 1)
         )
-        #expect(MenuBarDisplay.make(for: account) == .unavailable)
+        let display = MenuBarDisplay.make(for: account)
+
+        // Gegen die Regel geprüft, nicht gegen die Konstante `.unavailable`:
+        // Der Account trägt einen Altwert im Store — es darf trotzdem weder
+        // eine Zahl noch eine Ampelfarbe herauskommen.
+        #expect(account.windows.first?.percent == 3)
+        #expect(display.percent == nil)
+        #expect(display.text == nil)
+        #expect(display.text != "3%")
+        #expect(display.status == nil)
+        #expect(display.hasValue == false)
     }
 
     @Test("Kein Account ⇒ neutrale Anzeige")
     func noAccountYieldsUnavailable() {
-        #expect(MenuBarDisplay.make(for: nil) == .unavailable)
-        #expect(MenuBarDisplay.make(for: MonitorViewState(), now: Fixture.now) == .unavailable)
+        for display in [
+            MenuBarDisplay.make(for: nil),
+            MenuBarDisplay.make(for: MonitorViewState(), now: Fixture.now)
+        ] {
+            // Wieder gegen die Regel: keine Zahl, kein Text, keine Farbe — und
+            // ausdrücklich kein „0 %", das Verfügbarkeit vortäuschen würde.
+            #expect(display.percent == nil)
+            #expect(display.text == nil)
+            #expect(display.text != "0%")
+            #expect(display.status == nil)
+            #expect(display.hasValue == false)
+        }
+    }
+
+    @Test("Menüleisten-Prozent und Ranking-Maß sind für denselben Account identisch")
+    func displayAndRankingMeasureTheSameThing() {
+        // Der Fund: Anzeige maß über alle Fenster, das Ranking nur über 5h/7d.
+        // Beide lesen jetzt `MonitoredAccount.bindingPercent`.
+        let cases: [[LimitWindow]] = [
+            [Fixture.window(.fiveHour, percent: 10), Fixture.window(.sevenDay, percent: 10),
+             Fixture.window(.scoped(name: "Fable"), percent: 95)],
+            [Fixture.window(.fiveHour, percent: 20), Fixture.window(.sevenDay, percent: 20)],
+            [Fixture.window(.fiveHour, percent: 5), Fixture.window(.spend, percent: 99)],
+            [Fixture.window(.sevenDay, percent: 63)]
+        ]
+        for windows in cases {
+            let account = Fixture.account(windows: windows)
+            #expect(MenuBarDisplay.make(for: account).percent == account.bindingPercent)
+        }
+    }
+
+    @Test("Der oberste Account trägt nie eine schlechtere Ampel als einer darunter")
+    func topAccountNeverWorseThanTheOnesBelow() {
+        // Reproduziert den gemeldeten Fall: A ist bei 5h/7d entspannt, sein
+        // Modellkontingent steht bei 95 %. Vorher rankte A vorne und die
+        // Menüleiste zeigte rot 95 %, während der grüne B darunter stand.
+        let a = Fixture.account(
+            id: "1",
+            windows: [
+                Fixture.window(.fiveHour, percent: 10),
+                Fixture.window(.sevenDay, percent: 10),
+                Fixture.window(.scoped(name: "Fable"), percent: 95)
+            ]
+        )
+        let b = Fixture.account(
+            id: "2",
+            windows: [
+                Fixture.window(.fiveHour, percent: 20),
+                Fixture.window(.sevenDay, percent: 20)
+            ]
+        )
+        let state = MonitorViewState(snapshot: Fixture.snapshot([a, b]), isLoading: false)
+        let ranked = state.accounts(now: Fixture.now)
+
+        #expect(ranked.map(\.id) == ["2", "1"])
+        #expect(MenuBarDisplay.make(for: state, now: Fixture.now).text == "20%")
+        #expect(MenuBarDisplay.make(for: state, now: Fixture.now).status == .green)
+
+        // Die eigentliche Zusage: monoton nicht besser werdend von oben nach unten.
+        let percents = ranked.compactMap { MenuBarDisplay.make(for: $0).percent }
+        #expect(percents == percents.sorted())
     }
 
     @Test("Formatvorschrift: kaufmännisch gerundet, ohne Nachkommastellen")

@@ -29,24 +29,15 @@ struct IssueBannerView: View {
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
+    /// Symbol und Schweregrad kommen aus ``IssuePresentation`` in `Shared/` —
+    /// dort sind sie geprüft. In der View wären sie es nicht.
     private var icon: some View {
-        Image(systemName: symbolName)
-            .foregroundStyle(isSevere ? Color(nsColor: .systemRed) : Color(nsColor: .systemOrange))
-    }
-
-    private var symbolName: String {
-        switch issue {
-        case .storeNotFound: return "questionmark.folder"
-        case .unsupportedSchema: return "exclamationmark.octagon"
-        case .unreadable: return "arrow.clockwise"
-        }
-    }
-
-    /// Ein vorübergehend unlesbarer Store ist kein schwerer Fall — er heilt
-    /// beim nächsten Durchlauf von selbst.
-    private var isSevere: Bool {
-        if case .unreadable = issue { return false }
-        return true
+        Image(systemName: IssuePresentation.symbolName(for: issue))
+            .foregroundStyle(
+                IssuePresentation.isSevere(issue)
+                    ? Color(nsColor: .systemRed)
+                    : Color(nsColor: .systemOrange)
+            )
     }
 
     @ViewBuilder private var title: some View {

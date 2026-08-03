@@ -41,24 +41,31 @@ struct MonitorPopoverView: View {
         }
     }
 
+    /// Welcher der vier Fälle gilt, entscheidet ``PopoverContent`` in
+    /// `Shared/` — dort ist die Verzweigung geprüft. Hier wird sie nur
+    /// gezeichnet. Insbesondere gibt es keinen Fall mehr, in dem unter einem
+    /// Hinweisbalken ein leerer Scrollbereich stehen bleibt.
     @ViewBuilder private var content: some View {
         let state = monitor.state
-        let accounts = state.accounts()
 
         VStack(alignment: .leading, spacing: 10) {
             if let issue = state.issue {
                 IssueBannerView(issue: issue)
             }
 
-            if state.isLoading && accounts.isEmpty && state.issue == nil {
+            switch PopoverContent.make(for: state) {
+            case .issueOnly:
+                // Der Hinweisbalken darüber erklärt die Lage bereits.
+                EmptyView()
+            case .loading:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("Loading…").foregroundStyle(.secondary)
                 }
-            } else if accounts.isEmpty && state.issue == nil {
+            case .empty:
                 Text("No accounts in claude-swap")
                     .foregroundStyle(.secondary)
-            } else {
+            case .accounts(let accounts):
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(accounts) { account in

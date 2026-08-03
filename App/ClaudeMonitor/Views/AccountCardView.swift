@@ -7,28 +7,29 @@ struct AccountCardView: View {
 
     let account: MonitoredAccount
 
-    private var statusLine: AccountStatusLine { AccountStatusLine.make(for: account) }
-    private var display: MenuBarDisplay { MenuBarDisplay.make(for: account) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Sekundentakt: Restzeiten und der Umschlag „läuft noch" → „Reset
+        // fällig" hängen an `now`. Ohne Ticker wären sie nur so frisch wie der
+        // letzte `body`-Aufruf — das Fenster zeigte dann zeitweise „Resets in
+        // 0:12", obwohl der Reset längst fällig ist.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            card(now: context.date)
+        }
+    }
+
+    private func card(now: Date) -> some View {
+        let statusLine = AccountStatusLine.make(for: account, now: now)
+
+        return VStack(alignment: .leading, spacing: 8) {
             header
 
             if statusLine.isWarning {
-                statusText
+                statusText(statusLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if account.windows.isEmpty {
-                Text("No limit windows reported")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(account.windows) { window in
-                    LimitWindowRowView(window: window)
-                }
-            }
+            windows(now: now)
 
             if let fetchedAt = account.fetchedAt {
                 Text("Updated \(fetchedAt, style: .relative) ago")
@@ -50,7 +51,7 @@ struct AccountCardView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            if let text = display.text {
+            if let text = MenuBarDisplay.make(for: account).text {
                 Text(verbatim: text)
                     .font(.headline)
                     .monospacedDigit()
@@ -63,7 +64,24 @@ struct AccountCardView: View {
         }
     }
 
-    @ViewBuilder private var statusText: some View {
+    /// Fensterzeilen nur, wenn es verwertbare Zahlen gibt. Die Entscheidung
+    /// trifft ``AccountWindowsDisplay`` in `Shared/` — ein toter Token darf
+    /// nicht unter einem „–" seine eingefrorenen Altwerte als
+    /// Fortschrittsbalken weiterzeigen.
+    @ViewBuilder private func windows(now: Date) -> some View {
+        switch AccountWindowsDisplay.make(for: account) {
+        case .noUsableData:
+            Text("No usable data")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .windows(let windows):
+            ForEach(windows) { window in
+                LimitWindowRowView(window: window, now: now)
+            }
+        }
+    }
+
+    @ViewBuilder private func statusText(_ statusLine: AccountStatusLine) -> some View {
         switch statusLine {
         case .upToDate:
             EmptyView()
@@ -79,8 +97,18 @@ struct AccountCardView: View {
             }
         case .fetchFailed:
             Label("Last fetch failed", systemImage: "exclamationmark.triangle")
-        case .stale:
-            Label("Data is outdated", systemImage: "clock.arrow.circlepath")
+        case .stale(let age):
+            Label {
+                // Die SSOT verlangt die Altersangabe — „veraltet" allein lässt
+                // offen, ob es um Minuten oder um Tage geht.
+                if let duration = DataAgeDisplay.duration(for: age) {
+                    Text("Data is outdated: \(duration, format: .units(allowed: [.days, .hours, .minutes], width: .abbreviated))")
+                } else {
+                    Text("Data is outdated")
+                }
+            } icon: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
         }
     }
 }

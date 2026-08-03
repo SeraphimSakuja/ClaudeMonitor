@@ -87,10 +87,26 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
         return age.isFinite ? max(0, age) : nil
     }
 
+    /// **Bindende Auslastung**: der höchste Prozentwert über **alle**
+    /// Limitfenster; `nil`, wenn der Account keine Fenster hat.
+    ///
+    /// Die eine Stelle, an der „wie ausgelastet ist dieser Account?"
+    /// beantwortet wird. Ranking (``AccountRanking``), Ampel
+    /// (``overallStatus``) und die Menüleisten-Zahl lesen ausschließlich
+    /// hier — sonst könnte die Menüleiste rot 95 % zeigen, während das
+    /// Ranking denselben Account anhand von 10 % nach vorne sortiert.
+    ///
+    /// Bewusst **alle** Fenster und nicht nur 5h/7d: Ein erschöpftes
+    /// Modellkontingent (`scoped`) oder ein ausgeschöpftes Ausgabenbudget
+    /// (`spend`) macht den Account genauso unbrauchbar wie ein volles
+    /// Wochenlimit.
+    public var bindingPercent: Double? {
+        windows.map { $0.percent }.max()
+    }
+
     /// Schlechteste Ampelstufe über alle Fenster; `nil` ohne verwertbare Daten.
     public var overallStatus: StatusLevel? {
         guard hasUsableData else { return nil }
-        let worst = windows.map { $0.percent }.max()
-        return worst.map { StatusLevel(percent: $0) }
+        return bindingPercent.map { StatusLevel(percent: $0) }
     }
 }

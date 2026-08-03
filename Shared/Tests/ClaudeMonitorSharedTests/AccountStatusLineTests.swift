@@ -73,16 +73,37 @@ struct AccountStatusLineTests {
         #expect(line.isWarning == false)
     }
 
-    @Test("Alle Ausnahmezustände sind Warnungen")
-    func exceptionalStatesAreWarnings() {
-        let lines: [AccountStatusLine] = [
-            .noData,
-            .reLoginRequired(strikes: 1),
-            .paused(until: Fixture.now),
-            .fetchFailed(message: "x"),
-            .stale(age: 999)
+    @Test("Warnung ist genau, was nicht „aktuell“ ist — aus echten Accounts abgeleitet")
+    func warningIsExactlyTheNonUpToDateCase() {
+        // Nicht gegen die Aufzählung geprüft, aus der die Implementierung
+        // besteht — sonst wäre der Test eine Tautologie. Stattdessen werden die
+        // Zustandszeilen aus echten Accounts abgeleitet und gegen die Regel
+        // geprüft: „Alles außer `upToDate` gehört hervorgehoben."
+        let accounts: [MonitoredAccount] = [
+            Fixture.account(windows: [], fetchedAt: nil, state: .noData),
+            Fixture.account(windows: [Fixture.window(.fiveHour, percent: 10)],
+                            state: .authDead(strikes: 1)),
+            Fixture.account(windows: [Fixture.window(.fiveHour, percent: 10)],
+                            state: .backoff(until: Fixture.now.addingTimeInterval(60))),
+            Fixture.account(windows: [Fixture.window(.fiveHour, percent: 10)],
+                            state: .failing(message: "http 500")),
+            Fixture.account(windows: [Fixture.window(.fiveHour, percent: 10)],
+                            fetchedAt: Fixture.now.addingTimeInterval(-(AccountStatusLine.staleThreshold + 1))),
+            Fixture.account(windows: [Fixture.window(.fiveHour, percent: 10)],
+                            fetchedAt: Fixture.now)
         ]
-        for line in lines { #expect(line.isWarning) }
+        let lines = accounts.map { AccountStatusLine.make(for: $0, now: Fixture.now) }
+
+        for line in lines {
+            #expect(line.isWarning == (line != .upToDate), "Zeile \(line)")
+        }
+        // Gegenprobe, dass die Stichprobe überhaupt beide Seiten abdeckt —
+        // sonst könnte die Regel unbemerkt konstant sein.
+        let warningCount = lines.filter { $0.isWarning }.count
+        #expect(warningCount > 0)
+        #expect(warningCount < lines.count)
+        let calm: [AccountStatusLine] = lines.filter { $0.isWarning == false }
+        #expect(calm == [.upToDate])
     }
 
     @Test("Der gravierendste Zustand gewinnt")

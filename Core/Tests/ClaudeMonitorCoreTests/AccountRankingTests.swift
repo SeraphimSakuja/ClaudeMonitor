@@ -142,8 +142,8 @@ struct AccountRankingTests {
             displayName: "a@example.com",
             windows: [
                 // 5h und 7d sind bestens — nur das Modellkontingent ist leer.
-                // Genau dafür trägt der Verfügbarkeitsrang noch, denn
-                // max(5h, 7d) sieht dieses Fenster nicht.
+                // Sowohl der Verfügbarkeitsrang als auch die bindende
+                // Auslastung sehen dieses Fenster.
                 TestSupport.window(.fiveHour, percent: 1, resetsIn: 600),
                 TestSupport.window(.sevenDay, percent: 2, resetsIn: 600),
                 TestSupport.window(.scoped(name: "Fable"), percent: 100, resetsIn: 600)
@@ -153,6 +153,52 @@ struct AccountRankingTests {
         )
         let free = TestSupport.account("b", fiveHour: 95, sevenDay: 95, fiveHourResetsIn: 600)
         #expect(AccountRanking.ranked([blocked, free], now: now).map(\.id) == ["b", "a"])
+    }
+
+    @Test("Ein erschöpftes Nebenfenster rankt den Account hinter einen schwächeren — Anzeige und Ranking messen dasselbe")
+    func scopedWindowDrivesBindingPercentAndRanking() {
+        // Der gemeldete Fund: A hat 5h 10 % / 7d 10 %, aber sein
+        // Modellkontingent steht bei 95 %. B liegt überall bei 20 %.
+        // Solange die bindende Auslastung nur max(5h, 7d) war, rankte A vorne
+        // (10 < 20) — während die Menüleiste für A rot „95 %" zeigte und der
+        // grüne B darunter stand.
+        let a = MonitoredAccount(
+            id: "a",
+            displayName: "a@example.com",
+            windows: [
+                TestSupport.window(.fiveHour, percent: 10, resetsIn: 600),
+                TestSupport.window(.sevenDay, percent: 10, resetsIn: 600),
+                TestSupport.window(.scoped(name: "Fable"), percent: 95, resetsIn: 600)
+            ],
+            fetchedAt: now,
+            state: .ok
+        )
+        let b = TestSupport.account("b", fiveHour: 20, sevenDay: 20, fiveHourResetsIn: 600)
+
+        #expect(AccountRanking.bindingPercent(for: a, usable: true) == 95)
+        #expect(AccountRanking.bindingPercent(for: b, usable: true) == 20)
+        #expect(AccountRanking.ranked([a, b], now: now).map(\.id) == ["b", "a"])
+        // Kein rotes Signal über einem grünen: Der oberste Account hat nie die
+        // schlechtere Ampelstufe als einer darunter.
+        let statuses = AccountRanking.ranked([a, b], now: now).compactMap(\.overallStatus)
+        #expect(statuses == [.green, .red])
+    }
+
+    @Test("Auch das Ausgabenbudget bindet — nicht nur 5h und 7d")
+    func spendWindowDrivesBindingPercent() {
+        let account = MonitoredAccount(
+            id: "a",
+            displayName: "a@example.com",
+            windows: [
+                TestSupport.window(.fiveHour, percent: 3, resetsIn: 600),
+                TestSupport.window(.sevenDay, percent: 4, resetsIn: 600),
+                TestSupport.window(.spend, percent: 88, resetsIn: 600)
+            ],
+            fetchedAt: now,
+            state: .ok
+        )
+        #expect(AccountRanking.bindingPercent(for: account, usable: true) == 88)
+        #expect(account.bindingPercent == 88)
     }
 
     @Test("Blockierte Accounts stehen vor den datenlosen und werden untereinander normal sortiert")
@@ -299,17 +345,34 @@ struct AccountRankingTests {
         #expect(AccountRanking.ranked(accounts, now: now).map(\.id) == ["b", "c", "a"])
     }
 
-    @Test("Fehlendes 5h-Fenster zählt als maximal ausgelastet")
-    func missingWindowRanksWorst() {
-        let withoutFiveHour = MonitoredAccount(
+    @Test("Ohne jedes Fenster zählt ein Account als maximal ausgelastet")
+    func accountWithoutAnyWindowRanksWorst() {
+        let withoutWindows = TestSupport.accountWithoutData("a")
+        let busy = TestSupport.account("b", fiveHour: 95, sevenDay: 95, fiveHourResetsIn: 600)
+        #expect(AccountRanking.bindingPercent(for: withoutWindows, usable: withoutWindows.hasUsableData)
+                == AccountRanking.worstSortValue)
+        #expect(AccountRanking.ranked([withoutWindows, busy], now: now).map(\.id) == ["b", "a"])
+    }
+
+    @Test("Ein Account wird nach den Fenstern bewertet, die er meldet — nicht nach den fehlenden")
+    func partialWindowSetIsJudgedByWhatIsReported() {
+        // Bewusste Semantik seit der Umstellung auf „Maximum über alle
+        // Fenster": Meldet die Quelle für einen Account kein 5h-Fenster, wird
+        // er nach seinem 7d-Fenster bewertet. Andernfalls wichen Ranking und
+        // Menüleisten-Anzeige wieder voneinander ab — die Anzeige zeigt für
+        // diesen Account „1 %", das Ranking dürfte ihn dann nicht als
+        // ausgeschöpft behandeln.
+        let sevenDayOnly = MonitoredAccount(
             id: "a",
             displayName: "a@example.com",
             windows: [TestSupport.window(.sevenDay, percent: 1, resetsIn: 600)],
             fetchedAt: now,
             state: .ok
         )
-        let withFiveHour = TestSupport.account("b", fiveHour: 95, sevenDay: 95, fiveHourResetsIn: 600)
-        #expect(AccountRanking.ranked([withoutFiveHour, withFiveHour], now: now).map(\.id) == ["b", "a"])
+        let busy = TestSupport.account("b", fiveHour: 95, sevenDay: 95, fiveHourResetsIn: 600)
+        #expect(AccountRanking.bindingPercent(for: sevenDayOnly, usable: true) == 1)
+        #expect(sevenDayOnly.bindingPercent == 1)
+        #expect(AccountRanking.ranked([busy, sevenDayOnly], now: now).map(\.id) == ["a", "b"])
     }
 
     @Test("Ranking ist wiederholbar und unabhängig von der Eingabereihenfolge")

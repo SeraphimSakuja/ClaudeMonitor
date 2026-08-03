@@ -7,13 +7,13 @@ import ClaudeMonitorCore
 /// und mehr Accounts schmal bleiben. Die vollständige Übersicht liefert das
 /// Detailfenster.
 ///
-/// Farbe und Zahl stammen garantiert aus **derselben** Quelle: dem am höchsten
-/// ausgelasteten Fenster des Accounts. Genau dieses Fenster bestimmt auch
-/// ``MonitoredAccount/overallStatus``. Damit kann nie ein roter Punkt neben
-/// „12 %" stehen. Im Normalfall (5h- und 7d-Fenster vorhanden) ist das exakt die
-/// bindende Auslastung `max(5h, 7d)`; liegt zusätzlich ein `scoped`- oder
-/// `spend`-Fenster höher, zeigt die Menüleiste dieses — es begrenzt den Account
-/// dann tatsächlich.
+/// Farbe und Zahl stammen garantiert aus **derselben** Quelle:
+/// ``MonitoredAccount/bindingPercent``, dem am höchsten ausgelasteten Fenster
+/// des Accounts. Genau diese Property bestimmt auch
+/// ``MonitoredAccount/overallStatus`` **und** die Reihenfolge in
+/// ``AccountRanking``. Damit kann nie ein roter Punkt neben „12 %" stehen und
+/// nie ein rot angezeigter Account über einem grünen — Anzeige und Ranking
+/// messen dasselbe, weil sie dieselbe Property lesen.
 public struct MenuBarDisplay: Equatable, Sendable {
 
     /// Anzuzeigende Auslastung; `nil` ⇒ **kein** Wert, kein „0 %".
@@ -40,9 +40,10 @@ public struct MenuBarDisplay: Equatable, Sendable {
     /// Bildet die Anzeige aus einem Account.
     public static func make(for account: MonitoredAccount?) -> MenuBarDisplay {
         guard let account, account.hasUsableData else { return .unavailable }
-        // Dieselbe Reduktion wie in `overallStatus` — nicht nachgebaut, sondern
-        // derselbe Ausdruck, damit Zahl und Farbe nicht auseinanderlaufen können.
-        let peak = account.windows.map(\.percent).max()
+        // Dieselbe Property wie `overallStatus` und `AccountRanking` — nicht
+        // nachgebaut, sondern gelesen, damit Zahl, Farbe und Reihenfolge nicht
+        // auseinanderlaufen können.
+        let peak = account.bindingPercent
         let status = account.overallStatus
         guard let peak, peak.isFinite else {
             // Kaputter Wert: Die Ampel darf (konservativ rot) stehen bleiben,

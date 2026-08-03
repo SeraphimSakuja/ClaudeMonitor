@@ -26,11 +26,18 @@ final class UsageMonitor: ObservableObject {
     /// Aktueller Zustand für die Views.
     @Published private(set) var state = MonitorViewState()
     /// Ergebnis des letzten Schreibversuchs in den App-Group-Container.
-    @Published private(set) var lastWriteResult: SnapshotStore.WriteResult?
+    ///
+    /// Bewusst **nicht** `@Published`: Der Wert wird nirgends gerendert, er
+    /// dient allein der Log-Entprellung. Als `@Published` löste er 30-Sekunden-
+    /// weise Neuzeichnungen der Menüleiste aus, ohne dass sich etwas Sichtbares
+    /// geändert hätte.
+    private(set) var lastWriteResult: SnapshotStore.WriteResult?
 
     private let reader: UsageStoreReader
     private let writer: SnapshotStore
     private var pollingTask: Task<Void, Never>?
+    /// Gerade laufender Lesedurchlauf, falls einer läuft.
+    private var refreshTask: Task<Void, Never>?
     private let logger = Logger(subsystem: AppGroup.loggingSubsystem, category: "UsageMonitor")
 
     init(reader: UsageStoreReader = UsageStoreReader(), writer: SnapshotStore = SnapshotStore()) {
@@ -63,22 +70,41 @@ final class UsageMonitor: ObservableObject {
 
     /// Ein Lesedurchlauf: Store lesen, Zustand fortschreiben, Snapshot in den
     /// App-Group-Container schreiben.
+    ///
+    /// **Nicht wiedereintrittsfähig, und das mit Absicht:** Poller und der
+    /// Knopf „Jetzt aktualisieren" können gleichzeitig auslösen. Ohne Wache
+    /// überholten sich zwei Durchläufe, der ältere schriebe seinen Zustand über
+    /// den neueren — und wiederholtes Klicken erzeugte unbegrenzt viele Tasks.
+    /// Ein bereits laufender Durchlauf wird deshalb nur abgewartet, statt einen
+    /// zweiten zu starten. Der Aufrufer bekommt trotzdem erst dann die
+    /// Kontrolle zurück, wenn frische Zahlen anliegen.
     func refresh() async {
+        if let running = refreshTask {
+            await running.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performRefresh()
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         let reader = self.reader
         let writer = self.writer
         // Datei-I/O gehört nicht auf den MainActor — die Menüleiste soll auch
         // dann flüssig bleiben, wenn der Store gerade langsam ist.
-        // Ohne Entitlement wird der App-Group-Container gar nicht erst
-        // angefasst — siehe ``AppGroupEntitlement``: Der Schreibversuch liefe
-        // sonst in einen unsichtbaren Systemdialog und blockierte endlos.
-        let mayWrite = AppGroupEntitlement.isDeclared(writer.groupIdentifier)
-
+        //
+        // Die Entitlement-Wache wird hier **nicht** mehr eigens abgefragt: Sie
+        // sitzt in ``SnapshotStore/containerDirectory`` und ist damit nicht zu
+        // umgehen. `write` meldet ohne Deklaration `containerUnavailable`,
+        // ohne den Container je anzufassen.
         let outcome = await Task.detached(priority: .utility) { () -> (UsageStoreReadResult, SnapshotStore.WriteResult?) in
             let result = reader.read()
             guard case .success(let snapshot) = result else { return (result, nil) }
-            guard mayWrite else {
-                return (result, .containerUnavailable(groupIdentifier: writer.groupIdentifier))
-            }
             return (result, writer.write(snapshot))
         }.value
 
