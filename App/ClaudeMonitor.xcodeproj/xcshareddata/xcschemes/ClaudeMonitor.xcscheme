@@ -22,18 +22,13 @@
          </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
-   <!-- Bewusst KEINE TestAction.
-
-        Eine TestAction mit leerem <Testables> meldet bei `xcodebuild test`
-        TEST SUCCEEDED, ohne einen einzigen Test ausgeführt zu haben — ein
-        grüner Lauf ohne Beweiskraft. Ohne TestAction bricht `xcodebuild test`
-        stattdessen laut ab („not currently configured for the test action").
-
-        Getestet wird ausschließlich über `swift test` in Core/ und Shared/.
-        Ein Xcode-Testrunner ist hier auch aus einem zweiten Grund unerwünscht:
-        Er würde die App-Group-Zugriffe in den unsichtbaren macOS-
-        Zustimmungsdialog laufen lassen und endlos blockieren (siehe
-        Shared/Sources/ClaudeMonitorShared/AppGroupEntitlement.swift). -->
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldAutocreateTestPlan = "YES">
+   </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
