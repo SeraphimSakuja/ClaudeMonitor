@@ -132,18 +132,31 @@ final class UsageMonitor: ObservableObject {
                 """
             )
         case .failed(let reason):
-            logger.error("Snapshot konnte nicht geschrieben werden: \(reason, privacy: .public)")
+            // Ohne `.public`: Die Begründung stammt aus `SnapshotStore` und
+            // kann den Container-Pfad enthalten — siehe `log(_:)`.
+            logger.error("Snapshot konnte nicht geschrieben werden: \(reason)")
         }
     }
 
+    /// Protokolliert Fehlzustände.
+    ///
+    /// **Pfade und fremde Fehlertexte werden bewusst NICHT als `.public`
+    /// markiert.** `os_log` redigiert dynamische Zeichenketten von sich aus;
+    /// ein `.public` hebt genau diesen Schutz auf. Die Kandidatenpfade
+    /// enthalten den macOS-Kontonamen (`/Users/<Name>/…`), und dieser landete
+    /// damit im dauerhaften Log-Archiv und in jedem `sysdiagnose`. Das Projekt
+    /// hält bewusst keine Nutzerpfade im Code, weil es veröffentlicht werden
+    /// könnte — über das Log gingen sie sonst trotzdem nach außen. In
+    /// Console.app sind die Werte beim lokalen Debuggen weiterhin sichtbar.
     private func log(_ issue: MonitorIssue) {
         switch issue {
         case .storeNotFound(let paths):
-            logger.notice("claude-swap-Cache nicht gefunden. Gesucht: \(paths.joined(separator: ", "), privacy: .public)")
+            logger.notice("claude-swap-Cache nicht gefunden. Gesucht: \(paths.joined(separator: ", "))")
         case .unsupportedSchema(let found, let expected):
-            logger.error("Unerwartete schemaVersion \(found ?? -1) (erwartet \(expected)) — Zahlen werden nicht angezeigt.")
+            // Reine Zahlen — die will man im Log lesen können.
+            logger.error("Unerwartete schemaVersion \(found ?? -1, privacy: .public) (erwartet \(expected, privacy: .public)) — Zahlen werden nicht angezeigt.")
         case .unreadable(let reason):
-            logger.notice("Cache momentan nicht lesbar: \(reason, privacy: .public)")
+            logger.notice("Cache momentan nicht lesbar: \(reason)")
         }
     }
 }

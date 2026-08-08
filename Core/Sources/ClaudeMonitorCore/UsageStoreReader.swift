@@ -78,6 +78,13 @@ public struct UsageStoreReader: Sendable {
         guard fileManager.fileExists(atPath: url.path) else {
             return .storeNotFound(searchedPaths: [url.path])
         }
+        // Vor dem vollständigen Lesen prüfen, dass der Pfad wirklich auf eine
+        // gewöhnliche Datei vernünftiger Größe zeigt. Ohne diese Wache
+        // blockierte eine untergeschobene FIFO das Öffnen endlos und der
+        // Poller stünde lautlos still (siehe ``SourceFileGuard``).
+        if let reason = SourceFileGuard.inspect(url).reason {
+            return .unreadable(reason: reason)
+        }
         let sequence = sequence
             ?? AccountSequenceReader.read(forStoreAt: url, fileManager: fileManager)
         do {
@@ -232,8 +239,21 @@ public struct UsageStoreReader: Sendable {
 
         return result
             .sorted { ($0.rank, $0.key) < ($1.rank, $1.key) }
+            .prefix(maximumWindowsPerAccount)
             .map(\.window)
     }
+
+    /// Obergrenze für die Fenster eines Accounts.
+    ///
+    /// Die Menüleiste ist ohnehin gedeckelt, das Detailfenster zeichnet aber
+    /// jedes Fenster: Ein `scoped`-Array mit einer Million Einträgen aus der
+    /// Fremdquelle ergäbe eine Million Zeilen. Real liefert claude-swap eine
+    /// Handvoll (5 h, 7 d, `spend`, wenige `scoped`); 64 ist weit darüber und
+    /// begrenzt die Zeichenlast trotzdem. Überzähliges wird still verworfen —
+    /// ein Fehlzustand wäre hier die falsche Antwort, die verbleibenden Zahlen
+    /// stimmen ja. Die Sortierung davor sichert zu, dass 5 h und 7 d nie dem
+    /// Deckel zum Opfer fallen.
+    static let maximumWindowsPerAccount = 64
 
     /// Wandelt ein Rohfenster um; `nil`, wenn kein verwertbarer Prozentwert
     /// ableitbar ist (dann liegen für dieses Fenster schlicht keine Daten vor —

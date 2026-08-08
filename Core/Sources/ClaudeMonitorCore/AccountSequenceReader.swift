@@ -56,6 +56,16 @@ public struct AccountSequenceInfo: Sendable, Equatable {
 /// Fehlzustand über korrekte Zahlen legen.
 public enum AccountSequenceReader {
 
+    /// Obergrenze für die Anzahl der Accounts, aus denen Aliase übernommen
+    /// werden. claude-swap verwaltet eine Handvoll; die Grenze schützt allein
+    /// davor, dass eine aufgeblähte Fremddatei unbegrenzt Einträge erzeugt.
+    static let maximumAccounts = 64
+
+    /// Obergrenze für die Länge eines Alias. Er wird in der Menüleiste und im
+    /// Detailfenster gezeigt — ein Alias mit 100 000 Zeichen ist kein Name,
+    /// sondern eine Zeichenlast.
+    static let maximumAliasLength = 64
+
     /// Liest die Datei, die zur angegebenen `usage.json` gehört.
     public static func read(
         forStoreAt storeURL: URL,
@@ -73,6 +83,11 @@ public enum AccountSequenceReader {
         fileManager: FileManager = .default
     ) -> AccountSequenceInfo {
         guard fileManager.fileExists(atPath: url.path) else { return .empty }
+        // Dieselbe Wache wie bei `usage.json`: Eine FIFO an dieser Stelle würde
+        // das Öffnen endlos blockieren, und weil dieser Leser im selben
+        // Durchlauf wie der Store-Leser läuft, stünde damit auch die Anzeige
+        // der Zahlen still (siehe ``SourceFileGuard``).
+        guard SourceFileGuard.inspect(url) == .ok else { return .empty }
         // Reines Lesen ohne Koordination und ohne Lock (L1) — genau wie bei
         // `usage.json`. Ein halb geschriebener Stand ist ein normaler Fall und
         // heilt beim nächsten Durchlauf von selbst.
@@ -95,14 +110,18 @@ public enum AccountSequenceReader {
 
         var aliases: [String: String] = [:]
         if let accounts = root["accounts"] as? [String: Any] {
-            for (id, raw) in accounts {
+            // Kennungsordnung statt Wörterbuch-Reihenfolge: Greift die
+            // Obergrenze, soll immer dieselbe Teilmenge übrig bleiben und nicht
+            // bei jedem Lauf eine andere.
+            let ordered = accounts.sorted { AccountIdentifierOrder.isOrderedBefore($0.key, $1.key) }
+            for (id, raw) in ordered.prefix(maximumAccounts) {
                 guard let entry = raw as? [String: Any],
                       let alias = entry["alias"] as? String else { continue }
                 // Ein leerer oder nur aus Leerzeichen bestehender Alias ist
                 // kein Name — er fiele in der Anzeige als Leerstelle auf,
                 // statt auf die E-Mail zurückzufallen.
                 let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { aliases[id] = trimmed }
+                if !trimmed.isEmpty { aliases[id] = String(trimmed.prefix(maximumAliasLength)) }
             }
         }
 
