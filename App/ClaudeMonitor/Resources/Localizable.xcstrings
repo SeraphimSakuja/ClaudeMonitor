@@ -145,6 +145,24 @@
         }
       }
     },
+    "Blocked in System Settings — open them" : {
+      "comment" : "Anmeldeobjekt ist registriert, aber vom Nutzer gesperrt — nur dort aufhebbar",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den Systemeinstellungen gesperrt — dort öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocked in System Settings — open them"
+          }
+        }
+      }
+    },
     "Cache not readable right now" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -426,6 +444,24 @@
         }
       }
     },
+    "Move ClaudeMonitor to the Applications folder first." : {
+      "comment" : "Anmeldeobjekt nicht möglich, solange die App außerhalb von /Programme liegt",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ClaudeMonitor zuerst in den Programme-Ordner bewegen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move ClaudeMonitor to the Applications folder first."
+          }
+        }
+      }
+    },
     "No accounts in claude-swap" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -670,6 +706,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Spend"
+          }
+        }
+      }
+    },
+    "Start at login" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beim Anmelden starten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start at login"
           }
         }
       }

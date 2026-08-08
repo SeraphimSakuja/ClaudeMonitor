@@ -5,11 +5,14 @@
 	<!-- Bewusst NICHT sandboxed: Die App liest ~/.claude-swap-backup/… -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
-	<!-- Brücke zur (sandboxed) Widget-Extension. App Groups funktionieren auf
-	     macOS auch ohne Sandbox. -->
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.at.markusfricke.claudemonitor.shared</string>
-	</array>
+	<!-- KEIN com.apple.security.application-groups.
+
+	     Die App Group ist allein die Brücke zur WidgetKit-Extension, und die
+	     liegt auf Hold. Ein hier eingetragenes, aber nicht autorisiertes
+	     Entitlement wäre der gefährlichste Zustand überhaupt: Die Wache in
+	     AppGroupEntitlement.swift prüft die Deklaration, nicht die
+	     Autorisierung — sie gäbe den Container frei, und der Zugriff bliebe im
+	     macOS-Zustimmungsdialog endlos hängen. Begründung und die fünf
+	     Schritte für die Rückkehr der Widgets stehen in App/Signing.xcconfig. -->
 </dict>
 </plist>

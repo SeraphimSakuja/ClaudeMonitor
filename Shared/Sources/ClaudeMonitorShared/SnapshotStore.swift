@@ -29,8 +29,12 @@ public struct SnapshotStore: Sendable {
         case written(URL)
         /// Kein App-Group-Container benutzbar. Dieser Fall kommt
         /// **ausschließlich** aus der Entitlement-Wache
-        /// (``AppGroupEntitlement``) — typischerweise, weil das Entitlement
-        /// mangels Team-ID noch nicht greift (SSOT-Punkt CM-01).
+        /// (``AppGroupEntitlement``).
+        ///
+        /// Seit v1.0 ist das der **erwartete Normalzustand**: Die App führt das
+        /// App-Group-Entitlement nicht, weil die Widget-Extension auf Hold
+        /// liegt (Begründung in `App/Signing.xcconfig`). Kein Fehler, kein
+        /// Hinweis an den Nutzer — nur die Widgets bekämen keine Daten.
         ///
         /// Ausdrücklich **nicht** daraus, dass
         /// `FileManager.containerURL(forSecurityApplication…)` `nil` liefert:

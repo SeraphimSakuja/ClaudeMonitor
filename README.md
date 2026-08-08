@@ -30,7 +30,8 @@ das Alter des letzten bekannten Werts an, statt veraltete Zahlen als aktuell aus
 |---|---|
 | `Core/` | Framework-freie Kernlogik (Parsing, Ranking, Status, Restzeiten) als SwiftPM-Package — mit `swift test` ohne Xcode testbar |
 | `Shared/` | Gemeinsame Schicht von App und Widget: Snapshot-Transport über den App-Group-Container und alle Anzeigeregeln — ebenfalls SwiftPM, ebenfalls ohne Xcode testbar |
-| `App/` | Menüleisten-App und WidgetKit-Extension (Xcode-Projekt) |
+| `App/` | Menüleisten-App (Xcode-Projekt) |
+| `scripts/` | `release.sh` — baut das notarisierte DMG und prüft das Ergebnis nach |
 
 Anzeigeregeln liegen bewusst in `Shared/` und nicht im App-Target: Die Widget-Extension
 braucht exakt dieselbe Formatierung, und zwei Kopien laufen garantiert auseinander.
@@ -43,12 +44,27 @@ cd Shared && swift test        # Transport + Anzeigeregeln
 xcodebuild -project App/ClaudeMonitor.xcodeproj -scheme ClaudeMonitor -destination 'platform=macOS' build
 ```
 
-Die Team-ID ist noch offen; bis dahin wird ad hoc und ohne App-Group-Entitlement
-signiert. Alles Nötige steht kommentiert in `App/Signing.xcconfig`.
+Signiert wird mit **Developer ID** und Hardened Runtime, ausgeliefert wird notarisiert.
+Ein Provisioning-Profil braucht die App nicht: Sie führt kein eingeschränktes Entitlement.
+Begründung und der Weg zurück zu den Widgets stehen kommentiert in `App/Signing.xcconfig`.
+
+## Ausliefern
+
+```sh
+./scripts/release.sh          # Tests → Archive → Export → Notarisierung → DMG
+```
+
+Das Skript baut nur lokal nach `build/` und lädt nichts hoch. Einmalig müssen die
+Zugangsdaten für die Notarisierung im Schlüsselbund liegen — der Befehl dafür steht
+im Kopf von `scripts/release.sh`.
 
 ## Status
 
-v0.1 in Entwicklung — macOS. Verifiziert gegen claude-swap 0.22.0 (Cache-`schemaVersion` 2).
+v1.0 — macOS 14+. Verifiziert gegen claude-swap 0.22.0 (Cache-`schemaVersion` 2).
+
+Die WidgetKit-Extension liegt auf Hold; die Menüleiste deckt den Anwendungsfall ab.
+Der App-Group-Transport in `Shared/` bleibt dafür erhalten, das Entitlement ist
+bewusst **nicht** gesetzt.
 
 ## Lizenz
 

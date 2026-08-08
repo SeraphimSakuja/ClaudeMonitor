@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Verteilung außerhalb des App Store, signiert mit Developer ID.
+	     Dieser Export-Weg ist es auch, der `com.apple.security.get-task-allow`
+	     entfernt — das Debug-Entitlement, mit dem die Notarisierung abgelehnt
+	     würde. Ein direktes `xcodebuild build` lässt es stehen; deshalb geht
+	     release.sh ausnahmslos über archive + exportArchive. -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>94794Q4RW7</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<!-- Die Notarisierung stößt release.sh selbst an, damit derselbe Lauf
+	     stapeln und das Ergebnis prüfen kann. -->
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

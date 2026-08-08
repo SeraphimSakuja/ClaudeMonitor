@@ -17,6 +17,11 @@ struct MonitorPopoverView: View {
     /// dafür erst aktivieren.
     @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.bestAccount.rawValue
 
+    /// Das Anmeldeobjekt. `@StateObject` und nicht `@ObservedObject`: Anders als
+    /// der Monitor hängt es an keinem App-weiten Lebenszyklus — es fragt nur das
+    /// System und besitzt keinen laufenden Poller.
+    @StateObject private var loginItem = LoginItemController()
+
     /// Ab dieser Höhe wird gescrollt — bei drei bis sechs Accounts passt alles
     /// ohne Scrollen, darüber bleibt das Fenster handhabbar.
     private let maximumHeight: CGFloat = 460
@@ -28,10 +33,15 @@ struct MonitorPopoverView: View {
             content
             Divider()
             modeRow
+            loginItemRow
             footer
         }
         .padding(12)
         .frame(width: 320)
+        // Das Anmeldeobjekt lässt sich jederzeit außerhalb der App umschalten.
+        // Beim Öffnen neu erfragen ist genau oft genug — ein Poller wäre für
+        // eine Einstellung, die sich praktisch nie ändert, verschwendet.
+        .onAppear { loginItem.refresh() }
     }
 
     private var header: some View {
@@ -105,6 +115,48 @@ struct MonitorPopoverView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
+        }
+    }
+
+    /// „Beim Anmelden starten" — mitsamt der beiden Zustände, in denen der
+    /// Schalter allein nicht weiterhilft.
+    ///
+    /// Die Verzweigung entscheidet ``LoginItemState`` in `Shared/`; hier wird
+    /// sie nur gezeichnet. Ohne die beiden Erklärzeilen wäre der Schalter in
+    /// genau den Fällen wortlos tot, in denen der Nutzer eine Erklärung
+    /// braucht: gesperrt in den Systemeinstellungen, oder App noch nicht in
+    /// `/Programme`.
+    private var loginItemRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: Binding(
+                get: { loginItem.state.isOn },
+                set: { loginItem.setEnabled($0) }
+            )) {
+                Text("Start at login").font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .disabled(!loginItem.state.isToggleable)
+
+            if loginItem.state.needsSystemSettings {
+                Button {
+                    loginItem.openSystemSettings()
+                } label: {
+                    Text("Blocked in System Settings — open them")
+                        .font(.caption2)
+                }
+                .buttonStyle(.link)
+            } else if loginItem.state.needsRelocation {
+                Text("Move ClaudeMonitor to the Applications folder first.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if let failure = loginItem.lastFailure {
+                // `verbatim`: Der Text kommt vom System, ist bereits übersetzt
+                // und darf nicht als Lokalisierungsschlüssel behandelt werden.
+                Text(verbatim: failure)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
         }
     }
 

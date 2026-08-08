@@ -12,5 +12,7 @@ xcuserdata/
 *.xcscmblueprint
 build/
 
-# Lokale Konfiguration (Team-ID, Pfade) — nie einchecken
+# Lokale Konfigurations-Overrides. Die Team-ID selbst steht in
+# App/Signing.xcconfig und ist kein Geheimnis — sie steckt in jeder
+# ausgelieferten App-Signatur.
 *.local.xcconfig

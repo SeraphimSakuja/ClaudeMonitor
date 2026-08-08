@@ -125,10 +125,15 @@ final class UsageMonitor: ObservableObject {
         case .written:
             logger.info("Snapshot in den App-Group-Container geschrieben.")
         case .containerUnavailable(let group):
-            logger.notice(
+            // `debug` und nicht `notice`: Seit v1.0 führt die App das
+            // App-Group-Entitlement bewusst nicht, weil die Widget-Extension
+            // auf Hold liegt. Dieser Fall ist damit der Normalzustand jedes
+            // Starts — als `notice` stünde bei jedem Nutzer dauerhaft eine
+            // Auffälligkeit im Log, die keine ist.
+            logger.debug(
                 """
-                App Group \(group, privacy: .public) nicht verfügbar (Entitlement fehlt) — \
-                Widgets bekommen keine Daten. Menüleiste läuft weiter.
+                App Group \(group, privacy: .public) nicht deklariert (Widgets auf Hold) — \
+                kein Snapshot geschrieben. Menüleiste läuft unverändert.
                 """
             )
         case .failed(let reason):
