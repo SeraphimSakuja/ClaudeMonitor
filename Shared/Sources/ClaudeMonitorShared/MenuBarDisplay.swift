@@ -45,7 +45,9 @@ import ClaudeMonitorCore
 ///    verschöbe sich die Anzeige je nach Abo-Typ. Ein Fenster mit
 ///    nicht-endlichem Wert ergibt ``WindowValue/Reading/unreadable``, also
 ///    ebenfalls keine Zahl; die Account-Ampel steht dann konservativ auf rot,
-///    weil `∞` ``MonitoredAccount/bindingPercent`` (ein `max`) mitzieht.
+///    weil ``MonitoredAccount/bindingPercent`` bei *irgendeinem*
+///    nicht-endlichen Fenster selbst nicht-endlich wird — unabhängig davon,
+///    an welcher Stelle dieses Fenster steht.
 /// 8. Trägt kein Segment irgendeine Aussage, sind ``segments`` leer. Sonst
 ///    stünde beim Erststart `●–/– ●–/–` ohne jede Information.
 /// 9. Höchstens ``maximumSegments`` Segmente; darüber die ersten in
@@ -173,7 +175,17 @@ public struct MenuBarDisplay: Equatable, Sendable {
         /// entscheidende. Die *Stufe* dazu kommt aus ``status`` und nicht von
         /// hier — sonst verschwiege der Vorlesetext einen versteckten Engpass,
         /// den der Punkt sichtbar rot färbt.
-        public var binding: WindowValue? {
+        ///
+        /// **Ausdrücklich nicht** ``MonitoredAccount/bindingPercent``: Jene
+        /// Größe ist das Maximum über **alle** Fenster (auch `spend`/`scoped`)
+        /// und speist Ranking, Ampel und Account-Karte. Diese hier ist das
+        /// Maximum über die **zwei gezeigten**. Beim versteckten Engpass gehen
+        /// beide auseinander — der Vorlesetext sagt dann „10 %, kritisch",
+        /// die Account-Karte „95 %". Das ist gewollt: In der Leiste stehen
+        /// nur die zwei Zahlen, und der Vorlesetext beschreibt, was dort
+        /// steht; die Gesamtaussage trägt die Stufe. Der Name sagt deshalb
+        /// ausdrücklich `visible`.
+        public var visibleBinding: WindowValue? {
             let withNumbers = values.filter { $0.percent != nil }
             if let peak = withNumbers.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) {
                 return peak

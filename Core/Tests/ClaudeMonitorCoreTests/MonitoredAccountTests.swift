@@ -72,6 +72,58 @@ struct MonitoredAccountTests {
         #expect(TestSupport.accountWithoutData("a").overallStatus == nil)
     }
 
+    // MARK: - Nicht-endliche Fenster
+
+    @Test("Ein nicht-endliches Fenster färbt rot — an jeder Position")
+    func nonFiniteWindowIsConservativeRegardlessOfPosition() {
+        // Die Falle: `[Double].max()` vergleicht paarweise und `NaN` verliert
+        // jeden Vergleich. `[nan, 10, 20].max()` ergibt `nan`,
+        // `[10, 20, nan].max()` dagegen `20` — ohne Vorabtest hinge die Ampel
+        // an der Reihenfolge der Fenster. Die letzte Position ist der Fall,
+        // der vorher grün blieb.
+        for broken in [Double.nan, .infinity] {
+            let last = MonitoredAccount(
+                id: "a",
+                displayName: "a@example.com",
+                windows: [
+                    TestSupport.window(.fiveHour, percent: 10),
+                    TestSupport.window(.sevenDay, percent: 20),
+                    TestSupport.window(.scoped(name: "Fable"), percent: broken)
+                ],
+                fetchedAt: now,
+                state: .ok
+            )
+            #expect(last.bindingPercent?.isFinite == false)
+            #expect(last.overallStatus == .red)
+
+            let first = MonitoredAccount(
+                id: "a",
+                displayName: "a@example.com",
+                windows: [
+                    TestSupport.window(.scoped(name: "Fable"), percent: broken),
+                    TestSupport.window(.fiveHour, percent: 10),
+                    TestSupport.window(.sevenDay, percent: 20)
+                ],
+                fetchedAt: now,
+                state: .ok
+            )
+            #expect(first.bindingPercent?.isFinite == false)
+            #expect(first.overallStatus == .red)
+        }
+    }
+
+    @Test("Ohne Fenster gibt es keine bindende Auslastung")
+    func bindingPercentWithoutWindows() {
+        let account = MonitoredAccount(
+            id: "a",
+            displayName: "a@example.com",
+            windows: [],
+            fetchedAt: now,
+            state: .ok
+        )
+        #expect(account.bindingPercent == nil)
+    }
+
     // MARK: - Nächster geplanter Abruf
 
     @Test("nextPollAt wird aus dem Store übernommen")

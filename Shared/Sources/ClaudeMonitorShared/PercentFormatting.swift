@@ -5,9 +5,9 @@ public enum PercentFormatting {
 
     /// Kompakte Darstellung für die Menüleiste und die Fensterzeilen.
     ///
-    /// Gibt `nil` zurück, wenn der Wert nicht darstellbar ist. Ein
-    /// nicht-endlicher Wert darf **nie** in `Int(...)` laufen — das trappt zur
-    /// Laufzeit. Deshalb hier die Endlichkeitsprüfung vor jeder Umwandlung.
+    /// Gibt `nil` zurück, wenn der Wert nicht darstellbar ist. Diese Prüfung
+    /// ist **von ``bare(_:)`` geerbt** und steht bewusst nicht noch einmal
+    /// hier: Diese Fassung hängt nur das Prozentzeichen an.
     ///
     /// Es wird kaufmännisch gerundet und ohne Nachkommastellen angezeigt: In der
     /// Menüleiste zählt jeder Punkt Breite, und 42,4 % vs. 42 % ändert keine
@@ -24,6 +24,10 @@ public enum PercentFormatting {
     /// Detailfenster. Ausdrücklich **dieselbe** Rundung und dieselbe
     /// Obergrenze wie ``compact(_:)``, damit die Leiste nie eine andere Zahl
     /// zeigt als das Fenster.
+    ///
+    /// **Hier** sitzt die Endlichkeitsprüfung für beide Fassungen: Ein
+    /// nicht-endlicher Wert darf nie in `Int(...)` laufen — das trappt zur
+    /// Laufzeit.
     public static func bare(_ percent: Double) -> String? {
         guard percent.isFinite else { return nil }
         // Obergrenze, damit ein korrupter Riesenwert die Menüleiste nicht sprengt.

@@ -201,6 +201,30 @@ struct AccountRankingTests {
         #expect(account.bindingPercent == 88)
     }
 
+    @Test("Ein nicht-endliches Fenster sortiert nach hinten — egal an welcher Position")
+    func nonFiniteWindowRanksLastRegardlessOfPosition() {
+        // `bindingPercent` ist bei irgendeinem nicht-endlichen Fenster selbst
+        // nicht-endlich; das Ranking bildet das auf den schlechtesten
+        // endlichen Sortierwert ab. Ohne die Zusage stünde ein `NaN` an
+        // letzter Stelle für einen entspannten Account (20 %) und rankte
+        // vorne — mit grüner Ampel daneben.
+        let broken = MonitoredAccount(
+            id: "a-broken",
+            displayName: "a@example.com",
+            windows: [
+                TestSupport.window(.fiveHour, percent: 10),
+                TestSupport.window(.sevenDay, percent: 20),
+                TestSupport.window(.scoped(name: "Fable"), percent: .nan)
+            ],
+            fetchedAt: now,
+            state: .ok
+        )
+        let healthy = TestSupport.account("b-healthy", fiveHour: 30, sevenDay: 40)
+
+        #expect(AccountRanking.bindingPercent(for: broken, usable: true) == AccountRanking.worstSortValue)
+        #expect(AccountRanking.ranked([broken, healthy], now: now).map(\.id) == ["b-healthy", "a-broken"])
+    }
+
     @Test("Blockierte Accounts stehen vor den datenlosen und werden untereinander normal sortiert")
     func blockedRanksAheadOfNoData() {
         let accounts = [

@@ -93,7 +93,13 @@ struct AccountSequenceReaderTests {
             "{\"activeAccountNumber\": null}",              // ausdrücklich leer
             "{\"activeAccountNumber\": \"2\"}",             // Text statt Zahl
             "{\"activeAccountNumber\": true}",              // Wahrheitswert (käme als 1 durch)
-            "{\"activeAccountNumber\": 2.5}"                // keine Kennung
+            "{\"activeAccountNumber\": 2.5}",               // keine Kennung
+            // Ganzzahlig und endlich, aber weit außerhalb von `Int`:
+            // `number.intValue` lieferte hier einen
+            // implementierungsdefinierten Wert — also eine Fantasie-Kennung,
+            // die zufällig auf einen echten Account zeigen könnte.
+            "{\"activeAccountNumber\": 1e30}",
+            "{\"activeAccountNumber\": -1e30}"
         ]
         for json in cases {
             #expect(
@@ -116,13 +122,38 @@ struct AccountSequenceReaderTests {
     func pathIsDerivedFromStore() {
         let store = URL(fileURLWithPath: "/somewhere/.claude-swap-backup/cache/usage.json")
         #expect(
-            UsageStoreLocator.sequenceURL(forStoreAt: store).path
+            UsageStoreLocator.sequenceURL(forStoreAt: store)?.path
                 == "/somewhere/.claude-swap-backup/sequence.json"
         )
         // Gilt genauso für die XDG-Fundstelle — die Ableitung kennt keine
-        // Sonderfälle, sie geht zwei Ebenen hoch.
+        // Sonderfälle, sie geht vom `cache`-Verzeichnis eine Ebene hoch.
         let xdg = URL(fileURLWithPath: "/data/claude-swap/cache/usage.json")
-        #expect(UsageStoreLocator.sequenceURL(forStoreAt: xdg).path == "/data/claude-swap/sequence.json")
+        #expect(UsageStoreLocator.sequenceURL(forStoreAt: xdg)?.path == "/data/claude-swap/sequence.json")
+    }
+
+    @Test("Liegt die usage.json nicht in einem cache-Verzeichnis, wird nichts abgeleitet")
+    func pathIsNotDerivedOutsideCacheDirectory() {
+        // Verschöbe claude-swap die Datei, läse eine blinde Zwei-Ebenen-
+        // Ableitung still eine **fremde** sequence.json — Marker und Aliase
+        // kämen aus der falschen Installation.
+        for path in [
+            "/somewhere/.claude-swap-backup/usage.json",
+            "/somewhere/.claude-swap-backup/state/usage.json",
+            "/somewhere/Caches/usage.json",
+            "/usage.json"
+        ] {
+            #expect(
+                UsageStoreLocator.sequenceURL(forStoreAt: URL(fileURLWithPath: path)) == nil,
+                "unerwartet abgeleitet aus: \(path)"
+            )
+        }
+        // Und der Leser antwortet darauf mit „nichts bekannt" — nicht mit
+        // einem Fehler: Ein Problem mit sequence.json blockiert nie die Zahlen.
+        #expect(
+            AccountSequenceReader.read(
+                forStoreAt: URL(fileURLWithPath: "/somewhere/.claude-swap-backup/usage.json")
+            ) == .empty
+        )
     }
 
     @Test("Die Datei neben dem Cache-Verzeichnis wird wirklich gelesen")

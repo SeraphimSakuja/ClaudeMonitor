@@ -38,12 +38,28 @@ public enum UsageStoreLocator {
     /// Fundstellen (macOS-Home wie XDG). Abgeleitet statt eigenständig gesucht:
     /// Ein zweiter Pfadmechanismus daneben könnte auf eine andere Installation
     /// zeigen als die, deren Zahlen gerade angezeigt werden.
-    public static func sequenceURL(forStoreAt storeURL: URL) -> URL {
-        storeURL
-            .deletingLastPathComponent()   // …/cache
+    ///
+    /// Abgeleitet wird **nur**, wenn das Elternverzeichnis wirklich `cache`
+    /// heißt; sonst `nil`. Zwei Ebenen blind abzustreifen wäre eine Annahme
+    /// über claude-swaps Ablage, die niemand garantiert: Legte es `usage.json`
+    /// künftig woanders ab, läse diese Ableitung still eine **fremde**
+    /// `sequence.json` zwei Ebenen darüber — Marker und Aliase kämen aus der
+    /// falschen Installation. Lieber gar keine Markierung als eine falsche.
+    ///
+    /// `nil` ist ein völlig normaler Ausgang: Der Leser ergibt dann
+    /// ``AccountSequenceInfo/empty``, es entsteht **kein** ``MonitorIssue``,
+    /// und die Prozentwerte aus `usage.json` laufen unverändert weiter.
+    public static func sequenceURL(forStoreAt storeURL: URL) -> URL? {
+        let cacheDirectory = storeURL.deletingLastPathComponent()
+        guard cacheDirectory.lastPathComponent == cacheDirectoryName else { return nil }
+        return cacheDirectory
             .deletingLastPathComponent()   // …/ (Wurzel des Backup-Stores)
             .appending(path: sequenceFileName)
     }
+
+    /// Name des Verzeichnisses, in dem `usage.json` liegt — die Bedingung für
+    /// ``sequenceURL(forStoreAt:)``.
+    public static let cacheDirectoryName = "cache"
 
     /// Erster existierender Kandidat, sonst `nil`.
     public static func locate(

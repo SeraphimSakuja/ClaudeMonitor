@@ -9,9 +9,9 @@ import ClaudeMonitorShared
 /// und **einen** Titel. SwiftUI bildet das Label eines `MenuBarExtra` darauf
 /// ab — mehrere `Image`/`Text` in einem `HStack` können dort nicht dargestellt
 /// werden, es überlebte nur das erste Paar. Am Gerät verifiziert: Statt sechs
-/// Werten stand nur `●74%` in der Leiste. ``MenuBarIcon`` benutzt dasselbe
-/// Verfahren bereits für den einzelnen Ampelpunkt; hier ist es auf die ganze
-/// Anzeige hochgezogen.
+/// Werten stand nur `●74%` in der Leiste. ``MenuBarIcon`` liefert dazu nur noch
+/// den Fall ohne jede Aussage (ein Schablonenbild); alles Farbige und alle
+/// Zahlen entstehen hier.
 ///
 /// **Der Preis dieses Wegs ist die Textfarbe.** Ein Schablonenbild
 /// (`isTemplate = true`) würde AppKit passend zum hellen bzw. dunklen
@@ -48,9 +48,14 @@ enum MenuBarImageRenderer {
     private static let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
 
     /// Schrift der Zahlen des **aktiven** Accounts. Gleiche Größe und ebenfalls
-    /// Ziffern fester Breite — nur schwerer: So bleibt die Breite eines
-    /// Segments von seinem Zustand unabhängig genug, und die Auszeichnung
-    /// kommt ohne Farbe aus (die gehört der Ampel).
+    /// Ziffern fester Breite, nur schwerer — so bleiben die *Ziffern*
+    /// untereinander gleich breit und ein Prozentwechsel bewegt nichts. Die
+    /// Auszeichnung kommt damit ohne Farbe aus (die gehört der Ampel).
+    ///
+    /// Die **Leistenbreite** ändert sich beim Wechsel des aktiven Accounts
+    /// dagegen sehr wohl: Fette Ziffern sind messbar breiter als `.medium`.
+    /// Das ist kein Darstellungsfehler — die Breiten werden je Zeichnung neu
+    /// gemessen (siehe `draw(_:colorScheme:)`).
     private static let activeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
 
     // MARK: - Zwischenspeicher
@@ -64,7 +69,15 @@ enum MenuBarImageRenderer {
     /// Instanz hinge er nur bis zum nächsten Rumpf. `@MainActor` isoliert ihn,
     /// wie bei ``MenuBarIcon``; AppKit-Zeichnen gehört ohnehin auf den
     /// Hauptthread.
-    private static var cachedKey: (display: MenuBarDisplay, colorScheme: ColorScheme)?
+    ///
+    /// Im Schlüssel steckt neben der Anzeige und dem Erscheinungsbild auch
+    /// `NSStatusBar.system.thickness` — die **Bildhöhe**. Sie ist keine
+    /// Konstante (sie hängt am Bildschirm bzw. an der Menüleiste) und geht in
+    /// jede senkrechte Ausrichtung ein. Ohne sie im Schlüssel bliebe nach einer
+    /// Änderung ein zu hohes oder zu flaches Bild unbegrenzt stehen: Alle 30 s
+    /// entsteht ein **gleicher** ``MenuBarDisplay``, und solange sich kein
+    /// Prozentwert ändert, träfe der alte Eintrag immer wieder.
+    private static var cachedKey: (display: MenuBarDisplay, colorScheme: ColorScheme, thickness: CGFloat)?
     private static var cachedImage: NSImage?
 
     /// Das fertige Bild für die Leiste.
@@ -78,15 +91,18 @@ enum MenuBarImageRenderer {
         // Leer heißt: nichts zu sagen. Dann das neutrale Schablonensymbol —
         // AppKit färbt es passend ein, und eine selbstgezeichnete Fassung
         // müsste diese Einfärbung nachbauen.
-        guard !display.segments.isEmpty else { return MenuBarIcon.image(for: nil) }
+        guard !display.segments.isEmpty else { return MenuBarIcon.neutralImage }
 
+        let thickness = NSStatusBar.system.thickness
         if let cachedKey, let cachedImage,
-           cachedKey.display == display, cachedKey.colorScheme == colorScheme {
+           cachedKey.display == display,
+           cachedKey.colorScheme == colorScheme,
+           cachedKey.thickness == thickness {
             return cachedImage
         }
 
         let image = draw(display, colorScheme: colorScheme)
-        cachedKey = (display, colorScheme)
+        cachedKey = (display, colorScheme, thickness)
         cachedImage = image
         return image
     }

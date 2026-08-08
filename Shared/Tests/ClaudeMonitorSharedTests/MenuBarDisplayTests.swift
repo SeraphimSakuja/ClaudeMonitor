@@ -46,7 +46,7 @@ struct MenuBarDisplayTests {
 
         #expect(binding.text == "88%")
         #expect(binding.status == .red)
-        #expect(MenuBarDisplay.segment(for: account).binding?.text == "88%")
+        #expect(MenuBarDisplay.segment(for: account).visibleBinding?.text == "88%")
     }
 
     @Test("Text und Farbe stammen immer vom selben Fenster")
@@ -517,6 +517,39 @@ struct MenuBarDisplayTests {
         #expect(segment.status == .red)
     }
 
+    @Test("Ein NaN-Fenster an letzter Stelle färbt genauso rot wie an erster")
+    func nonFiniteWindowColorsTheDotAtAnyPosition() {
+        // `[Double].max()` ist positionsabhängig: `[nan, 10, 20].max()` ergibt
+        // `nan`, `[10, 20, nan].max()` dagegen `20`. Stünde das kaputte
+        // Fenster **nach** einer Zahl, bliebe der Punkt ohne den Vorabtest in
+        // `bindingPercent` grün — die Zusage aus Regel 7 hinge dann an der
+        // zufälligen Reihenfolge in der Quelle.
+        let account = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: 10),
+                Fixture.window(.sevenDay, percent: 20),
+                Fixture.window(.scoped(name: "Fable"), percent: .nan, id: "scoped:0:Fable")
+            ]
+        )
+        let segment = MenuBarDisplay.segment(for: account)
+
+        #expect(segment.status == .red)
+        #expect(account.overallStatus == .red)
+        // Die Zahlen bleiben unberührt: Das kaputte Fenster ist keins der
+        // beiden gezeigten.
+        #expect(segment.values.map(\.text) == ["10%", "20%"])
+        // Der Vorlesetext nennt weiterhin die bindende **sichtbare** Zahl —
+        // die Gesamtaussage trägt die Stufe.
+        #expect(segment.visibleBinding?.text == "20%")
+
+        // Und die Account-Karte: rote Ampel, aber ausdrücklich keine Zahl.
+        let binding = AccountBindingDisplay.make(for: account)
+        #expect(binding.status == .red)
+        #expect(binding.percent == nil)
+        #expect(binding.text == nil)
+        #expect(binding.hasValue == false)
+    }
+
     // MARK: - Anzeigenamen der Fenster
 
     @Test("Die Fensternamen kommen aus einer einzigen Abbildung")
@@ -642,14 +675,29 @@ struct MenuBarDisplayTests {
 
     @Test("Die Fassung ohne Prozentzeichen rundet und klemmt identisch")
     func bareFormattingMatchesCompact() {
-        // Zwei Formatierer sind zwei Rundungen; die Leiste dürfte nie eine
-        // andere Zahl zeigen als das Fenster.
-        for percent in [0, 49.4, 49.5, 100, -5, 5000] as [Double] {
-            #expect(PercentFormatting.bare(percent).map { $0 + "%" } == PercentFormatting.compact(percent))
-        }
+        // Beide Formatierer gegen **Literale** — nicht gegeneinander: `compact`
+        // ist als `bare(_:) + "%"` gebaut, ein Vergleich der beiden wäre
+        // tautologisch und könnte nie rot werden. Die Wertetabelle hält
+        // Rundung, Klemmung und Endlichkeitsregel für beide einzeln fest.
+        #expect(PercentFormatting.bare(0) == "0")
+        #expect(PercentFormatting.compact(0) == "0%")
+        #expect(PercentFormatting.bare(49.4) == "49")
+        #expect(PercentFormatting.compact(49.4) == "49%")
         #expect(PercentFormatting.bare(49.5) == "50")
+        #expect(PercentFormatting.compact(49.5) == "50%")
+        #expect(PercentFormatting.bare(100) == "100")
+        #expect(PercentFormatting.compact(100) == "100%")
+        // Untere Klemmung: negative Werte werden zu 0, nicht zu „-5".
+        #expect(PercentFormatting.bare(-5) == "0")
+        #expect(PercentFormatting.compact(-5) == "0%")
+        // Obere Klemmung: ein Riesenwert sprengt die Leiste nicht.
+        #expect(PercentFormatting.bare(5000) == "999")
+        #expect(PercentFormatting.compact(5000) == "999%")
+        // Nicht-endlich ⇒ keine Zahl, bei beiden.
         #expect(PercentFormatting.bare(.nan) == nil)
+        #expect(PercentFormatting.compact(.nan) == nil)
         #expect(PercentFormatting.bare(.infinity) == nil)
+        #expect(PercentFormatting.compact(.infinity) == nil)
     }
 
     @Test("Fortschrittsanteil bleibt zwischen 0 und 1")

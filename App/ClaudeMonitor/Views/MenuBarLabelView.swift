@@ -67,7 +67,7 @@ struct MenuBarLabelView: View {
         var parts: [String] = display.segments.flatMap { segment -> [String] in
             let summary = spoken(
                 name: name(of: segment),
-                value: segment.binding,
+                value: segment.visibleBinding,
                 status: segment.status
             )
             switch mode {

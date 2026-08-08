@@ -125,8 +125,24 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
     /// Modellkontingent (`scoped`) oder ein ausgeschöpftes Ausgabenbudget
     /// (`spend`) macht den Account genauso unbrauchbar wie ein volles
     /// Wochenlimit.
+    ///
+    /// **Nicht-endliche Werte schlagen konservativ durch**: Trägt *irgendein*
+    /// Fenster einen nicht-endlichen Wert (`NaN`/`∞` aus einer kaputten
+    /// Quelle), ist das Ergebnis `.infinity` — unabhängig von der Reihenfolge
+    /// der Fenster. Ein blankes `max()` genügte dafür nicht: `[Double].max()`
+    /// vergleicht paarweise, und `NaN` verliert jeden Vergleich. `[nan, 10,
+    /// 20].max()` ergibt `nan`, `[10, 20, nan].max()` dagegen `20` — die
+    /// Ampel hinge damit an der Position des kaputten Fensters. Mit dem
+    /// Vorabtest steht sie immer auf der Haltung von
+    /// ``StatusLevel/init(percent:)``: nicht-endlich ⇒ konservativ rot. Eine
+    /// *Zahl* entsteht daraus nirgends — `AccountBindingDisplay` verwirft
+    /// nicht-endliche Werte, `AccountRanking` bildet sie auf den
+    /// schlechtesten endlichen Sortierwert ab.
     public var bindingPercent: Double? {
-        windows.map { $0.percent }.max()
+        let percents = windows.map { $0.percent }
+        guard !percents.isEmpty else { return nil }
+        guard percents.allSatisfy({ $0.isFinite }) else { return .infinity }
+        return percents.max()
     }
 
     /// Schlechteste Ampelstufe über alle Fenster; `nil` ohne verwertbare Daten.

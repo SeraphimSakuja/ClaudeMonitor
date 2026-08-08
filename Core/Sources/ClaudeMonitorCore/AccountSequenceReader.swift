@@ -61,7 +61,10 @@ public enum AccountSequenceReader {
         forStoreAt storeURL: URL,
         fileManager: FileManager = .default
     ) -> AccountSequenceInfo {
-        read(contentsOf: UsageStoreLocator.sequenceURL(forStoreAt: storeURL), fileManager: fileManager)
+        // Lässt sich der Pfad nicht sicher ableiten (die `usage.json` liegt
+        // nicht in einem `cache`-Verzeichnis), wird nichts geraten: leer.
+        guard let url = UsageStoreLocator.sequenceURL(forStoreAt: storeURL) else { return .empty }
+        return read(contentsOf: url, fileManager: fileManager)
     }
 
     /// Liest einen konkreten Pfad.
@@ -109,14 +112,19 @@ public enum AccountSequenceReader {
     /// `activeAccountNumber` ist eine **Zahl**, die Schlüssel unter `accounts`
     /// sind **Strings** — die Kennung ist deren Dezimaldarstellung.
     ///
-    /// Alles andere (fehlend, Text, Wahrheitswert, Bruchzahl) gilt als „nicht
-    /// gesagt"; dann ist kein Account markiert.
+    /// Alles andere (fehlend, Text, Wahrheitswert, Bruchzahl, nicht-endlich,
+    /// außerhalb von `Int`) gilt als „nicht gesagt"; dann ist kein Account
+    /// markiert.
     private static func identifier(from raw: Any?) -> String? {
         guard let number = raw as? NSNumber else { return nil }
         // `true` käme als NSNumber 1 durch und markierte Account „1".
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        let value = number.doubleValue
-        guard value.isFinite, value == value.rounded() else { return nil }
-        return String(number.intValue)
+        // `Int(exactly:)` statt `number.intValue`: Letzteres liefert bei
+        // `1e30` einen implementierungsdefinierten Wert — also eine
+        // Fantasie-Kennung, die zufällig auf einen echten Account zeigen
+        // könnte. Der Test deckt zugleich „nicht endlich" und „Bruchzahl" mit
+        // ab, denn beides ergibt hier ebenfalls `nil`.
+        guard let value = Int(exactly: number.doubleValue) else { return nil }
+        return String(value)
     }
 }
