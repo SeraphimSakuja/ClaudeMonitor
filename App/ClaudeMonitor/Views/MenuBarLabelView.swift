@@ -5,23 +5,19 @@ import ClaudeMonitorShared
 /// Die Kompaktanzeige in der Menüleiste: je Account ein Punkt pro Limitfenster
 /// (5 h und 7 d) mit eigener Farbe und eigener Zahl, Accounts durch `│` getrennt.
 ///
-/// Wie viele Accounts gezeigt werden, entscheidet ``MenuBarMode``. Der
-/// Modus wird **hier** gelesen und nicht im Poller: Eine Umschaltung muss
-/// sofort wirken und darf nicht auf den nächsten 30-s-Durchlauf warten. Aus
-/// demselben Grund bekommt diese View den Zustand und bildet ``MenuBarDisplay``
-/// selbst — die Regeln dazu liegen geprüft in `Shared/`, hier wird nur gezeichnet.
+/// Wie viele Accounts gezeigt werden, entscheidet ``MenuBarMode``. Modus und
+/// Zustand kommen von außen; diese View bildet daraus ``MenuBarDisplay`` und
+/// zeichnet — die Regeln dazu liegen geprüft in `Shared/`.
+///
+/// Der Modus wird ausdrücklich **nicht** hier per `@AppStorage` gelesen: Ein
+/// `MenuBarExtra`-Label wertet seinen Rumpf bei einer reinen
+/// `UserDefaults`-Änderung nicht neu aus, die Umschaltung blieb dann unsichtbar,
+/// obwohl der Wert korrekt gespeichert war. Er ist deshalb Eigenschaft der Szene
+/// (siehe ``ClaudeMonitorApp``).
 struct MenuBarLabelView: View {
 
     let state: MonitorViewState
-
-    /// Bewusst als `String` und nicht `RawRepresentable`: Sonst konvertierte
-    /// SwiftUI selbst und ``MenuBarMode/init(storedValue:)`` — die einzige
-    /// Stelle, die einen unbekannten Wert auf den Standard zurückholt — wäre
-    /// toter Code. `UserDefaults.standard` genügt, weil nur die Menüleiste die
-    /// Einstellung liest; damit hängt sie nicht an der App-Group.
-    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.bestAccount.rawValue
-
-    private var mode: MenuBarMode { MenuBarMode(storedValue: rawMode) }
+    let mode: MenuBarMode
 
     var body: some View {
         let display = MenuBarDisplay.make(for: state, mode: mode)
