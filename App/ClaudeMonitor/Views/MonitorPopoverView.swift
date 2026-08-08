@@ -10,6 +10,13 @@ struct MonitorPopoverView: View {
 
     @EnvironmentObject private var monitor: UsageMonitor
 
+    /// Dieselbe Einstellung, die ``MenuBarLabelView`` liest — bewusst als
+    /// `String`, damit die Umschlüsselung unbekannter Werte an genau einer
+    /// Stelle sitzt (``MenuBarMode/init(storedValue:)``). Eine `Settings`-Scene
+    /// gibt es nicht: Eine reine Menüleisten-App (`LSUIElement`) müsste sich
+    /// dafür erst aktivieren.
+    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.bestAccount.rawValue
+
     /// Ab dieser Höhe wird gescrollt — bei drei bis sechs Accounts passt alles
     /// ohne Scrollen, darüber bleibt das Fenster handhabbar.
     private let maximumHeight: CGFloat = 460
@@ -20,6 +27,7 @@ struct MonitorPopoverView: View {
             Divider()
             content
             Divider()
+            modeRow
             footer
         }
         .padding(12)
@@ -78,6 +86,25 @@ struct MonitorPopoverView: View {
                 // der Leiste um.
                 .scrollBounceBehavior(.basedOnSize)
             }
+        }
+    }
+
+    /// Wie viele Accounts die Leiste zeigt. „Nur bester" bleibt der Standard:
+    /// Drei Accounts mit je zwei Fenstern sind rund 36 Zeichen, und macOS
+    /// kürzt bei Platzmangel wortlos von rechts.
+    private var modeRow: some View {
+        HStack(spacing: 8) {
+            Text("Menu bar")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker(selection: $rawMode) {
+                Text("Best account").tag(MenuBarMode.bestAccount.rawValue)
+                Text("All accounts").tag(MenuBarMode.allAccounts.rawValue)
+            } label: {
+                Text("Menu bar")
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
         }
     }
 

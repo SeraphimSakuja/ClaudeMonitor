@@ -92,9 +92,18 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
     ///
     /// Die eine Stelle, an der „wie ausgelastet ist dieser Account?"
     /// beantwortet wird. Ranking (``AccountRanking``), Ampel
-    /// (``overallStatus``) und die Menüleisten-Zahl lesen ausschließlich
-    /// hier — sonst könnte die Menüleiste rot 95 % zeigen, während das
-    /// Ranking denselben Account anhand von 10 % nach vorne sortiert.
+    /// (``overallStatus``) und die zusammengefasste Account-Zahl der Anzeige
+    /// (`AccountBindingDisplay`, Kopfzeile der Account-Karte und Vorlesetext
+    /// der Menüleiste) lesen ausschließlich hier — sonst könnte die Anzeige
+    /// rot 95 % zeigen, während das Ranking denselben Account anhand von 10 %
+    /// nach vorne sortiert.
+    ///
+    /// Die Menüleiste zeigt daneben **je Fenster** einen eigenen Punkt mit
+    /// eigener Zahl (5 h und 7 d); deren Zahl und Farbe stammen aus dem
+    /// jeweiligen ``LimitWindow`` selbst, nicht aus dieser Property. Damit die
+    /// Zusammenfassung trotzdem stimmt, bekommt ein Account, den ein *nicht*
+    /// gezeigtes Fenster stärker bindet, dort einen zusätzlichen Punkt — die
+    /// schlechteste Stufe in der Leiste bleibt so gleich ``overallStatus``.
     ///
     /// Bewusst **alle** Fenster und nicht nur 5h/7d: Ein erschöpftes
     /// Modellkontingent (`scoped`) oder ein ausgeschöpftes Ausgabenbudget

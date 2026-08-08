@@ -39,7 +39,11 @@ struct MonitorViewStateTests {
 
         #expect(next.snapshot == nil)
         #expect(next.issue == .storeNotFound(searchedPaths: ["/a", "/b"]))
-        #expect(MenuBarDisplay.make(for: next, now: Fixture.now) == .unavailable)
+        // Ohne Quelle zeigt die Leiste gar nichts — in **beiden** Modi.
+        for mode in MenuBarMode.allCases {
+            #expect(MenuBarDisplay.make(for: next, mode: mode, now: Fixture.now).segments.isEmpty)
+            #expect(MenuBarDisplay.make(for: next, mode: mode, now: Fixture.now) == .unavailable)
+        }
     }
 
     @Test("Abweichende schemaVersion verwirft die Zahlen (L4)")
@@ -50,7 +54,9 @@ struct MonitorViewStateTests {
         #expect(next.snapshot == nil)
         #expect(next.accounts(now: Fixture.now).isEmpty)
         #expect(next.issue == .unsupportedSchema(found: 3, expected: 2))
-        #expect(MenuBarDisplay.make(for: next, now: Fixture.now).text == nil)
+        for mode in MenuBarMode.allCases {
+            #expect(MenuBarDisplay.make(for: next, mode: mode, now: Fixture.now).segments.isEmpty)
+        }
     }
 
     @Test("Nach dem ersten Lesevorgang wird nicht mehr geladen")

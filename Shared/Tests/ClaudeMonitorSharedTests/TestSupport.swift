@@ -8,13 +8,18 @@ enum Fixture {
     /// Fester Bezugszeitpunkt, damit Restzeiten reproduzierbar sind.
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    /// - Parameter id: Kennung des Fensters. Vorgabe ist der Rohschlüssel der
+    ///   Art — für mehrere `scoped`-Fenster muss sie gesetzt werden, weil der
+    ///   echte Reader dort `scoped:<index>:<name>` vergibt und gleiche
+    ///   `Identifiable`-Kennungen sonst kollidieren.
     static func window(
         _ kind: LimitWindow.Kind,
         percent: Double,
-        resetsAt: Date? = nil
+        resetsAt: Date? = nil,
+        id: String? = nil
     ) -> LimitWindow {
         LimitWindow(
-            id: kind.rawKey,
+            id: id ?? kind.rawKey,
             kind: kind,
             label: kind.rawKey,
             percent: percent,

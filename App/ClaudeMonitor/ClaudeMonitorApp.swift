@@ -18,7 +18,10 @@ struct ClaudeMonitorApp: App {
             MonitorPopoverView()
                 .environmentObject(monitor)
         } label: {
-            MenuBarLabelView(display: MenuBarDisplay.make(for: monitor.state))
+            // Die Leiste bekommt den Zustand, nicht die fertige Anzeige: Der
+            // gewählte Modus liegt in `MenuBarLabelView` und darf nicht über
+            // den 30-s-Poller laufen.
+            MenuBarLabelView(state: monitor.state)
         }
         // `.window` statt Menü: Fortschrittsbalken und live laufende Restzeiten
         // lassen sich in einem klassischen Menü nicht darstellen.

@@ -27,10 +27,17 @@ import Foundation
 ///    Bewusst **alle** Fenster statt nur 5h/7d: Ein leergelaufenes
 ///    Modellkontingent (`scoped`) oder Ausgabenbudget (`spend`) macht den
 ///    Account real unbrauchbar. Und es ist **dieselbe** Größe, aus der die
-///    Menüleiste ihre Zahl und ihre Ampelfarbe zieht
-///    (``MonitoredAccount/overallStatus``). Nur dadurch gilt die Zusage: Der
-///    oberste Account trägt nie ein rotes Signal, während ein grüner darunter
-///    steht. Maß und Anzeige messen dasselbe, weil sie dieselbe Property lesen.
+///    Anzeige ihre zusammengefasste Zahl und ihre Ampelfarbe zieht
+///    (``MonitoredAccount/overallStatus``, gelesen über
+///    `AccountBindingDisplay`). Nur dadurch gilt die Zusage: Der oberste
+///    Account trägt nie ein rotes Signal, während ein grüner darunter steht.
+///    Maß und Anzeige messen dasselbe, weil sie dieselbe Property lesen.
+///
+///    Für die **Reihenfolge in der Menüleiste** ist dieses Ranking bewusst
+///    *nicht* zuständig: Dort reiht `MenuBarDisplay` im Modus „alle Accounts"
+///    nach ``AccountIdentifierOrder``, damit die Position eines Accounts nicht
+///    springt, sobald sich ein Prozentwert ändert. Das Ranking bestimmt das
+///    Detailfenster und die Auswahl im Modus „nur bester Account".
 /// 3. **Frühester Reset des Engpass-Fensters**, aufsteigend. `resets_at` ist der
 ///    Zeitpunkt des Auffüllens — wer zuerst zurückgesetzt wird, ist zuerst wieder
 ///    verfügbar. Gemessen wird die Restzeit **des Fensters, das den Account
@@ -88,7 +95,8 @@ public enum AccountRanking {
     }
 
     /// Bindende Auslastung eines Accounts: das am höchsten ausgelastete
-    /// Fenster — **genau** die Größe, die die Menüleiste anzeigt.
+    /// Fenster — **genau** die Größe, die die Anzeige als Account-Zahl
+    /// zusammenfasst (`AccountBindingDisplay`).
     ///
     /// Nicht nachgebaut, sondern ``MonitoredAccount/bindingPercent`` gelesen:
     /// Eine zweite Implementierung derselben Regel wäre genau der Weg, auf dem

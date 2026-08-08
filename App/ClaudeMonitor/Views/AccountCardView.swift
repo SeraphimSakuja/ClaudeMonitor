@@ -51,7 +51,7 @@ struct AccountCardView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            if let text = MenuBarDisplay.make(for: account).text {
+            if let text = AccountBindingDisplay.make(for: account).text {
                 Text(verbatim: text)
                     .font(.headline)
                     .monospacedDigit()

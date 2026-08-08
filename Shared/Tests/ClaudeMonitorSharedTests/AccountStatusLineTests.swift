@@ -11,7 +11,7 @@ struct AccountStatusLineTests {
     func noDataIsItsOwnState() {
         let account = Fixture.account(windows: [], fetchedAt: nil, state: .noData)
         #expect(AccountStatusLine.make(for: account, now: Fixture.now) == .noData)
-        #expect(MenuBarDisplay.make(for: account).text == nil)
+        #expect(AccountBindingDisplay.make(for: account).text == nil)
     }
 
     @Test("Toter Token ⇒ Neuanmeldung nötig")

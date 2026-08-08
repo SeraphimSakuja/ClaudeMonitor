@@ -8,17 +8,24 @@ import Foundation
 /// Beides zusammen an verschiedenen Stellen ergäbe ab zehn Accounts zwei
 /// widersprüchliche Reihenfolgen. Deshalb: natürlich-numerischer Vergleich,
 /// deterministisch und ohne Locale-Einfluss, benutzt von Reader **und** Ranking.
-enum AccountIdentifierOrder {
+///
+/// **Öffentlich**, weil auch die Anzeigeschicht sie braucht: Die Menüleiste
+/// reiht im Modus „alle Accounts" nach dieser Kennungsordnung und ausdrücklich
+/// **nicht** nach dem Ranking — die Position eines Accounts in der Leiste soll
+/// lernbar bleiben und nicht springen, sobald sich ein Prozentwert ändert. Eine
+/// zweite Sortierregel dafür wäre genau der Weg, auf dem die Reihenfolgen
+/// wieder auseinanderlaufen.
+public enum AccountIdentifierOrder {
 
     /// `true`, wenn `lhs` vor `rhs` einzusortieren ist.
     /// Strikte schwache Ordnung: irreflexiv, asymmetrisch, transitiv.
-    static func isOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
+    public static func isOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
         compare(lhs, rhs) == .orderedAscending
     }
 
     /// Natürlich-numerischer Vergleich: Ziffernblöcke werden als Zahl
     /// verglichen, alles andere zeichenweise über Unicode-Skalare.
-    static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+    public static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
         var left = lhs[...]
         var right = rhs[...]
         // Unterschiedliche führende Nullen entscheiden erst ganz am Ende,

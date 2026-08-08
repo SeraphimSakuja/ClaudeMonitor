@@ -1,6 +1,24 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%1$@: %2$@, %3$@" : {
+      "comment" : "Menüleisten-Vorlesetext: %1$@ = Bezeichnung (Account oder Limitfenster), %2$@ = Wert, %3$@ = Ampelstufe in Worten",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@, %3$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@, %3$@"
+          }
+        }
+      }
+    },
     "5 hours" : {
       "comment" : "Name des rollierenden 5-Stunden-Limitfensters",
       "extractionState" : "manual",
@@ -33,6 +51,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "7 days"
+          }
+        }
+      }
+    },
+    "All accounts" : {
+      "comment" : "Moduswahl der Menüleiste: alle Accounts nebeneinander",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Accounts"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All accounts"
+          }
+        }
+      }
+    },
+    "Best account" : {
+      "comment" : "Moduswahl der Menüleiste: nur der beste Account",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bester Account"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Best account"
           }
         }
       }
@@ -86,24 +140,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Claude usage"
-          }
-        }
-      }
-    },
-    "Claude usage: %@, %@" : {
-      "comment" : "Bedienhilfen-Bezeichnung der Menüleiste, %1$@ = Prozentwert, %2$@ = Ampelstufe in Worten",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude-Auslastung: %@, %@"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude usage: %@, %@"
           }
         }
       }
@@ -300,6 +336,42 @@
         }
       }
     },
+    "Menu bar" : {
+      "comment" : "Beschriftung der Moduswahl im Detailfenster",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menüleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menu bar"
+          }
+        }
+      }
+    },
+    "More accounts in the window" : {
+      "comment" : "Vorlesetext für das Überlaufzeichen, wenn nicht alle Accounts in die Leiste passen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Accounts im Fenster"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More accounts in the window"
+          }
+        }
+      }
+    },
     "No accounts in claude-swap" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -313,6 +385,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No accounts in claude-swap"
+          }
+        }
+      }
+    },
+    "no data" : {
+      "comment" : "Vorlesetext mitten im Satz, wenn zu einem Punkt keine Zahl gehört",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "keine Daten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "no data"
           }
         }
       }
