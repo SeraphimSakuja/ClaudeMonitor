@@ -53,16 +53,35 @@ struct AccountsSnapshotTests {
         }
     }
 
-    @Test("Snapshot ohne Versionsfeld gilt als erste Fassung und bleibt lesbar")
-    func acceptsLegacySnapshotWithoutVersion() throws {
+    /// Seit Layout-Version 2 (``MonitoredAccount/isActive`` und der mögliche
+    /// Alias im Anzeigenamen) ist die erste Fassung nicht mehr lesbar.
+    ///
+    /// Ein Snapshot **ohne** das Feld stammt aus genau dieser ersten Fassung —
+    /// er muss denselben Weg gehen wie ein ausdrücklich als 1 markierter, sonst
+    /// liefe ein altes Widget in eine unverständliche Fehlermeldung tief im
+    /// Account-Decoding statt in die klare Aussage „Format 1 ist nicht lesbar".
+    @Test("Snapshot der ersten Fassung wird abgelehnt — mit und ohne Versionsfeld")
+    func rejectsFirstFormatVersion() throws {
         let encoded = try JSONEncoder().encode(snapshot())
-        var object = try #require(
+        let object = try #require(
             try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        object.removeValue(forKey: "formatVersion")
-        let legacy = try JSONSerialization.data(withJSONObject: object)
-        let decoded = try JSONDecoder().decode(AccountsSnapshot.self, from: legacy)
-        #expect(decoded.accounts.map(\.id) == ["1"])
-        #expect(decoded.formatVersion == AccountsSnapshot.currentFormatVersion)
+
+        var marked = object
+        marked["formatVersion"] = 1
+        var missing = object
+        missing.removeValue(forKey: "formatVersion")
+
+        for variant in [marked, missing] {
+            let data = try JSONSerialization.data(withJSONObject: variant)
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(AccountsSnapshot.self, from: data)
+            }
+        }
+    }
+
+    @Test("Die aktuelle Layout-Version ist 2 — isActive und Alias müssen mit ins Widget")
+    func currentFormatVersionIsTwo() {
+        #expect(AccountsSnapshot.currentFormatVersion == 2)
     }
 }

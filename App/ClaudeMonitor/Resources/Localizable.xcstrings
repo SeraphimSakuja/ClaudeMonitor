@@ -19,6 +19,24 @@
         }
       }
     },
+    "%@ (active)" : {
+      "comment" : "Vorlesetext: Name des in claude-swap aktiven Accounts",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (aktiv)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (active)"
+          }
+        }
+      }
+    },
     "; " : {
       "comment" : "Trennzeichen zwischen den Abschnitten des Menüleisten-Vorlesetexts",
       "extractionState" : "manual",
@@ -69,6 +87,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "7 days"
+          }
+        }
+      }
+    },
+    "Active" : {
+      "comment" : "Auszeichnung des in claude-swap aktiven Accounts (Vorlesetext der Markierung)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiv"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active"
           }
         }
       }

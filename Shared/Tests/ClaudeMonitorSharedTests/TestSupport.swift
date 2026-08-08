@@ -33,7 +33,8 @@ enum Fixture {
         windows: [LimitWindow] = [],
         fetchedAt: Date? = Fixture.now,
         nextPollAt: Date? = nil,
-        state: AccountState = .ok
+        state: AccountState = .ok,
+        isActive: Bool = false
     ) -> MonitoredAccount {
         MonitoredAccount(
             id: id,
@@ -41,7 +42,8 @@ enum Fixture {
             windows: windows,
             fetchedAt: fetchedAt,
             nextPollAt: nextPollAt,
-            state: state
+            state: state,
+            isActive: isActive
         )
     }
 

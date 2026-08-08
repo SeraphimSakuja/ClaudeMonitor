@@ -23,6 +23,34 @@ enum TestSupport {
     /// Fester Bezugszeitpunkt, damit Tests nicht von der Uhr abhängen.
     static let now = Date(timeIntervalSince1970: 1_754_230_000)
 
+    /// Verzeichnis für Dateitests; wird vom Aufrufer wieder entfernt.
+    static func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeMonitorCoreTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Baut den Ablageaufbau von claude-swap nach — `cache/usage.json` und
+    /// wahlweise die Geschwisterdatei `sequence.json` eine Ebene darüber.
+    ///
+    /// - Returns: Pfad der geschriebenen `usage.json`.
+    @discardableResult
+    static func writeStoreLayout(
+        in root: URL,
+        usage: Data = Data("{\"schemaVersion\": 2, \"accounts\": {}}".utf8),
+        sequence: Data?
+    ) throws -> URL {
+        let cache = root.appending(path: "cache")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let store = cache.appending(path: "usage.json")
+        try usage.write(to: store)
+        if let sequence {
+            try sequence.write(to: root.appending(path: UsageStoreLocator.sequenceFileName))
+        }
+        return store
+    }
+
     /// Baut ein Limitfenster mit minimalem Aufwand.
     static func window(
         _ kind: LimitWindow.Kind,

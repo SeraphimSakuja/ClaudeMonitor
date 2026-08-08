@@ -14,7 +14,16 @@ public struct AccountsSnapshot: Sendable, Codable, Equatable {
     /// ``LimitWindow/Kind``- oder ``AccountState``-Fall dazu, scheitert eine
     /// noch nicht aktualisierte Widget-Extension sonst *still* am Decodieren.
     /// Mit dieser Versionsnummer scheitert sie stattdessen laut und definiert.
-    public static let currentFormatVersion = 1
+    ///
+    /// | Version | Änderung |
+    /// |---|---|
+    /// | 1 | Erste Fassung |
+    /// | 2 | ``MonitoredAccount/isActive`` kam dazu, und ``MonitoredAccount/displayName`` kann seither ein Alias aus `sequence.json` sein |
+    public static let currentFormatVersion = 2
+
+    /// Die erste Fassung des Layouts — Snapshots aus ihr trugen das Feld
+    /// ``formatVersion`` noch nicht zwingend.
+    static let firstFormatVersion = 1
 
     /// Layout-Version, mit der dieser Snapshot geschrieben wurde.
     public let formatVersion: Int
@@ -43,16 +52,18 @@ public struct AccountsSnapshot: Sendable, Codable, Equatable {
     /// interpretiert zu werden.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // Snapshots ohne Feld stammen aus der ersten Fassung des Layouts.
+        // Ein Snapshot ohne dieses Feld stammt aus der ersten Fassung des
+        // Layouts — und wird seit Version 2 abgelehnt wie jede andere alte
+        // Fassung auch. (Er hätte kein `isActive` und würde beim Decodieren
+        // der Accounts ohnehin scheitern, nur mit unverständlicher Meldung.)
         let version = try container.decodeIfPresent(Int.self, forKey: .formatVersion)
-            ?? AccountsSnapshot.currentFormatVersion
+            ?? AccountsSnapshot.firstFormatVersion
         guard version == AccountsSnapshot.currentFormatVersion else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: container.codingPath,
-                    debugDescription: """
-                    Snapshot-Format \(version) ist nicht lesbar                     (erwartet \(AccountsSnapshot.currentFormatVersion)).
-                    """
+                    debugDescription: "Snapshot-Format \(version) ist nicht lesbar "
+                        + "(erwartet \(AccountsSnapshot.currentFormatVersion))."
                 )
             )
         }

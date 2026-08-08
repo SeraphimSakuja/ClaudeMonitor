@@ -37,7 +37,12 @@ struct SnapshotRoundtripTests {
                 ],
                 fetchedAt: fetched,
                 nextPollAt: fetched.addingTimeInterval(30),
-                state: .ok
+                state: .ok,
+                // Der Alias aus `sequence.json` steht als Anzeigename drin,
+                // die Markierung als eigenes Feld — beides muss über die
+                // App-Group-Grenze kommen, sonst zeigt das Widget die lange
+                // E-Mail und keinen aktiven Account.
+                isActive: true
             ),
             Fixture.account(id: "2", name: "account-b", windows: [], fetchedAt: nil, state: .noData),
             Fixture.account(id: "3", name: "account-c", state: .authDead(strikes: 1)),
@@ -82,6 +87,32 @@ struct SnapshotRoundtripTests {
         let data = try SnapshotCoding.encode(richSnapshot())
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(json["formatVersion"] as? Int == AccountsSnapshot.currentFormatVersion)
+        #expect(AccountsSnapshot.currentFormatVersion == 2)
+    }
+
+    @Test("Markierung und Anzeigename überleben den Weg ins Widget")
+    func activeFlagAndDisplayNameSurvive() throws {
+        let original = richSnapshot()
+        let decoded = try SnapshotCoding.decode(try SnapshotCoding.encode(original))
+
+        #expect(decoded.accounts.map(\.isActive) == original.accounts.map(\.isActive))
+        #expect(decoded.accounts.filter(\.isActive).map(\.id) == ["1"])
+        #expect(decoded.accounts.map(\.displayName) == original.accounts.map(\.displayName))
+    }
+
+    /// Der Grund für Layout-Version 2: Ein Widget, das noch die erste Fassung
+    /// kennt, soll **laut** scheitern statt einen Snapshot ohne
+    /// ``MonitoredAccount/isActive`` still halb zu lesen.
+    @Test("Ein Snapshot der ersten Fassung wird abgelehnt")
+    func firstFormatVersionIsRejected() throws {
+        let data = try SnapshotCoding.encode(richSnapshot())
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["formatVersion"] = 1
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: (any Error).self) {
+            _ = try SnapshotCoding.decode(legacy)
+        }
     }
 
     @Test("Ein zweiter Schreibvorgang ersetzt die Datei vollständig")

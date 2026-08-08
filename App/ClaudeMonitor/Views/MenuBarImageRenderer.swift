@@ -39,11 +39,19 @@ enum MenuBarImageRenderer {
     private static let segmentGap: CGFloat = 8
     /// Luft links und rechts, damit die Leiste nicht am Nachbarsymbol klebt.
     private static let horizontalInset: CGFloat = 2
+    /// Abstand zwischen der Markierung des aktiven Accounts und seinem Punkt.
+    private static let markerGap: CGFloat = 1
 
     /// Schrift der Leiste — mit **Ziffern fester Breite**: Ohne sie zappelte
     /// die Gesamtbreite bei jedem Prozentwechsel, und mit ihr die Position
     /// aller Nachbarsymbole in der Menüleiste.
     private static let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+
+    /// Schrift der Zahlen des **aktiven** Accounts. Gleiche Größe und ebenfalls
+    /// Ziffern fester Breite — nur schwerer: So bleibt die Breite eines
+    /// Segments von seinem Zustand unabhängig genug, und die Auszeichnung
+    /// kommt ohne Farbe aus (die gehört der Ampel).
+    private static let activeFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
 
     // MARK: - Zwischenspeicher
 
@@ -90,9 +98,18 @@ enum MenuBarImageRenderer {
         // `numbersText` kommt aus `Shared/` — welche Zahlen mit welchem
         // Trennzeichen dastehen, ist eine geprüfte Anzeigeregel und keine
         // Entscheidung des Zeichners.
-        let texts = display.segments.map { attributed($0.numbersText, color: palette.label) }
+        //
+        // Auch **welcher** Account ausgezeichnet wird und womit, steht in
+        // `Shared/` (``MenuBarDisplay/AccountSegment/markerText``) — der
+        // Zeichner setzt es nur in Pixel um.
+        let texts = display.segments.map {
+            attributed($0.numbersText, color: palette.label, font: $0.isActive ? activeFont : font)
+        }
+        let markers = display.segments.map { segment in
+            segment.markerText.map { attributed($0, color: palette.label, font: activeFont) }
+        }
         let overflow = display.hasMoreAccounts
-            ? attributed(MenuBarDisplay.overflowText, color: palette.dimmedLabel)
+            ? attributed(MenuBarDisplay.overflowText, color: palette.dimmedLabel, font: font)
             : nil
 
         // Breiten **einmal** messen: Der Zeichenblock unten läuft potenziell
@@ -100,13 +117,17 @@ enum MenuBarImageRenderer {
         // Breite müsste zwingend dieselbe sein wie die der Bildgröße — sonst
         // liefe die Anzeige aus dem Bild heraus.
         let widths = texts.map { $0.size().width }
+        let markerWidths = markers.map { marker -> CGFloat in
+            guard let marker else { return 0 }
+            return marker.size().width + markerGap
+        }
         let dotColors = display.segments.map { $0.status.map(palette.status) ?? palette.neutralDot }
 
         let height = NSStatusBar.system.thickness
         var width = horizontalInset * 2
         for (index, textWidth) in widths.enumerated() {
             if index > 0 { width += segmentGap }
-            width += dotDiameter + dotTextGap + textWidth
+            width += markerWidths[index] + dotDiameter + dotTextGap + textWidth
         }
         let overflowWidth = overflow.map { $0.size().width }
         if let overflowWidth { width += segmentGap + overflowWidth }
@@ -116,6 +137,11 @@ enum MenuBarImageRenderer {
             var x = horizontalInset
             for (index, text) in texts.enumerated() {
                 if index > 0 { x += segmentGap }
+
+                if let marker = markers[index] {
+                    draw(marker, at: x, height: height)
+                    x += markerWidths[index]
+                }
 
                 dotColors[index].setFill()
                 NSBezierPath(
@@ -151,12 +177,21 @@ enum MenuBarImageRenderer {
     /// linke Ecke der Zeile, also `descender` (negativ) unterhalb der
     /// Grundlinie. Gesucht ist `grundlinie = (height - capHeight) / 2`; daraus
     /// folgt der Ursprung als `grundlinie + descender`.
+    /// Die Maße kommen aus der Schrift **dieser** Zeile und nicht aus
+    /// ``font``: Die Leiste setzt den aktiven Account fett, und eine hier fest
+    /// angenommene Schrift setzte dessen Zahlen minimal versetzt gegen die
+    /// übrigen.
     private static func draw(_ text: NSAttributedString, at x: CGFloat, height: CGFloat) {
-        let origin = (height - font.capHeight) / 2 + font.descender
+        // `attribute(at:)` verlangt einen gültigen Index — bei leerem Text gäbe
+        // es keinen.
+        let lineFont = text.length > 0
+            ? (text.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? font)
+            : font
+        let origin = (height - lineFont.capHeight) / 2 + lineFont.descender
         text.draw(at: NSPoint(x: x, y: origin))
     }
 
-    private static func attributed(_ string: String, color: NSColor) -> NSAttributedString {
+    private static func attributed(_ string: String, color: NSColor, font: NSFont) -> NSAttributedString {
         NSAttributedString(string: string, attributes: [.font: font, .foregroundColor: color])
     }
 

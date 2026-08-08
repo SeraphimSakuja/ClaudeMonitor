@@ -4,7 +4,7 @@ import ClaudeMonitorShared
 
 /// Die Kompaktanzeige in der Menüleiste: je Account **ein** Ampelpunkt und
 /// dahinter die beiden Zahlen `5h/7d`, Accounts nur durch Abstand getrennt —
-/// `●74/28  ●97/11  ●0/28`.
+/// `▸●74/28  ●97/11  ●0/28`. Der aktive Account trägt `▸` und fette Zahlen.
 ///
 /// Wie viele Accounts gezeigt werden, entscheidet ``MenuBarMode``. Modus und
 /// Zustand kommen von außen; diese View bildet daraus ``MenuBarDisplay`` und
@@ -66,7 +66,7 @@ struct MenuBarLabelView: View {
 
         var parts: [String] = display.segments.flatMap { segment -> [String] in
             let summary = spoken(
-                name: segment.displayName,
+                name: name(of: segment),
                 value: segment.binding,
                 status: segment.status
             )
@@ -94,6 +94,22 @@ struct MenuBarLabelView: View {
             comment: "Trennzeichen zwischen den Abschnitten des Menüleisten-Vorlesetexts"
         )
         return Text(verbatim: parts.joined(separator: separator))
+    }
+
+    /// Name des Accounts, beim aktiven um das Wort „aktiv" ergänzt.
+    ///
+    /// Die Markierung in der Leiste ist ein Zeichen (`▸`) und eine fette
+    /// Schrift — beides ist nicht vorlesbar. Ohne diesen Zusatz ginge die
+    /// Auskunft, welcher Account gerade aktiv ist, für VoiceOver verloren.
+    private func name(of segment: MenuBarDisplay.AccountSegment) -> String {
+        guard segment.isActive else { return segment.displayName }
+        return String(
+            format: String(
+                localized: "%@ (active)",
+                comment: "Vorlesetext: Name des in claude-swap aktiven Accounts"
+            ),
+            segment.displayName
+        )
     }
 
     /// „Name: 13 %, normal" — Bezeichnung, Wert, Ampelstufe in Worten.

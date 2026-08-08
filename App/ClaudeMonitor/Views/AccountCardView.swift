@@ -46,6 +46,15 @@ struct AccountCardView: View {
             Circle()
                 .fill(account.overallStatus.map(StatusAppearance.color(for:)) ?? StatusAppearance.neutral)
                 .frame(width: 8, height: 8)
+            // Dieselbe Markierung wie in der Menüleiste — Zeichen statt Farbe:
+            // Farbe trägt hier ausschließlich die Ampel, und der Punkt steht
+            // unmittelbar daneben. Der Vorlesetext hängt am Zeichen selbst,
+            // damit VoiceOver die Auszeichnung nicht verschluckt.
+            if account.isActive {
+                Text(verbatim: ActiveAccountDisplay.marker)
+                    .font(.headline)
+                    .accessibilityLabel(Text("Active"))
+            }
             Text(verbatim: account.displayName)
                 .font(.headline)
                 .lineLimit(1)

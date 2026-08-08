@@ -4,7 +4,8 @@ import ClaudeMonitorCore
 /// Was in der Menüleiste steht: je Account **ein** Segment mit **einem**
 /// Ampelpunkt und den beiden Zahlen `5h/7d` dahinter.
 ///
-/// Zielbild im Modus „alle Accounts": `●74/28  ●97/11  ●0/28`. Accounts sind
+/// Zielbild im Modus „alle Accounts": `▸●74/28  ●97/11  ●0/28` — der in
+/// claude-swap **aktive** Account trägt ein vorangestelltes `▸`. Accounts sind
 /// nur durch Abstand getrennt — kein Trennstrich, kein `%`-Zeichen: In der
 /// Leiste ist der Platz die knappste Ressource, und dass es Prozente sind,
 /// erklärt das Detailfenster.
@@ -50,6 +51,13 @@ import ClaudeMonitorCore
 /// 9. Höchstens ``maximumSegments`` Segmente; darüber die ersten in
 ///    Kennungsordnung plus ``hasMoreAccounts``. Vollständig ist das
 ///    Detailfenster, nicht die Leiste.
+/// 10. Der in claude-swap **aktive** Account trägt ``AccountSegment/isActive``
+///    und wird ausgezeichnet (`▸` davor, Zahlen fett) — in **beiden** Modi.
+///    Die Auszeichnung ändert **nichts** an Auswahl, Reihenfolge oder
+///    Ranking, und sie macht ein Segment ausdrücklich **nicht** informativ:
+///    Wäre der aktive Account der einzige ohne verwertbare Daten, stünde in
+///    der Leiste sonst allein `▸●–/–`. Fehlt `sequence.json`, ist überall
+///    `false` — die Zahlen laufen davon unberührt weiter.
 ///
 /// Gezeichnet wird das alles im App-Target als **ein einziges** `NSImage`
 /// (`MenuBarImageRenderer`): Ein `NSStatusItem` hat genau ein Bild und einen
@@ -131,13 +139,31 @@ public struct MenuBarDisplay: Equatable, Sendable {
         public let status: StatusLevel?
         /// Die beiden Zahlen dieses Accounts in Anzeigereihenfolge (5 h, 7 d).
         public let values: [WindowValue]
+        /// Ob dieser Account in claude-swap gerade **aktiv** ist
+        /// (``MonitoredAccount/isActive``) — gilt in **beiden** Modi: Ist der
+        /// im Modus „nur bester" gezeigte Account zugleich der aktive, wird er
+        /// ebenso ausgezeichnet.
+        ///
+        /// Der Zeichner erfindet die Markierung nicht selbst, er liest sie hier.
+        public let isActive: Bool
 
-        public init(id: String, displayName: String, status: StatusLevel?, values: [WindowValue]) {
+        public init(
+            id: String,
+            displayName: String,
+            status: StatusLevel?,
+            values: [WindowValue],
+            isActive: Bool = false
+        ) {
             self.id = id
             self.displayName = displayName
             self.status = status
             self.values = values
+            self.isActive = isActive
         }
+
+        /// Das vorangestellte Zeichen des aktiven Accounts; `nil` bei allen
+        /// anderen. Regel und Zeichen stehen in ``ActiveAccountDisplay``.
+        public var markerText: String? { ActiveAccountDisplay.marker(isActive: isActive) }
 
         /// Der Wert, der den Account unter den **gezeigten** Fenstern bindet —
         /// der höchste darstellbare.
@@ -266,7 +292,11 @@ public struct MenuBarDisplay: Equatable, Sendable {
                 status: nil,
                 values: visibleKinds.map {
                     WindowValue(id: $0.rawKey, kind: $0, reading: .unavailable, status: nil)
-                }
+                },
+                // Regel 10: Die Markierung hängt am Account, nicht an seinen
+                // Zahlen — der aktive Account bleibt auch dann erkennbar, wenn
+                // sein Token tot ist. Gerade dann ist die Auskunft wertvoll.
+                isActive: account.isActive
             )
         }
 
@@ -277,7 +307,8 @@ public struct MenuBarDisplay: Equatable, Sendable {
             // schlägt ein versteckter `spend`/`scoped`-Engpass auf den Punkt
             // durch.
             status: account.overallStatus,
-            values: visibleKinds.map { kind in value(of: kind, in: account) }
+            values: visibleKinds.map { kind in value(of: kind, in: account) },
+            isActive: account.isActive
         )
     }
 

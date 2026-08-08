@@ -26,8 +26,22 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
     /// Kennung aus dem Store (der Slot-Schlüssel, z. B. `"1"`).
     /// Dient zugleich als stabiler Tiebreaker beim Ranking.
     public let id: String
-    /// Anzeigename — E-Mail, falls vorhanden, sonst „Account <id>".
+    /// Anzeigename in fester Vorrangordnung: **Alias** aus `sequence.json`,
+    /// sonst die **E-Mail** aus `usage.json`, sonst „Account <id>".
+    ///
+    /// Der Alias gewinnt, weil ihn der Nutzer selbst vergeben hat („privat",
+    /// „arbeit") — er ist kürzer als eine E-Mail und damit das, was in eine
+    /// Menüleiste und in eine schmale Karte passt. Ein leerer oder nur aus
+    /// Leerzeichen bestehender Alias zählt als nicht vorhanden.
     public let displayName: String
+    /// `true` für den Account, der in claude-swap gerade **aktiv** ist —
+    /// gelesen aus `sequence.json` (``AccountSequenceReader``).
+    ///
+    /// Reine Auszeichnung: Sie ändert **nichts** am Ranking
+    /// (``AccountRanking``) und nichts an der Kennungsordnung. Fehlt oder
+    /// misslingt `sequence.json`, ist der Wert überall `false` — das ist ein
+    /// gültiger Zustand und kein Fehler.
+    public let isActive: Bool
     /// Alle Limitfenster in stabiler Reihenfolge (5h, 7d, spend, scoped, unbekannt).
     public let windows: [LimitWindow]
     /// Zeitpunkt, zu dem claude-swap die Daten geholt hat (Basis für das Datenalter).
@@ -45,7 +59,8 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
         windows: [LimitWindow],
         fetchedAt: Date?,
         nextPollAt: Date? = nil,
-        state: AccountState
+        state: AccountState,
+        isActive: Bool = false
     ) {
         self.id = id
         self.displayName = displayName
@@ -53,6 +68,7 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
         self.fetchedAt = fetchedAt
         self.nextPollAt = nextPollAt
         self.state = state
+        self.isActive = isActive
     }
 
     /// Erstes Fenster der gesuchten Art.

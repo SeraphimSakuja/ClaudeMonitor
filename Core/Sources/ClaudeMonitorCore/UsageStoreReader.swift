@@ -64,18 +64,26 @@ public struct UsageStoreReader: Sendable {
     }
 
     /// Liest einen konkreten Store-Pfad.
+    ///
+    /// - Parameter sequence: Aktiver Account und Aliase. `nil` ⇒ im selben
+    ///   Durchlauf aus der Geschwisterdatei `sequence.json` gelesen. Diese
+    ///   Quelle kann nicht scheitern (``AccountSequenceReader``); ein Problem
+    ///   dort ergibt niemals ein anderes ``UsageStoreReadResult``.
     public func read(
         contentsOf url: URL,
         fileManager: FileManager = .default,
-        now: Date = Date()
+        now: Date = Date(),
+        sequence: AccountSequenceInfo? = nil
     ) -> UsageStoreReadResult {
         guard fileManager.fileExists(atPath: url.path) else {
             return .storeNotFound(searchedPaths: [url.path])
         }
+        let sequence = sequence
+            ?? AccountSequenceReader.read(forStoreAt: url, fileManager: fileManager)
         do {
             // Reines Lesen ohne Koordination und ohne Lock (L1).
             let data = try Data(contentsOf: url, options: [.uncached])
-            return decode(data, now: now)
+            return decode(data, now: now, sequence: sequence)
         } catch {
             // TOCTOU: Zwischen Existenzprüfung und Lesen kann claude-swap die
             // Datei ersetzt haben. „Verschwunden" ist kein Lesefehler, sondern
@@ -91,7 +99,11 @@ public struct UsageStoreReader: Sendable {
 
     /// Interpretiert den Store-Inhalt. Getrennt vom Dateizugriff, damit
     /// Fixtures ohne Dateisystem geprüft werden können.
-    public func decode(_ data: Data, now: Date = Date()) -> UsageStoreReadResult {
+    public func decode(
+        _ data: Data,
+        now: Date = Date(),
+        sequence: AccountSequenceInfo = .empty
+    ) -> UsageStoreReadResult {
         let raw: RawUsageStore
         do {
             raw = try JSONDecoder().decode(RawUsageStore.self, from: data)
@@ -108,7 +120,7 @@ public struct UsageStoreReader: Sendable {
         }
 
         let accounts = (raw.accounts ?? [:])
-            .map { account(id: $0.key, raw: $0.value, now: now) }
+            .map { account(id: $0.key, raw: $0.value, now: now, sequence: sequence) }
             .sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
 
         return .success(
@@ -122,7 +134,12 @@ public struct UsageStoreReader: Sendable {
 
     // MARK: - Abbildung auf das Datenmodell
 
-    private func account(id: String, raw: RawAccount, now: Date) -> MonitoredAccount {
+    private func account(
+        id: String,
+        raw: RawAccount,
+        now: Date,
+        sequence: AccountSequenceInfo
+    ) -> MonitoredAccount {
         let windows = Self.windows(from: raw.lastGood)
         let fetchedAt = raw.fetchedAt.map { Date(timeIntervalSince1970: $0) }
         let nextPollAt = raw.nextPollAt.map { Date(timeIntervalSince1970: $0) }
@@ -147,12 +164,25 @@ public struct UsageStoreReader: Sendable {
 
         return MonitoredAccount(
             id: id,
-            displayName: raw.email.flatMap { $0.isEmpty ? nil : $0 } ?? "Account \(id)",
+            displayName: Self.displayName(id: id, email: raw.email, alias: sequence.alias(for: id)),
             windows: windows,
             fetchedAt: fetchedAt,
             nextPollAt: nextPollAt,
-            state: state
+            state: state,
+            isActive: sequence.isActive(id)
         )
+    }
+
+    /// Vorrang des Anzeigenamens: **Alias** vor **E-Mail** vor „Account <id>".
+    ///
+    /// Leere Zeichenketten zählen auf beiden Stufen als nicht vorhanden — ein
+    /// Account mit `"email": ""` und ohne Alias soll „Account 3" heißen und
+    /// nicht namenlos in der Liste stehen. Der Alias wird bereits beim Lesen
+    /// von `sequence.json` beschnitten (``AccountSequenceReader``).
+    static func displayName(id: String, email: String?, alias: String?) -> String {
+        if let alias, !alias.isEmpty { return alias }
+        if let email, !email.isEmpty { return email }
+        return "Account \(id)"
     }
 
     /// Baut die Fensterliste aus `lastGood`.

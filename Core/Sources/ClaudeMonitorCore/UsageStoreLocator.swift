@@ -28,6 +28,23 @@ public enum UsageStoreLocator {
         return candidates
     }
 
+    /// Dateiname der Geschwisterdatei mit Reihenfolge, aktivem Account und Aliasen.
+    public static let sequenceFileName = "sequence.json"
+
+    /// Pfad zu `sequence.json`, **abgeleitet** aus der gefundenen `usage.json`.
+    ///
+    /// Die Datei liegt eine Ebene **über** dem Cache-Verzeichnis
+    /// (`…/cache/usage.json` → `…/sequence.json`) und gilt für beide
+    /// Fundstellen (macOS-Home wie XDG). Abgeleitet statt eigenständig gesucht:
+    /// Ein zweiter Pfadmechanismus daneben könnte auf eine andere Installation
+    /// zeigen als die, deren Zahlen gerade angezeigt werden.
+    public static func sequenceURL(forStoreAt storeURL: URL) -> URL {
+        storeURL
+            .deletingLastPathComponent()   // …/cache
+            .deletingLastPathComponent()   // …/ (Wurzel des Backup-Stores)
+            .appending(path: sequenceFileName)
+    }
+
     /// Erster existierender Kandidat, sonst `nil`.
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,
