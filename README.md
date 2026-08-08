@@ -52,4 +52,5 @@ v0.1 in Entwicklung — macOS. Verifiziert gegen claude-swap 0.22.0 (Cache-`sche
 
 ## Lizenz
 
-Noch nicht festgelegt.
+MIT — siehe [LICENSE](LICENSE). Dieselbe Lizenz wie claude-swap, damit beides ohne
+Reibung zusammen weiterverwendet werden kann.
