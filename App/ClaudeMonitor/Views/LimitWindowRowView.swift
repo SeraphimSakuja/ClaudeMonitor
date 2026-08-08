@@ -35,16 +35,11 @@ struct LimitWindowRowView: View {
         }
     }
 
-    /// Bekannte Fenstertypen bekommen einen übersetzten Namen; alles andere
-    /// wird wörtlich aus der Quelle übernommen, statt es zu verschlucken.
-    @ViewBuilder private var windowName: some View {
-        switch window.kind {
-        case .fiveHour: Text("5 hours")
-        case .sevenDay: Text("7 days")
-        case .spend: Text("Spend")
-        case .scoped(let name): Text(verbatim: name)
-        case .other(let rawKey): Text(verbatim: rawKey)
-        }
+    /// Die Abbildung auf den Anzeigenamen liegt in ``WindowKindNaming`` und
+    /// nicht hier: Der Vorlesetext der Menüleiste braucht denselben Namen.
+    /// `verbatim`, weil der String bereits aufgelöst ist.
+    private var windowName: Text {
+        Text(verbatim: WindowKindNaming.name(for: window.kind))
     }
 
     /// Restzeit läuft live gegen das Reset-Datum — kein zum Anzeigezeitpunkt

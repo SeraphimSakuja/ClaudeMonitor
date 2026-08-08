@@ -15,6 +15,10 @@ import ClaudeMonitorCore
 ///    Accounts in der Leiste muss lernbar bleiben und darf nicht springen, nur
 ///    weil sich ein Prozentwert geändert hat. Das Ranking bleibt zuständig für
 ///    das Detailfenster und für die Auswahl im Modus „nur bester Account".
+///    Sortiert wird ausschließlich über ``AccountIdentifierOrder`` — kein
+///    `localizedStandardCompare` und kein nacktes `sorted()` auf Kennungen,
+///    beides hängt an der Locale des Systems. Ein Quellwächter im Core-Paket
+///    prüft das für dieses Verzeichnis mit.
 /// 3. Gezeigt werden **genau zwei** Fenster in fester Reihenfolge: 5 h, dann
 ///    7 d. Ausdrücklich nicht „alle Fenster" — ein Max-Abo mit `spend` und
 ///    mehreren `scoped`-Kontingenten machte die Leiste sonst beliebig breit.
@@ -30,11 +34,15 @@ import ClaudeMonitorCore
 ///    die mit zwei Zahlen pro Account nicht mehr formulierbar ist. Regel 5
 ///    existiert genau dafür: Ohne sie zeigte ein Account mit 10 %/10 % und
 ///    einem zu 95 % erschöpften Modellkontingent zwei grüne Punkte.
-///    *Grenzfall:* Trägt ein Fenster einen nicht-endlichen Wert, kann
-///    ``MonitoredAccount/bindingPercent`` (ein `max` über NaN) an ihm
-///    vorbeilaufen; dann ist der Punkt konservativ rot, ``overallStatus`` aber
-///    womöglich nicht. Vorsichtiger als die Zusammenfassung zu sein ist hier
-///    die gewollte Richtung.
+///    *Grenzfall nicht-endlicher Werte:* Auch ein **verstecktes** Fenster mit
+///    nicht-endlichem Wert bekommt einen Zusatzpunkt — dann ohne Zahl
+///    (``WindowValue/Reading/unreadable``), aber mit konservativ roter Farbe.
+///    Ohne ihn bräche die Invariante in der gefährlichen Richtung: `∞` zieht
+///    ``MonitoredAccount/bindingPercent`` (ein `max`) auf `∞` und damit
+///    ``overallStatus`` auf rot, während die Leiste zwei grüne Punkte zeigte
+///    und „alles gut" behauptete. In der Gegenrichtung (`NaN`, an dem `max`
+///    vorbeiläuft) darf der Punkt strenger sein als die Zusammenfassung —
+///    vorsichtiger zu sein ist die harmlose Richtung.
 /// 7. Ohne verwertbare Daten (`.noData`, `.authDead`) sind **alle** Werte
 ///    ``WindowValue/Reading/unavailable``, ``WindowValue/status`` ist `nil`
 ///    und es gibt **keinen** Zusatzpunkt. Ein toter Token darf keine
@@ -139,6 +147,13 @@ public struct MenuBarDisplay: Equatable, Sendable {
     public let segments: [AccountSegment]
     /// `true`, wenn weitere Accounts existieren, die nicht mehr in die Leiste
     /// passen — die UI hängt ein „…" an.
+    ///
+    /// Gilt **nur** im Modus ``MenuBarMode/allAccounts``. Im Standardmodus
+    /// ``MenuBarMode/bestAccount`` ist der Wert auch bei sechs Accounts
+    /// `false`, und das ist kein Versehen: Dieser Modus zeigt bewusst genau
+    /// einen Account: Ein „…" widerspräche der schmalen Leiste und behauptete
+    /// eine Kürzung, wo in Wahrheit eine Auswahl getroffen wurde.
+    /// ``MenuBarDisplayTests`` hält die Entscheidung fest.
     public let hasMoreAccounts: Bool
 
     public init(segments: [AccountSegment], hasMoreAccounts: Bool = false) {
@@ -181,11 +196,16 @@ public struct MenuBarDisplay: Equatable, Sendable {
             chosen = ranked.sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
         }
 
-        let shown = chosen.prefix(maximumSegments).map(segment(for:))
-        // Regel 9: Ohne jede Aussage lieber nichts als eine Reihe stummer Punkte.
-        guard shown.contains(where: \.isInformative) else { return .unavailable }
+        // Regel 9 wird über **alle** gewählten Accounts geprüft, nicht erst
+        // über die vier gezeigten: Wären die ersten vier in Kennungsordnung
+        // datenlos und der fünfte hätte Werte, kollabierte sonst die ganze
+        // Leiste — samt `hasMoreAccounts == false`. Die Accounts mit echten
+        // Daten verschwänden restlos, ohne auch nur ein „…".
+        let all = chosen.map(segment(for:))
+        guard all.contains(where: \.isInformative) else { return .unavailable }
 
-        return MenuBarDisplay(segments: shown, hasMoreAccounts: chosen.count > shown.count)
+        let shown = Array(all.prefix(maximumSegments))
+        return MenuBarDisplay(segments: shown, hasMoreAccounts: all.count > shown.count)
     }
 
     /// Bildet das Segment eines einzelnen Accounts.
@@ -227,16 +247,31 @@ public struct MenuBarDisplay: Equatable, Sendable {
     /// Regel 5: der zusätzliche Punkt für ein nicht gezeigtes Fenster, das den
     /// Account stärker bindet als beide sichtbaren.
     ///
-    /// Nur endliche Werte kommen infrage — ein Zusatzpunkt ohne Zahl erklärte
-    /// die Farbe nicht, die er mitbringt.
+    /// Ein nicht-endliches verstecktes Fenster bekommt den Zusatzpunkt ohne
+    /// Zahl (``WindowValue/Reading/unreadable``), aber mit konservativer Farbe.
+    /// Es einfach zu überspringen bräche die Ersatz-Invariante in der
+    /// gefährlichen Richtung: `∞` zieht ``MonitoredAccount/bindingPercent``
+    /// und damit ``MonitoredAccount/overallStatus`` auf rot, während die Leiste
+    /// zwei grüne Punkte zeigte. Trägt bereits ein sichtbarer Punkt diese
+    /// Warnung, genügt sie — ein zweiter Punkt ohne Zahl sagte nichts dazu.
     private static func bindingExtra(
         for account: MonitoredAccount,
         shown: [WindowValue]
     ) -> WindowValue? {
-        let candidate = account.windows
-            .filter { window in
-                window.percent.isFinite && !visibleKinds.contains(window.kind)
-            }
+        let hidden = account.windows.filter { !visibleKinds.contains($0.kind) }
+
+        if shown.allSatisfy({ $0.reading != .unreadable }),
+           let broken = hidden.first(where: { !$0.percent.isFinite }) {
+            return WindowValue(
+                id: broken.id,
+                kind: broken.kind,
+                reading: .unreadable,
+                status: broken.status
+            )
+        }
+
+        let candidate = hidden
+            .filter { $0.percent.isFinite }
             .max { $0.percent < $1.percent }
 
         guard let candidate else { return nil }

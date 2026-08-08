@@ -14,9 +14,12 @@ import ClaudeMonitorCore
 /// Farbe — niemals „0 %".** Ein toter Token trägt oft noch eingefrorene
 /// Altwerte im Store; die dürfen weder als Zahl noch als grüne Ampel erscheinen.
 ///
-/// Benutzt von der Kopfzeile der Account-Karte, vom Vorlesetext der Menüleiste
-/// und von der Zusatzpunkt-Regel in ``MenuBarDisplay``. Die Menüleiste selbst
-/// zeigt daneben **je Fenster** eine eigene Zahl (siehe ``MenuBarDisplay``).
+/// Einziger Verwender ist die **Kopfzeile der Account-Karte**. Die Menüleiste
+/// benutzt diesen Typ ausdrücklich *nicht*: Sie zeigt je Fenster einen eigenen
+/// Punkt mit eigener Zahl und leitet ihre Zusammenfassung — auch die für den
+/// Vorlesetext — aus ``MenuBarDisplay/AccountSegment/binding`` ab. Dass beide
+/// Wege zur selben Aussage führen, garantiert nicht dieser Typ, sondern die
+/// Ersatz-Invariante in ``MenuBarDisplay`` (dort Regel 6).
 public struct AccountBindingDisplay: Equatable, Sendable {
 
     /// Bindende Auslastung; `nil` ⇒ **kein** Wert, kein „0 %".

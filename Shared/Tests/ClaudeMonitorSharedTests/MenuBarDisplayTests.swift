@@ -159,7 +159,16 @@ struct MenuBarDisplayTests {
             #expect(display == .unavailable)
             #expect(display.hasMoreAccounts == false)
         }
-        #expect(AccountBindingDisplay.make(for: nil) == .unavailable)
+        // Gegen die Regel geprüft, nicht gegen die Konstante: Ein Vergleich mit
+        // `.unavailable` allein bliebe auch dann grün, wenn die Konstante auf
+        // `percent: 0, status: .green` mutiert würde.
+        let binding = AccountBindingDisplay.make(for: nil)
+        #expect(binding.percent == nil)
+        #expect(binding.text == nil)
+        #expect(binding.text != "0%")
+        #expect(binding.status == nil)
+        #expect(binding.hasValue == false)
+        #expect(binding == .unavailable)
     }
 
     @Test("Nur datenlose Accounts ⇒ leere Leiste statt stummer Punkte")
@@ -253,6 +262,55 @@ struct MenuBarDisplayTests {
         #expect(MenuBarDisplay.make(for: state(four), mode: .allAccounts, now: Fixture.now).hasMoreAccounts == false)
     }
 
+    @Test("Sind die ersten vier stumm, verschwindet der fünfte mit Daten nicht")
+    func silentLeadersDoNotSwallowAccountsWithData() {
+        // Die Kollaps-Regel lief früher **nach** der Obergrenze: Die ersten
+        // vier in Kennungsordnung waren datenlos, also war die geprüfte
+        // Auswahl stumm — und die Leiste kollabierte komplett, samt
+        // `hasMoreAccounts == false`. Die Accounts mit echten Zahlen
+        // verschwanden restlos, ohne auch nur ein „…".
+        let silent = (1...4).map { index in
+            Fixture.account(id: "\(index)", windows: [], fetchedAt: nil, state: .noData)
+        }
+        let loud = (5...6).map { index in
+            Fixture.account(
+                id: "\(index)",
+                windows: [
+                    Fixture.window(.fiveHour, percent: 40),
+                    Fixture.window(.sevenDay, percent: 40)
+                ]
+            )
+        }
+        let display = MenuBarDisplay.make(for: state(silent + loud), mode: .allAccounts, now: Fixture.now)
+
+        #expect(display.segments.isEmpty == false)
+        #expect(display.segments.map(\.id) == ["1", "2", "3", "4"])
+        // Der Hinweis auf die restlichen Accounts ist hier die ganze Information.
+        #expect(display.hasMoreAccounts)
+    }
+
+    @Test("Im Modus „nur bester“ gibt es bewusst kein „…“")
+    func bestAccountNeverAnnouncesMore() {
+        // Festgehaltene Entscheidung, kein Nebeneffekt: Der Modus zeigt genau
+        // einen Account. Ein „…" behauptete eine Kürzung, wo eine Auswahl
+        // getroffen wurde.
+        let accounts = (1...6).map { index in
+            Fixture.account(
+                id: "\(index)",
+                windows: [
+                    Fixture.window(.fiveHour, percent: Double(index) * 10),
+                    Fixture.window(.sevenDay, percent: Double(index) * 3)
+                ]
+            )
+        }
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .bestAccount, now: Fixture.now)
+
+        #expect(display.segments.count == 1)
+        #expect(display.hasMoreAccounts == false)
+        // Und im anderen Modus zeigt derselbe Zustand sehr wohl das „…".
+        #expect(MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now).hasMoreAccounts)
+    }
+
     // MARK: - Die zwei Fenster je Segment
 
     @Test("Je Segment genau 5 h und 7 d, in dieser Reihenfolge")
@@ -330,6 +388,66 @@ struct MenuBarDisplayTests {
             // Und der bindende Punkt trägt genau die bindende Auslastung.
             #expect(segment.binding?.percent == account.bindingPercent)
         }
+    }
+
+    @Test("Ein nicht-endliches verstecktes Fenster bricht die Invariante nicht")
+    func hiddenNonFiniteWindowKeepsInvariant() {
+        // Die gefährliche Richtung: `∞` zieht `bindingPercent` und damit
+        // `overallStatus` auf rot. Ohne Zusatzpunkt zeigte die Leiste zwei
+        // grüne Punkte und behauptete „alles gut", während der Account als rot
+        // gilt. Der Zusatzpunkt trägt deshalb Farbe, aber keine Zahl.
+        let account = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: 10),
+                Fixture.window(.sevenDay, percent: 10),
+                Fixture.window(.scoped(name: "Fable"), percent: .infinity, id: "scoped:0:Fable")
+            ]
+        )
+        let segment = MenuBarDisplay.segment(for: account)
+
+        #expect(account.overallStatus == .red)
+        #expect(segment.values.count == 3)
+        #expect(segment.values[2].reading == .unreadable)
+        #expect(segment.values[2].text == nil)
+        #expect(segment.values[2].status == .red)
+        #expect(worstStatus(in: segment) == account.overallStatus)
+    }
+
+    @Test("Trägt schon ein sichtbarer Punkt die Warnung, kommt kein zweiter dazu")
+    func noSecondUnreadablePoint() {
+        let account = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: .nan),
+                Fixture.window(.sevenDay, percent: 10),
+                Fixture.window(.spend, percent: .infinity)
+            ]
+        )
+        let segment = MenuBarDisplay.segment(for: account)
+
+        #expect(segment.values.count == 2)
+        #expect(segment.values[0].reading == .unreadable)
+        #expect(segment.values[0].status == .red)
+    }
+
+    // MARK: - Anzeigenamen der Fenster
+
+    @Test("Die Fensternamen kommen aus einer einzigen Abbildung")
+    func windowKindNamingIsSingleSource() {
+        // Roh durchgereichte Namen sind ohne Katalog prüfbar — genau sie
+        // dürfen nicht verschluckt werden.
+        #expect(WindowKindNaming.name(for: .scoped(name: "Fable")) == "Fable")
+        #expect(WindowKindNaming.name(for: .other(rawKey: "weird_window")) == "weird_window")
+        #expect(WindowKindNaming.isLocalized(.scoped(name: "Fable")) == false)
+        #expect(WindowKindNaming.isLocalized(.other(rawKey: "weird_window")) == false)
+
+        // Die drei bekannten Arten tragen Katalogschlüssel und bleiben
+        // unterscheidbar — auch ohne geladenen Katalog (dann der Schlüssel).
+        for kind in [LimitWindow.Kind.fiveHour, .sevenDay, .spend] {
+            #expect(WindowKindNaming.isLocalized(kind))
+            #expect(WindowKindNaming.name(for: kind).isEmpty == false)
+        }
+        let known = [LimitWindow.Kind.fiveHour, .sevenDay, .spend].map(WindowKindNaming.name(for:))
+        #expect(Set(known).count == known.count)
     }
 
     @Test("Ein stärker bindendes verstecktes Fenster bekommt einen eigenen Punkt mit Zahl")

@@ -91,14 +91,21 @@ struct MenuBarLabelView: View {
         case .bestAccount:
             parts = display.segments.flatMap { segment in
                 [segment.displayName] + segment.values.map { value in
-                    spoken(name: name(for: value.kind), value: value)
+                    spoken(name: WindowKindNaming.name(for: value.kind), value: value)
                 }
             }
         }
         if display.hasMoreAccounts {
             parts.append(String(localized: "More accounts in the window"))
         }
-        return Text(verbatim: parts.joined(separator: "; "))
+        // Auch das Trennzeichen ist Sprache: Ein hartkodiertes „; " zwischen
+        // lokalisierten Bausteinen wäre die einzige Stelle, die keine
+        // Übersetzung bekäme.
+        let separator = String(
+            localized: "; ",
+            comment: "Trennzeichen zwischen den Abschnitten des Menüleisten-Vorlesetexts"
+        )
+        return Text(verbatim: parts.joined(separator: separator))
     }
 
     /// „Name: 13 %, normal" — Bezeichnung, Wert, Ampelstufe in Worten.
@@ -113,7 +120,10 @@ struct MenuBarLabelView: View {
             text = String(localized: "no data")
         }
         return String(
-            format: String(localized: "%1$@: %2$@, %3$@", comment: "Menüleisten-Vorlesetext: Bezeichnung, Wert, Ampelstufe"),
+            format: String(
+                localized: "%1$@: %2$@, %3$@",
+                comment: "Menüleisten-Vorlesetext: %1$@ = Bezeichnung (Account oder Limitfenster), %2$@ = Wert, %3$@ = Ampelstufe in Worten"
+            ),
             name,
             text,
             description(of: value?.status)
@@ -127,19 +137,6 @@ struct MenuBarLabelView: View {
         case .yellow: return String(localized: "elevated")
         case .red: return String(localized: "critical")
         case nil: return String(localized: "unknown")
-        }
-    }
-
-    /// Bezeichnung eines Limitfensters für den Vorlesetext. `scoped`- und
-    /// unbekannte Fenster tragen Namen aus der Quelle — die sind nicht
-    /// übersetzbar und werden deshalb unverändert gesprochen.
-    private func name(for kind: LimitWindow.Kind) -> String {
-        switch kind {
-        case .fiveHour: return String(localized: "5 hours")
-        case .sevenDay: return String(localized: "7 days")
-        case .spend: return String(localized: "Spend")
-        case .scoped(let name): return name
-        case .other(let rawKey): return rawKey
         }
     }
 }
