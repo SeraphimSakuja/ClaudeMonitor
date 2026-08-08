@@ -98,12 +98,12 @@ public struct MonitoredAccount: Sendable, Codable, Equatable, Identifiable {
     /// rot 95 % zeigen, während das Ranking denselben Account anhand von 10 %
     /// nach vorne sortiert.
     ///
-    /// Die Menüleiste zeigt daneben **je Fenster** einen eigenen Punkt mit
-    /// eigener Zahl (5 h und 7 d); deren Zahl und Farbe stammen aus dem
-    /// jeweiligen ``LimitWindow`` selbst, nicht aus dieser Property. Damit die
-    /// Zusammenfassung trotzdem stimmt, bekommt ein Account, den ein *nicht*
-    /// gezeigtes Fenster stärker bindet, dort einen zusätzlichen Punkt — die
-    /// schlechteste Stufe in der Leiste bleibt so gleich ``overallStatus``.
+    /// Die Menüleiste zeigt je Account **einen** Ampelpunkt und dahinter die
+    /// beiden Zahlen 5 h und 7 d. Die **Zahlen** stammen aus dem jeweiligen
+    /// ``LimitWindow`` selbst, nicht aus dieser Property; die **Farbe des
+    /// Punktes** dagegen ist ``overallStatus`` und damit eine Ableitung von
+    /// hier. Genau deshalb färbt ein versteckter Engpass (`spend`, `scoped`)
+    /// den Punkt rot, obwohl beide sichtbaren Zahlen grün sind.
     ///
     /// Bewusst **alle** Fenster und nicht nur 5h/7d: Ein erschöpftes
     /// Modellkontingent (`scoped`) oder ein ausgeschöpftes Ausgabenbudget

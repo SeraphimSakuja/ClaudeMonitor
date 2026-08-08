@@ -2,12 +2,20 @@ import SwiftUI
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 
-/// Die Kompaktanzeige in der Menüleiste: je Account ein Punkt pro Limitfenster
-/// (5 h und 7 d) mit eigener Farbe und eigener Zahl, Accounts durch `│` getrennt.
+/// Die Kompaktanzeige in der Menüleiste: je Account **ein** Ampelpunkt und
+/// dahinter die beiden Zahlen `5h/7d`, Accounts nur durch Abstand getrennt —
+/// `●74/28  ●97/11  ●0/28`.
 ///
 /// Wie viele Accounts gezeigt werden, entscheidet ``MenuBarMode``. Modus und
 /// Zustand kommen von außen; diese View bildet daraus ``MenuBarDisplay`` und
-/// zeichnet — die Regeln dazu liegen geprüft in `Shared/`.
+/// gibt es an ``MenuBarImageRenderer`` — die Regeln dazu liegen geprüft in
+/// `Shared/`, gezeichnet wird in AppKit.
+///
+/// **Warum ein einziges Bild und kein `HStack`:** Ein `NSStatusItem` hat genau
+/// ein Bild und einen Titel. Mehrere `Image`/`Text` nebeneinander überleben die
+/// Abbildung eines `MenuBarExtra`-Labels darauf nicht — am Gerät blieb von
+/// sechs Werten nur `●74%` stehen. Der Vorlesetext hängt dagegen weiterhin am
+/// Label und ist von der Zeichenweise unberührt.
 ///
 /// Der Modus wird ausdrücklich **nicht** hier per `@AppStorage` gelesen: Ein
 /// `MenuBarExtra`-Label wertet seinen Rumpf bei einer reinen
@@ -19,30 +27,21 @@ struct MenuBarLabelView: View {
     let state: MonitorViewState
     let mode: MenuBarMode
 
+    /// Nötig, weil das Bild **kein** Schablonenbild ist und AppKit den Text
+    /// deshalb nicht mehr selbst einfärbt: Der Zeichner braucht die passende
+    /// Textfarbe, und das Lesen hier sorgt dafür, dass ein Wechsel hell↔dunkel
+    /// den Rumpf überhaupt neu auswertet.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         let display = MenuBarDisplay.make(for: state, mode: mode)
 
-        HStack(spacing: 3) {
-            if display.segments.isEmpty {
-                icon(for: nil)
-            } else {
-                ForEach(Array(display.segments.enumerated()), id: \.element.id) { index, segment in
-                    if index > 0 {
-                        // Ohne `foregroundStyle`: AppKit rendert das Label als
-                        // Schablonenbild, eine gesetzte Farbe ginge verloren
-                        // (siehe ``MenuBarIcon``). Abstufung über die Deckkraft.
-                        Text(verbatim: "│").opacity(0.35)
-                    }
-                    ForEach(segment.values) { value in
-                        point(value)
-                    }
-                }
-            }
-            if display.hasMoreAccounts {
-                Text(verbatim: "…").opacity(0.6)
+        Group {
+            if let image = MenuBarImageRenderer.image(for: display, colorScheme: colorScheme) {
+                Image(nsImage: image)
             }
         }
-        // Ein `NSStatusItem` ist für VoiceOver **ein** Element; einzelne Punkte
+        // Ein `NSStatusItem` ist für VoiceOver **ein** Element; einzelne Werte
         // wären ohnehin nicht einzeln fokussierbar.
         .accessibilityElement(children: .combine)
         // Ohne eigenes Label läse VoiceOver nur die Zahlen und nichts über die
@@ -50,44 +49,37 @@ struct MenuBarLabelView: View {
         .accessibilityLabel(accessibilityLabel(for: display))
     }
 
-    @ViewBuilder private func point(_ value: MenuBarDisplay.WindowValue) -> some View {
-        HStack(spacing: 2) {
-            icon(for: value.status)
-            if let text = value.text {
-                // `verbatim`: bereits fertig formatierte Zahl, keine Übersetzung.
-                Text(verbatim: text)
-                    .font(.system(size: 12, weight: .medium))
-                    .monospacedDigit()
-            }
-        }
-    }
-
-    @ViewBuilder private func icon(for status: StatusLevel?) -> some View {
-        if let image = MenuBarIcon.image(for: status) {
-            Image(nsImage: image)
-        }
-    }
-
     // MARK: - Vorlesetext
 
-    /// Im Modus „alle Accounts" je Account nur Name, bindender Wert und Stufe —
-    /// die Einzelfenster stehen im Detailfenster. Im Modus „nur bester Account"
-    /// beide Fenster, weil dort Platz für die vollständige Aussage ist. Der
-    /// Zusatzpunkt (`spend`/`scoped`) wird in beiden Fällen mitgesprochen: im
-    /// ersten als bindender Wert, im zweiten als eigener Eintrag.
+    /// Im Modus „alle Accounts" je Account Name, bindender Wert und
+    /// **Account-Ampel** — die Einzelfenster stehen im Detailfenster. Im Modus
+    /// „nur bester Account" zusätzlich beide Fenster einzeln, weil dort Platz
+    /// für die vollständige Aussage ist.
+    ///
+    /// Die gesprochene Stufe ist in beiden Fällen ``MenuBarDisplay/AccountSegment/status``
+    /// und nicht die Stufe des genannten Fensters: Genau das ist die Zusage,
+    /// die auch der Punkt trägt — ein zu 95 % erschöpftes Modellkontingent
+    /// macht den Account kritisch, obwohl 5 h und 7 d entspannt sind. Käme die
+    /// Stufe vom Fenster, verschwiege der Vorlesetext, was die Leiste zeigt.
     private func accessibilityLabel(for display: MenuBarDisplay) -> Text {
         guard !display.segments.isEmpty else { return Text("Claude usage: no data") }
 
-        var parts: [String]
-        switch mode {
-        case .allAccounts:
-            parts = display.segments.map { segment in
-                spoken(name: segment.displayName, value: segment.binding)
-            }
-        case .bestAccount:
-            parts = display.segments.flatMap { segment in
-                [segment.displayName] + segment.values.map { value in
-                    spoken(name: WindowKindNaming.name(for: value.kind), value: value)
+        var parts: [String] = display.segments.flatMap { segment -> [String] in
+            let summary = spoken(
+                name: segment.displayName,
+                value: segment.binding,
+                status: segment.status
+            )
+            switch mode {
+            case .allAccounts:
+                return [summary]
+            case .bestAccount:
+                return [summary] + segment.values.map { value in
+                    spoken(
+                        name: WindowKindNaming.name(for: value.kind),
+                        value: value,
+                        status: value.status
+                    )
                 }
             }
         }
@@ -108,7 +100,7 @@ struct MenuBarLabelView: View {
     ///
     /// Ohne Zahl wird ausdrücklich „keine Daten" gesprochen und **nicht** der
     /// Strich aus der Leiste: Ein vorgelesenes „–" ist keine Aussage.
-    private func spoken(name: String, value: MenuBarDisplay.WindowValue?) -> String {
+    private func spoken(name: String, value: MenuBarDisplay.WindowValue?, status: StatusLevel?) -> String {
         let text: String
         if case .percent = value?.reading, let number = value?.text {
             text = number
@@ -122,7 +114,7 @@ struct MenuBarLabelView: View {
             ),
             name,
             text,
-            description(of: value?.status)
+            description(of: status)
         )
     }
 

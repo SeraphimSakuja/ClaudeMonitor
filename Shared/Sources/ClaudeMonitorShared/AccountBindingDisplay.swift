@@ -15,11 +15,12 @@ import ClaudeMonitorCore
 /// Altwerte im Store; die dürfen weder als Zahl noch als grüne Ampel erscheinen.
 ///
 /// Einziger Verwender ist die **Kopfzeile der Account-Karte**. Die Menüleiste
-/// benutzt diesen Typ ausdrücklich *nicht*: Sie zeigt je Fenster einen eigenen
-/// Punkt mit eigener Zahl und leitet ihre Zusammenfassung — auch die für den
-/// Vorlesetext — aus ``MenuBarDisplay/AccountSegment/binding`` ab. Dass beide
-/// Wege zur selben Aussage führen, garantiert nicht dieser Typ, sondern die
-/// Ersatz-Invariante in ``MenuBarDisplay`` (dort Regel 6).
+/// benutzt diesen Typ ausdrücklich *nicht*: Sie zeigt je Account zwei Zahlen
+/// (5 h und 7 d) und dazu **einen** Punkt, dessen Farbe sie mit
+/// ``MonitoredAccount/overallStatus`` aus derselben Property zieht wie dieser
+/// Typ — siehe ``MenuBarDisplay/AccountSegment/status``. Dass beide Wege zur
+/// selben Farbe führen, ist damit keine Zusage über zwei Rechenwege, sondern
+/// ein und dieselbe gelesene Größe.
 public struct AccountBindingDisplay: Equatable, Sendable {
 
     /// Bindende Auslastung; `nil` ⇒ **kein** Wert, kein „0 %".

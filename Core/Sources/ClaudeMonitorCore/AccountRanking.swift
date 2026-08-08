@@ -29,7 +29,9 @@ import Foundation
 ///    Account real unbrauchbar. Und es ist **dieselbe** Größe, aus der die
 ///    Anzeige ihre zusammengefasste Zahl und ihre Ampelfarbe zieht
 ///    (``MonitoredAccount/overallStatus``, gelesen über
-///    `AccountBindingDisplay`). Nur dadurch gilt die Zusage: Der oberste
+///    `AccountBindingDisplay` in der Account-Karte und über
+///    `MenuBarDisplay.AccountSegment.status` für den Punkt in der Menüleiste).
+///    Nur dadurch gilt die Zusage: Der oberste
 ///    Account trägt nie ein rotes Signal, während ein grüner darunter steht.
 ///    Maß und Anzeige messen dasselbe, weil sie dieselbe Property lesen.
 ///

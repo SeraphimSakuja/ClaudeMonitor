@@ -1,10 +1,13 @@
 import Foundation
 import ClaudeMonitorCore
 
-/// Was in der Menüleiste steht: je Account ein Segment, je Segment ein Punkt
-/// **pro Limitfenster** mit eigener Zahl und eigener Ampelfarbe.
+/// Was in der Menüleiste steht: je Account **ein** Segment mit **einem**
+/// Ampelpunkt und den beiden Zahlen `5h/7d` dahinter.
 ///
-/// Zielbild im Modus „alle Accounts": `●13% ●2% │ ●0% ●21% │ ●0% ●28%`.
+/// Zielbild im Modus „alle Accounts": `●74/28  ●97/11  ●0/28`. Accounts sind
+/// nur durch Abstand getrennt — kein Trennstrich, kein `%`-Zeichen: In der
+/// Leiste ist der Platz die knappste Ressource, und dass es Prozente sind,
+/// erklärt das Detailfenster.
 ///
 /// Die Regeln, die hier geprüft festgeschrieben sind:
 ///
@@ -19,44 +22,43 @@ import ClaudeMonitorCore
 ///    `localizedStandardCompare` und kein nacktes `sorted()` auf Kennungen,
 ///    beides hängt an der Locale des Systems. Ein Quellwächter im Core-Paket
 ///    prüft das für dieses Verzeichnis mit.
-/// 3. Gezeigt werden **genau zwei** Fenster in fester Reihenfolge: 5 h, dann
+/// 3. Ein Segment trägt **genau zwei** Zahlen in fester Reihenfolge: 5 h, dann
 ///    7 d. Ausdrücklich nicht „alle Fenster" — ein Max-Abo mit `spend` und
 ///    mehreren `scoped`-Kontingenten machte die Leiste sonst beliebig breit.
-/// 4. **Zahl und Farbe eines Punktes stammen aus demselben ``LimitWindow``**
-///    (``LimitWindow/status``), nicht aus ``MonitoredAccount/overallStatus``.
-///    Sonst stünde ein roter Punkt neben „2 %".
-/// 5. Bindet ein *nicht* gezeigtes Fenster (`spend`, `scoped`, `other`) den
-///    Account stärker als beide sichtbaren, bekommt das Segment **einen**
-///    zusätzlichen Punkt mit Zahl — höchstens einen.
-/// 6. Daraus folgt die Ersatz-Invariante: **Die schlechteste Ampelstufe über
-///    alle Punkte eines Segments ist gleich ``MonitoredAccount/overallStatus``.**
-///    Sie ersetzt die frühere Zusage „Menüleisten-Zahl == `bindingPercent`",
-///    die mit zwei Zahlen pro Account nicht mehr formulierbar ist. Regel 5
-///    existiert genau dafür: Ohne sie zeigte ein Account mit 10 %/10 % und
-///    einem zu 95 % erschöpften Modellkontingent zwei grüne Punkte.
-///    *Grenzfall nicht-endlicher Werte:* Auch ein **verstecktes** Fenster mit
-///    nicht-endlichem Wert bekommt einen Zusatzpunkt — dann ohne Zahl
-///    (``WindowValue/Reading/unreadable``), aber mit konservativ roter Farbe.
-///    Ohne ihn bräche die Invariante in der gefährlichen Richtung: `∞` zieht
-///    ``MonitoredAccount/bindingPercent`` (ein `max`) auf `∞` und damit
-///    ``overallStatus`` auf rot, während die Leiste zwei grüne Punkte zeigte
-///    und „alles gut" behauptete. In der Gegenrichtung (`NaN`, an dem `max`
-///    vorbeiläuft) darf der Punkt strenger sein als die Zusammenfassung —
-///    vorsichtiger zu sein ist die harmlose Richtung.
-/// 7. Ohne verwertbare Daten (`.noData`, `.authDead`) sind **alle** Werte
-///    ``WindowValue/Reading/unavailable``, ``WindowValue/status`` ist `nil`
-///    und es gibt **keinen** Zusatzpunkt. Ein toter Token darf keine
-///    eingefrorenen Altwerte färben.
-/// 8. Fehlt ein Fenster, steht dort „–" mit neutralem Punkt — kein stilles
-///    Weglassen, sonst verschöbe sich die Anzeige je nach Abo-Typ.
-/// 9. Trägt kein Segment irgendeine Aussage, sind ``segments`` leer. Sonst
-///    stünde beim Erststart `● ● │ ● ● │ ● ●` ohne jede Information.
-/// 10. Höchstens ``maximumSegments`` Segmente; darüber die ersten in
+/// 4. **Die Farbe des Punktes ist die Account-Ampel**
+///    (``AccountSegment/status`` = ``MonitoredAccount/overallStatus``), also
+///    die schlechteste Stufe über **alle** Fenster — auch über die nicht
+///    gezeigten `spend`/`scoped`. Damit ist die Zusage aus `b215246` direkt
+///    erfüllt: Ein Account mit 10 %/10 % und einem zu 95 % erschöpften
+///    Modellkontingent zeigt einen **roten** Punkt, obwohl beide sichtbaren
+///    Zahlen grün wären. Ein früherer Zusatzpunkt für versteckte Fenster ist
+///    damit ersatzlos entfallen — er war nur der Umweg zu genau dieser Zusage.
+/// 5. Die **Zahlen** stammen weiterhin aus dem jeweiligen ``LimitWindow``
+///    selbst (``WindowValue``), nicht aus einer Zusammenfassung. Sie sind die
+///    Detailaussage, der Punkt die Gesamtaussage; beide Ebenen dürfen
+///    auseinandergehen und tun es bei einem versteckten Engpass auch.
+/// 6. Ohne verwertbare Daten (`.noData`, `.authDead`) ist ``AccountSegment/status``
+///    `nil` **und** beide Werte sind ``WindowValue/Reading/unavailable``. Ein
+///    toter Token darf weder eingefrorene Altwerte zeigen noch färben.
+/// 7. Fehlt ein Fenster, steht dort „–" — kein stilles Weglassen, sonst
+///    verschöbe sich die Anzeige je nach Abo-Typ. Ein Fenster mit
+///    nicht-endlichem Wert ergibt ``WindowValue/Reading/unreadable``, also
+///    ebenfalls keine Zahl; die Account-Ampel steht dann konservativ auf rot,
+///    weil `∞` ``MonitoredAccount/bindingPercent`` (ein `max`) mitzieht.
+/// 8. Trägt kein Segment irgendeine Aussage, sind ``segments`` leer. Sonst
+///    stünde beim Erststart `●–/– ●–/–` ohne jede Information.
+/// 9. Höchstens ``maximumSegments`` Segmente; darüber die ersten in
 ///    Kennungsordnung plus ``hasMoreAccounts``. Vollständig ist das
 ///    Detailfenster, nicht die Leiste.
+///
+/// Gezeichnet wird das alles im App-Target als **ein einziges** `NSImage`
+/// (`MenuBarImageRenderer`): Ein `NSStatusItem` hat genau ein Bild und einen
+/// Titel; mehrere `Image`/`Text` in einem `MenuBarExtra`-Label überleben die
+/// Abbildung darauf nicht — es blieb nur das erste Paar stehen. Diese Datei
+/// bleibt davon unberührt und framework-frei.
 public struct MenuBarDisplay: Equatable, Sendable {
 
-    /// Ein Punkt in der Leiste: ein Limitfenster eines Accounts.
+    /// Eine Zahl in der Leiste: ein Limitfenster eines Accounts.
     public struct WindowValue: Equatable, Sendable, Identifiable {
 
         /// Was über dieses Fenster bekannt ist.
@@ -80,7 +82,12 @@ public struct MenuBarDisplay: Equatable, Sendable {
         public let kind: LimitWindow.Kind
         /// Was über das Fenster bekannt ist.
         public let reading: Reading
-        /// Ampelstufe **dieses** Fensters; `nil` ⇒ neutraler Punkt.
+        /// Ampelstufe **dieses** Fensters; `nil` ⇒ keine Aussage.
+        ///
+        /// Färbt in der Leiste **nichts** — dort trägt der eine Punkt je
+        /// Account die Account-Ampel (``AccountSegment/status``). Diese Stufe
+        /// ist die Detailaussage: Sie geht in den Vorlesetext ein, der die
+        /// einzelnen Fenster benennt.
         public let status: StatusLevel?
 
         public init(id: String, kind: LimitWindow.Kind, reading: Reading, status: StatusLevel?) {
@@ -105,32 +112,41 @@ public struct MenuBarDisplay: Equatable, Sendable {
             return nil
         }
 
-        /// `true`, wenn dieser Punkt überhaupt etwas aussagt — eine Zahl, ein
-        /// „–" oder wenigstens eine Farbe.
+        /// `true`, wenn dieser Wert überhaupt etwas aussagt — eine Zahl, ein
+        /// „–" oder wenigstens eine Stufe.
         public var isInformative: Bool { text != nil || status != nil }
     }
 
-    /// Ein Account in der Leiste.
+    /// Ein Account in der Leiste: ein Ampelpunkt und zwei Zahlen.
     public struct AccountSegment: Equatable, Sendable, Identifiable {
 
         /// Kennung des Accounts.
         public let id: String
         /// Anzeigename (für den Vorlesetext).
         public let displayName: String
-        /// Die Punkte dieses Accounts in Anzeigereihenfolge.
+        /// **Die Farbe des Punktes** — die Account-Ampel
+        /// (``MonitoredAccount/overallStatus``), also die schlechteste Stufe
+        /// über alle Fenster inklusive der nicht gezeigten `spend`/`scoped`.
+        /// `nil` ⇒ neutraler Punkt, kein verwertbarer Datenstand.
+        public let status: StatusLevel?
+        /// Die beiden Zahlen dieses Accounts in Anzeigereihenfolge (5 h, 7 d).
         public let values: [WindowValue]
 
-        public init(id: String, displayName: String, values: [WindowValue]) {
+        public init(id: String, displayName: String, status: StatusLevel?, values: [WindowValue]) {
             self.id = id
             self.displayName = displayName
+            self.status = status
             self.values = values
         }
 
-        /// Der Punkt, der den Account bindet — der höchste darstellbare Wert.
+        /// Der Wert, der den Account unter den **gezeigten** Fenstern bindet —
+        /// der höchste darstellbare.
         ///
-        /// Das ist genau der Punkt, den der Vorlesetext im Modus „alle
-        /// Accounts" nennt: In der Leiste sieht man alles, vorgelesen wird das
-        /// Entscheidende. Ist ein Zusatzpunkt nach Regel 5 da, ist er es.
+        /// Das ist die Zahl, die der Vorlesetext im Modus „alle Accounts"
+        /// nennt: In der Leiste sieht man beide, vorgelesen wird die
+        /// entscheidende. Die *Stufe* dazu kommt aus ``status`` und nicht von
+        /// hier — sonst verschwiege der Vorlesetext einen versteckten Engpass,
+        /// den der Punkt sichtbar rot färbt.
         public var binding: WindowValue? {
             let withNumbers = values.filter { $0.percent != nil }
             if let peak = withNumbers.max(by: { ($0.percent ?? 0) < ($1.percent ?? 0) }) {
@@ -139,8 +155,30 @@ public struct MenuBarDisplay: Equatable, Sendable {
             return values.first { $0.isInformative }
         }
 
+        /// Die beiden Zahlen als fertige Zeichenkette: `74/28`.
+        ///
+        /// Steht hier und nicht im Zeichner, weil es eine **Anzeigeregel** ist
+        /// und die Widget-Extension später dieselbe braucht — zwei Kopien
+        /// liefen garantiert auseinander.
+        ///
+        /// **Ohne Prozentzeichen** (``PercentFormatting/bare(_:)``): Es käme in
+        /// der Leiste bis zu achtmal vor und kostete Breite, ohne etwas zu
+        /// unterscheiden. Der Vorlesetext und das Detailfenster benutzen
+        /// weiterhin ``WindowValue/text`` **mit** Zeichen — vorgelesen ist „74"
+        /// ohne Einheit keine Aussage.
+        ///
+        /// Ein Wert ohne Zahl wird als „–" gesetzt und **nicht** weggelassen:
+        /// Sonst verschöbe sich die Bedeutung der verbleibenden Zahl (`74`
+        /// hieße mal 5 h, mal 7 d), und ein toter Token sähe aus wie ein
+        /// Account mit nur einem Limit.
+        public var numbersText: String {
+            values
+                .map { $0.percent.flatMap(PercentFormatting.bare) ?? MenuBarDisplay.missingText }
+                .joined(separator: MenuBarDisplay.valueSeparator)
+        }
+
         /// `true`, wenn dieses Segment überhaupt etwas aussagt.
-        public var isInformative: Bool { values.contains(where: \.isInformative) }
+        public var isInformative: Bool { status != nil || values.contains(where: \.isInformative) }
     }
 
     /// Segmente in Anzeigereihenfolge; leer ⇒ nichts anzuzeigen.
@@ -169,8 +207,14 @@ public struct MenuBarDisplay: Equatable, Sendable {
     /// ohne Hinweis darauf, dass etwas fehlt.
     public static let maximumSegments = 4
 
-    /// Platzhalter für ein Fenster, das die Quelle nicht liefert.
+    /// Platzhalter für einen Wert, zu dem es keine Zahl gibt.
     public static let missingText = "–"
+
+    /// Trennt die beiden Zahlen eines Accounts: `74/28`.
+    public static let valueSeparator = "/"
+
+    /// Hinweis auf Accounts, die nicht mehr in die Leiste passen.
+    public static let overflowText = "…"
 
     /// Leere Anzeige — neutrales Symbol, keine erfundene Zahl.
     public static let unavailable = MenuBarDisplay(segments: [])
@@ -196,7 +240,7 @@ public struct MenuBarDisplay: Equatable, Sendable {
             chosen = ranked.sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
         }
 
-        // Regel 9 wird über **alle** gewählten Accounts geprüft, nicht erst
+        // Regel 8 wird über **alle** gewählten Accounts geprüft, nicht erst
         // über die vier gezeigten: Wären die ersten vier in Kennungsordnung
         // datenlos und der fünfte hätte Werte, kollabierte sonst die ganze
         // Leiste — samt `hasMoreAccounts == false`. Die Accounts mit echten
@@ -210,79 +254,43 @@ public struct MenuBarDisplay: Equatable, Sendable {
 
     /// Bildet das Segment eines einzelnen Accounts.
     ///
-    /// Öffentlich, damit die Regeln 3–8 einzeln prüfbar sind; die
-    /// Kollaps-Regel 9 steckt dagegen in ``make(for:mode:now:)``.
+    /// Öffentlich, damit die Regeln 3–7 einzeln prüfbar sind; die
+    /// Kollaps-Regel 8 steckt dagegen in ``make(for:mode:now:)``.
     public static func segment(for account: MonitoredAccount) -> AccountSegment {
         guard account.hasUsableData else {
-            // Regel 7: keine Zahl, keine Farbe, kein Zusatzpunkt.
+            // Regel 6: keine Zahl, keine Farbe. `overallStatus` ist hier
+            // ohnehin `nil`; die Werte müssen es ausdrücklich auch sein.
             return AccountSegment(
                 id: account.id,
                 displayName: account.displayName,
+                status: nil,
                 values: visibleKinds.map {
                     WindowValue(id: $0.rawKey, kind: $0, reading: .unavailable, status: nil)
                 }
             )
         }
 
-        var values = visibleKinds.map { kind in value(of: kind, in: account) }
-        if let extra = bindingExtra(for: account, shown: values) {
-            values.append(extra)
-        }
-        return AccountSegment(id: account.id, displayName: account.displayName, values: values)
+        return AccountSegment(
+            id: account.id,
+            displayName: account.displayName,
+            // Regel 4: die Account-Ampel, gelesen statt nachgebaut — nur so
+            // schlägt ein versteckter `spend`/`scoped`-Engpass auf den Punkt
+            // durch.
+            status: account.overallStatus,
+            values: visibleKinds.map { kind in value(of: kind, in: account) }
+        )
     }
 
     /// Ein sichtbares Fenster eines Accounts mit verwertbaren Daten.
     private static func value(of kind: LimitWindow.Kind, in account: MonitoredAccount) -> WindowValue {
         guard let window = account.window(kind: kind) else {
-            // Regel 8: fehlendes Fenster ist eine Aussage, kein Weglassen.
+            // Regel 7: fehlendes Fenster ist eine Aussage, kein Weglassen.
             return WindowValue(id: kind.rawKey, kind: kind, reading: .missing, status: nil)
         }
-        // Regel 4: Farbe aus genau diesem Fenster.
+        // Regel 5: Zahl und Detailstufe aus genau diesem Fenster.
         guard window.percent.isFinite else {
             return WindowValue(id: window.id, kind: kind, reading: .unreadable, status: window.status)
         }
         return WindowValue(id: window.id, kind: kind, reading: .percent(window.percent), status: window.status)
-    }
-
-    /// Regel 5: der zusätzliche Punkt für ein nicht gezeigtes Fenster, das den
-    /// Account stärker bindet als beide sichtbaren.
-    ///
-    /// Ein nicht-endliches verstecktes Fenster bekommt den Zusatzpunkt ohne
-    /// Zahl (``WindowValue/Reading/unreadable``), aber mit konservativer Farbe.
-    /// Es einfach zu überspringen bräche die Ersatz-Invariante in der
-    /// gefährlichen Richtung: `∞` zieht ``MonitoredAccount/bindingPercent``
-    /// und damit ``MonitoredAccount/overallStatus`` auf rot, während die Leiste
-    /// zwei grüne Punkte zeigte. Trägt bereits ein sichtbarer Punkt diese
-    /// Warnung, genügt sie — ein zweiter Punkt ohne Zahl sagte nichts dazu.
-    private static func bindingExtra(
-        for account: MonitoredAccount,
-        shown: [WindowValue]
-    ) -> WindowValue? {
-        let hidden = account.windows.filter { !visibleKinds.contains($0.kind) }
-
-        if shown.allSatisfy({ $0.reading != .unreadable }),
-           let broken = hidden.first(where: { !$0.percent.isFinite }) {
-            return WindowValue(
-                id: broken.id,
-                kind: broken.kind,
-                reading: .unreadable,
-                status: broken.status
-            )
-        }
-
-        let candidate = hidden
-            .filter { $0.percent.isFinite }
-            .max { $0.percent < $1.percent }
-
-        guard let candidate else { return nil }
-        if let shownPeak = shown.compactMap(\.percent).max(), candidate.percent <= shownPeak {
-            return nil
-        }
-        return WindowValue(
-            id: candidate.id,
-            kind: candidate.kind,
-            reading: .percent(candidate.percent),
-            status: candidate.status
-        )
     }
 }

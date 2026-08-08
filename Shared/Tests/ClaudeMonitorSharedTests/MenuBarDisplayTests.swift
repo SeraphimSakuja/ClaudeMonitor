@@ -9,13 +9,6 @@ struct MenuBarDisplayTests {
 
     // MARK: - Helfer
 
-    /// Schlechteste Ampelstufe über alle Punkte eines Segments; `nil`, wenn
-    /// kein Punkt eine Farbe trägt.
-    private func worstStatus(in segment: MenuBarDisplay.AccountSegment) -> StatusLevel? {
-        let ranks: [StatusLevel: Int] = [.green: 0, .yellow: 1, .red: 2]
-        return segment.values.compactMap(\.status).max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) }
-    }
-
     private func state(_ accounts: [MonitoredAccount]) -> MonitorViewState {
         MonitorViewState(snapshot: Fixture.snapshot(accounts), isLoading: false)
     }
@@ -79,10 +72,12 @@ struct MenuBarDisplayTests {
         }
     }
 
-    @Test("Zahl und Farbe eines Punktes stammen aus demselben Fenster, nicht vom Account")
-    func everyPointReadsItsOwnWindow() {
-        // Der Account ist insgesamt rot (7 d bei 90). Der 5-h-Punkt muss
-        // trotzdem grün bleiben — sonst stünde ein roter Punkt neben „10 %".
+    @Test("Zahl und Detailstufe eines Wertes stammen aus demselben Fenster, nicht vom Account")
+    func everyValueReadsItsOwnWindow() {
+        // Der Account ist insgesamt rot (7 d bei 90) — der Punkt der Leiste ist
+        // es also. Die *Detail*stufe des 5-h-Wertes muss trotzdem grün bleiben:
+        // Aus ihr spricht der Vorlesetext, und dort stünde sonst „kritisch"
+        // neben „10 %".
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: 10),
@@ -92,6 +87,7 @@ struct MenuBarDisplayTests {
         let segment = MenuBarDisplay.segment(for: account)
 
         #expect(account.overallStatus == .red)
+        #expect(segment.status == .red)
         #expect(segment.values[0].text == "10%")
         #expect(segment.values[0].status == .green)
         #expect(segment.values[1].text == "90%")
@@ -113,6 +109,7 @@ struct MenuBarDisplayTests {
 
         // In der Leiste ebenso: weder Zahl noch Farbe, ausdrücklich kein „0 %".
         let segment = MenuBarDisplay.segment(for: account)
+        #expect(segment.status == nil)
         #expect(segment.values.allSatisfy { $0.reading == .unavailable })
         #expect(segment.values.allSatisfy { $0.text == nil })
         #expect(segment.values.allSatisfy { $0.status == nil })
@@ -143,7 +140,10 @@ struct MenuBarDisplayTests {
 
         let segment = MenuBarDisplay.segment(for: account)
         #expect(segment.values.allSatisfy { $0.text == nil })
-        // Regel 7: nirgends eine Farbe — und kein Zusatzpunkt für die 95 %.
+        // Regel 6: nirgends eine Farbe. Insbesondere färben die 95 % des
+        // versteckten Fensters den Punkt **nicht** — sonst zeigte ein toter
+        // Token eine Ampel zu eingefrorenen Altwerten.
+        #expect(segment.status == nil)
         #expect(segment.values.allSatisfy { $0.status == nil })
         #expect(segment.values.count == MenuBarDisplay.visibleKinds.count)
         #expect(segment.values.contains { $0.kind == .scoped(name: "Fable") } == false)
@@ -173,7 +173,7 @@ struct MenuBarDisplayTests {
 
     @Test("Nur datenlose Accounts ⇒ leere Leiste statt stummer Punkte")
     func allWithoutDataCollapsesToNothing() {
-        // Ohne diese Regel stünde beim Erststart `● ● │ ● ●` ohne jede Aussage.
+        // Ohne diese Regel stünde beim Erststart `●–/– ●–/–` ohne jede Aussage.
         let accounts = [
             Fixture.account(id: "1", windows: [], fetchedAt: nil, state: .noData),
             Fixture.account(id: "2", windows: [Fixture.window(.fiveHour, percent: 7)], state: .authDead(strikes: 1))
@@ -316,7 +316,7 @@ struct MenuBarDisplayTests {
     @Test("Je Segment genau 5 h und 7 d, in dieser Reihenfolge")
     func exactlyTwoWindowsInFixedOrder() {
         // Der Account hat vier Fenster; in der Leiste stehen trotzdem nur die
-        // beiden festgelegten (der `spend`-Zusatzpunkt bindet hier nicht).
+        // beiden festgelegten.
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: 30),
@@ -331,7 +331,64 @@ struct MenuBarDisplayTests {
         #expect(segment.values.map(\.text) == ["30%", "40%"])
     }
 
-    @Test("Fehlendes Fenster ergibt „–“ mit neutralem Punkt")
+    @Test("Die Zahlen stehen als „5h/7d“ zusammen — ein Wert ohne Zahl wird zu „–“")
+    func numbersTextKeepsBothSlots() {
+        let complete = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: 74),
+                Fixture.window(.sevenDay, percent: 28)
+            ]
+        )
+        // Ohne Prozentzeichen — es käme in der Leiste bis zu achtmal vor.
+        #expect(MenuBarDisplay.segment(for: complete).numbersText == "74/28")
+        #expect(MenuBarDisplay.segment(for: complete).numbersText.contains("%") == false)
+        // Der Vorlesetext benutzt weiterhin die Fassung **mit** Zeichen.
+        #expect(MenuBarDisplay.segment(for: complete).values.map(\.text) == ["74%", "28%"])
+
+        // Fehlt 7 d, bleibt der Platz stehen. Würde er weggelassen, hieße „74"
+        // mal 5 h und mal 7 d — zwei Bedeutungen für dieselbe Stelle.
+        let partial = Fixture.account(windows: [Fixture.window(.fiveHour, percent: 74)])
+        #expect(MenuBarDisplay.segment(for: partial).numbersText == "74/–")
+
+        // Unlesbarer Wert ebenso: Platz halten, keine Zahl erfinden.
+        let broken = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: .infinity),
+                Fixture.window(.sevenDay, percent: 28)
+            ]
+        )
+        #expect(MenuBarDisplay.segment(for: broken).numbersText == "–/28")
+
+        // Toter Token: beide Plätze leer, ausdrücklich kein „0 %".
+        let dead = Fixture.account(
+            windows: [Fixture.window(.fiveHour, percent: 74)],
+            state: .authDead(strikes: 1)
+        )
+        #expect(MenuBarDisplay.segment(for: dead).numbersText == "–/–")
+        #expect(MenuBarDisplay.segment(for: dead).numbersText.contains("74") == false)
+        #expect(MenuBarDisplay.segment(for: dead).numbersText.contains("0") == false)
+    }
+
+    @Test("Die Reihenfolge 5 h, 7 d hängt nicht an der Reihenfolge in der Quelle")
+    func windowOrderIsFixedNotSourceOrder() {
+        // Der Store liefert die Fenster hier in umgekehrter Reihenfolge. Würde
+        // sie durchgereicht, stünde in der Leiste `40/30` statt `30/40` — zwei
+        // plausible Zahlen mit vertauschter Bedeutung, das Schlimmste.
+        let account = Fixture.account(
+            windows: [
+                Fixture.window(.sevenDay, percent: 40),
+                Fixture.window(.fiveHour, percent: 30)
+            ]
+        )
+        let segment = MenuBarDisplay.segment(for: account)
+
+        #expect(segment.values.count == 2)
+        #expect(segment.values.map(\.kind) == MenuBarDisplay.visibleKinds)
+        #expect(segment.values.map(\.kind) == [.fiveHour, .sevenDay])
+        #expect(segment.values.map(\.text) == ["30%", "40%"])
+    }
+
+    @Test("Fehlendes Fenster ergibt „–“ statt einer erfundenen Zahl")
     func missingWindowIsShownAsDash() {
         let account = Fixture.account(windows: [Fixture.window(.fiveHour, percent: 13)])
         let segment = MenuBarDisplay.segment(for: account)
@@ -345,8 +402,8 @@ struct MenuBarDisplayTests {
         #expect(segment.values[1].text != "0%")
     }
 
-    @Test("Nicht-endlicher Wert ergibt keine Zahl, aber eine konservative Farbe")
-    func nonFiniteValueKeepsColorWithoutNumber() {
+    @Test("Nicht-endlicher Wert ergibt keine Zahl, aber eine konservative Stufe")
+    func nonFiniteValueKeepsLevelWithoutNumber() {
         for percent in [Double.nan, .infinity] {
             let account = Fixture.account(
                 windows: [
@@ -363,14 +420,43 @@ struct MenuBarDisplayTests {
         }
     }
 
-    // MARK: - Ersatz-Invariante und Zusatzpunkt
+    // MARK: - Der Punkt trägt die Account-Ampel
 
-    @Test("Die schlechteste Stufe eines Segments ist der Gesamtstatus des Accounts")
-    func worstPointEqualsOverallStatus() {
-        // Ersetzt die frühere Zusage „Menüleisten-Zahl == bindingPercent", die
-        // mit zwei Zahlen pro Account nicht mehr formulierbar ist. Der Fall
-        // aus `b215246` darf nicht zurückkommen: Anzeige und Ranking messen
-        // dasselbe.
+    @Test("Ein verstecktes Fenster färbt den Punkt rot, obwohl beide Zahlen grün sind")
+    func hiddenWindowTurnsTheDotRedWhileBothNumbersAreGreen() {
+        // **Die Zusage aus `b215246`, tautologiefrei.** Ein Test, der bloß
+        // `segment.status == account.overallStatus` prüft, ist seit dem Umbau
+        // eine Gleichung mit sich selbst und bewiese hier nichts: Er bliebe
+        // grün, wenn `status` aus einem der sichtbaren Fenster käme, solange
+        // nur `overallStatus` mitliefe. Deshalb stehen hier feste Zahlen.
+        //
+        // Früher leistete das ein Zusatzpunkt für versteckte Fenster; er ist
+        // ersatzlos entfallen, weil der eine Punkt jetzt direkt die
+        // Account-Ampel trägt. Die Zusage selbst darf nicht mitentfallen.
+        let account = Fixture.account(
+            windows: [
+                Fixture.window(.fiveHour, percent: 10),
+                Fixture.window(.sevenDay, percent: 10),
+                Fixture.window(.scoped(name: "Fable"), percent: 95, id: "scoped:0:Fable"),
+                Fixture.window(.scoped(name: "Opus"), percent: 40, id: "scoped:1:Opus")
+            ]
+        )
+        let segment = MenuBarDisplay.segment(for: account)
+
+        // Beide **sichtbaren** Fenster sind unstrittig grün …
+        #expect(segment.values.map(\.text) == ["10%", "10%"])
+        #expect(segment.values.map(\.status) == [.green, .green])
+        // … und der Punkt ist trotzdem rot.
+        #expect(segment.status == .red)
+        // Die Leiste wächst dadurch nicht: weiterhin genau zwei Zahlen.
+        #expect(segment.values.count == 2)
+        #expect(segment.values.contains { $0.kind == .scoped(name: "Fable") } == false)
+    }
+
+    @Test("Die Farbe des Punktes ist der Gesamtstatus des Accounts")
+    func dotEqualsOverallStatus() {
+        // Die Gleichung — sie hält Anzeige und Ranking auf demselben Maß, kann
+        // den Fall oben aber nicht ersetzen.
         let cases: [[LimitWindow]] = [
             [Fixture.window(.fiveHour, percent: 10), Fixture.window(.sevenDay, percent: 10),
              Fixture.window(.scoped(name: "Fable"), percent: 95, id: "scoped:0:Fable")],
@@ -384,18 +470,19 @@ struct MenuBarDisplayTests {
             let account = Fixture.account(windows: windows)
             let segment = MenuBarDisplay.segment(for: account)
 
-            #expect(worstStatus(in: segment) == account.overallStatus)
-            // Und der bindende Punkt trägt genau die bindende Auslastung.
-            #expect(segment.binding?.percent == account.bindingPercent)
+            #expect(segment.status == account.overallStatus)
+            #expect(segment.status != nil)
+            // Und die Leiste bleibt schmal, egal wie viele Fenster es gibt.
+            #expect(segment.values.count == 2)
         }
     }
 
-    @Test("Ein nicht-endliches verstecktes Fenster bricht die Invariante nicht")
-    func hiddenNonFiniteWindowKeepsInvariant() {
-        // Die gefährliche Richtung: `∞` zieht `bindingPercent` und damit
-        // `overallStatus` auf rot. Ohne Zusatzpunkt zeigte die Leiste zwei
-        // grüne Punkte und behauptete „alles gut", während der Account als rot
-        // gilt. Der Zusatzpunkt trägt deshalb Farbe, aber keine Zahl.
+    @Test("Ein nicht-endliches verstecktes Fenster färbt den Punkt rot, ohne eine Zahl zu erfinden")
+    func hiddenNonFiniteWindowStillColorsTheDot() {
+        // Die gefährliche Richtung: `∞` zieht `bindingPercent` (ein `max`) und
+        // damit `overallStatus` auf rot. Zeigte die Leiste dazu zwei grüne
+        // Zahlen und einen grünen Punkt, behauptete sie „alles gut". Der Punkt
+        // muss rot sein — eine Zahl darf daraus trotzdem nicht entstehen.
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: 10),
@@ -406,15 +493,13 @@ struct MenuBarDisplayTests {
         let segment = MenuBarDisplay.segment(for: account)
 
         #expect(account.overallStatus == .red)
-        #expect(segment.values.count == 3)
-        #expect(segment.values[2].reading == .unreadable)
-        #expect(segment.values[2].text == nil)
-        #expect(segment.values[2].status == .red)
-        #expect(worstStatus(in: segment) == account.overallStatus)
+        #expect(segment.status == .red)
+        #expect(segment.values.count == 2)
+        #expect(segment.values.map(\.text) == ["10%", "10%"])
     }
 
-    @Test("Trägt schon ein sichtbarer Punkt die Warnung, kommt kein zweiter dazu")
-    func noSecondUnreadablePoint() {
+    @Test("Ein unlesbares sichtbares Fenster kostet die Zahl, nicht die Ampel")
+    func unreadableVisibleWindowKeepsTheDot() {
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: .nan),
@@ -426,7 +511,10 @@ struct MenuBarDisplayTests {
 
         #expect(segment.values.count == 2)
         #expect(segment.values[0].reading == .unreadable)
+        #expect(segment.values[0].text == nil)
         #expect(segment.values[0].status == .red)
+        #expect(segment.values[1].text == "10%")
+        #expect(segment.status == .red)
     }
 
     // MARK: - Anzeigenamen der Fenster
@@ -450,29 +538,28 @@ struct MenuBarDisplayTests {
         #expect(Set(known).count == known.count)
     }
 
-    @Test("Ein stärker bindendes verstecktes Fenster bekommt einen eigenen Punkt mit Zahl")
-    func hiddenBinderGetsItsOwnPoint() {
+    @Test("Auch viele versteckte Fenster ändern nichts an Breite und Kennungen")
+    func hiddenWindowsNeverWidenTheSegment() {
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: 10),
                 Fixture.window(.sevenDay, percent: 10),
                 Fixture.window(.scoped(name: "Fable"), percent: 95, id: "scoped:0:Fable"),
-                Fixture.window(.scoped(name: "Opus"), percent: 40, id: "scoped:1:Opus")
+                Fixture.window(.scoped(name: "Opus"), percent: 40, id: "scoped:1:Opus"),
+                Fixture.window(.spend, percent: 60)
             ]
         )
         let segment = MenuBarDisplay.segment(for: account)
 
-        // Höchstens **einer** — sonst wüchse die Leiste mit jedem Kontingent.
-        #expect(segment.values.count == 3)
-        #expect(segment.values[2].kind == .scoped(name: "Fable"))
-        #expect(segment.values[2].text == "95%")
-        #expect(segment.values[2].status == .red)
-        // Eindeutige Kennungen, sonst wird `ForEach` undefiniert.
+        // Der frühere Zusatzpunkt wuchs die Leiste; jetzt bleibt sie fest.
+        #expect(segment.values.map(\.kind) == [.fiveHour, .sevenDay])
+        #expect(segment.status == .red)
+        // Eindeutige Kennungen — die Werte sind `Identifiable`.
         #expect(Set(segment.values.map(\.id)).count == segment.values.count)
     }
 
-    @Test("Kein Zusatzpunkt, wenn die sichtbaren Fenster ohnehin binden")
-    func noExtraPointWhenVisibleWindowsBind() {
+    @Test("Binden die sichtbaren Fenster ohnehin, bleibt der Punkt bei ihrer Stufe")
+    func visibleWindowsDriveTheDotWhenTheyBind() {
         let account = Fixture.account(
             windows: [
                 Fixture.window(.fiveHour, percent: 80),
@@ -483,7 +570,8 @@ struct MenuBarDisplayTests {
         let segment = MenuBarDisplay.segment(for: account)
 
         #expect(segment.values.count == 2)
-        #expect(worstStatus(in: segment) == account.overallStatus)
+        #expect(segment.status == .red)
+        #expect(segment.status == account.overallStatus)
     }
 
     // MARK: - Ranking-Ebene
@@ -550,6 +638,18 @@ struct MenuBarDisplayTests {
         #expect(PercentFormatting.compact(.nan) == nil)
         #expect(PercentFormatting.compact(.infinity) == nil)
         #expect(PercentFormatting.compact(-5) == "0%")
+    }
+
+    @Test("Die Fassung ohne Prozentzeichen rundet und klemmt identisch")
+    func bareFormattingMatchesCompact() {
+        // Zwei Formatierer sind zwei Rundungen; die Leiste dürfte nie eine
+        // andere Zahl zeigen als das Fenster.
+        for percent in [0, 49.4, 49.5, 100, -5, 5000] as [Double] {
+            #expect(PercentFormatting.bare(percent).map { $0 + "%" } == PercentFormatting.compact(percent))
+        }
+        #expect(PercentFormatting.bare(49.5) == "50")
+        #expect(PercentFormatting.bare(.nan) == nil)
+        #expect(PercentFormatting.bare(.infinity) == nil)
     }
 
     @Test("Fortschrittsanteil bleibt zwischen 0 und 1")
