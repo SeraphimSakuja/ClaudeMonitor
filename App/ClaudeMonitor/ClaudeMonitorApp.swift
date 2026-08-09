@@ -12,6 +12,10 @@ struct ClaudeMonitorApp: App {
     // Szene erzeugt und besitzt ihn nicht — `@StateObject` würde genau das
     // behaupten.
     @ObservedObject private var monitor = UsageMonitor.shared
+    // Aus demselben Grund `@ObservedObject`: Der Update-Controller ist der
+    // schwach gehaltene Delegat des Sparkle-Updaters und muss so lange leben
+    // wie der Prozess. Die Szene besitzt ihn nicht.
+    @ObservedObject private var updates = UpdateController.shared
 
     /// Der gewählte Anzeigemodus — bewusst **hier** in der Szene und nicht in
     /// `MenuBarLabelView`.
@@ -33,6 +37,7 @@ struct ClaudeMonitorApp: App {
         MenuBarExtra {
             MonitorPopoverView()
                 .environmentObject(monitor)
+                .environmentObject(updates)
         } label: {
             // Die Leiste bekommt Zustand und Modus, nicht die fertige Anzeige —
             // die Anzeigeregeln liegen geprüft in `Shared/`.
@@ -54,9 +59,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UsageMonitor.shared.start()
+        // Hier und nicht in einer View: Der Updater muss auch dann laufen,
+        // wenn das Detailfenster nie geöffnet wird — sonst fände keine
+        // geplante Prüfung statt.
+        UpdateController.shared.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         UsageMonitor.shared.stop()
+        // Räumt eine noch offene Update-Sitzung ab, damit die App nicht mit
+        // Dock-Symbol und Abzeichen aus dem Leben scheidet.
+        UpdateController.shared.applicationWillTerminate()
     }
 }

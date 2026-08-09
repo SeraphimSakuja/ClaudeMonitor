@@ -10,6 +10,11 @@ struct MonitorPopoverView: View {
 
     @EnvironmentObject private var monitor: UsageMonitor
 
+    /// Die Sparkle-Anbindung. Kommt von außen als `@EnvironmentObject`, weil
+    /// sie prozesslang lebt — sie hier zu erzeugen, hieße den Updater an die
+    /// Lebensdauer dieses Fensters zu koppeln.
+    @EnvironmentObject private var updates: UpdateController
+
     /// Dieselbe Einstellung, die ``MenuBarLabelView`` liest — bewusst als
     /// `String`, damit die Umschlüsselung unbekannter Werte an genau einer
     /// Stelle sitzt (``MenuBarMode/init(storedValue:)``). Eine `Settings`-Scene
@@ -38,6 +43,7 @@ struct MonitorPopoverView: View {
             Divider()
             modeRow
             loginItemRow
+            updateRow
             footer
         }
         .padding(12)
@@ -179,8 +185,52 @@ struct MonitorPopoverView: View {
         }
     }
 
+    /// Update-Bedienung: automatische Prüfung an/aus und die manuelle Prüfung.
+    ///
+    /// Untereinander und nicht nebeneinander: Das Fenster ist auf 320 pt
+    /// festgelegt, und „Automatisch prüfen" plus „Nach Updates suchen…" passen
+    /// in dieser Breite nicht in eine Zeile, ohne dass einer der beiden Texte
+    /// abgeschnitten wird.
+    private var updateRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Wie beim Anmeldeobjekt ein ausgeschriebenes `Binding` statt
+            // `$updates…`: Geschrieben wird in Sparkle, gelesen aus dem
+            // Spiegel, der Sparkle über KVO folgt — beides derselbe Weg wie
+            // beim Anmeldeobjekt, das ebenfalls nur das System spiegelt.
+            Toggle(isOn: Binding(
+                get: { updates.automaticallyChecksForUpdates },
+                set: { updates.setAutomaticallyChecksForUpdates($0) }
+            )) {
+                Text("Check automatically").font(.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            Button {
+                updates.checkForUpdates()
+            } label: {
+                Text("Check for updates…").font(.caption2)
+            }
+            .buttonStyle(.link)
+            // Sparkle verbietet die Prüfung, solange eine läuft oder eine
+            // Installation aussteht. Der Zustand kommt aus einem
+            // `@Published`-Spiegel — direkt auf die Sparkle-Eigenschaft
+            // gebunden bliebe der Knopf nach der ersten Prüfung dauerhaft grau.
+            .disabled(!updates.canCheckForUpdates)
+        }
+    }
+
     private var footer: some View {
         HStack {
+            // Mit automatischen Updates ist das die einzige Stelle, an der
+            // Nutzer und Support feststellen können, welche Fassung läuft —
+            // und der Beleg dafür, dass ein Update tatsächlich angekommen ist.
+            // `verbatim`: zusammengesetzte Bundle-Werte, kein
+            // Lokalisierungsschlüssel.
+            Text(verbatim: bundleVersionText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
             if let capturedAt = monitor.state.snapshot?.capturedAt {
                 Text("Checked \(capturedAt, style: .relative) ago")
                     .font(.caption2)
@@ -196,6 +246,16 @@ struct MonitorPopoverView: View {
             }
             .keyboardShortcut("q")
         }
+    }
+
+    /// „1.0 (1)" — Marketing-Version und Build-Nummer. Beide zusammen, weil
+    /// zwischen zwei Testfassungen nur die Build-Nummer steigt und die
+    /// Marketing-Version allein dort nichts unterscheidet.
+    private var bundleVersionText: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
     }
 }
 

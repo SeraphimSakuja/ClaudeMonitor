@@ -180,6 +180,42 @@
         }
       }
     },
+    "Check automatically" : {
+      "comment" : "Schalter im Detailfenster: automatische Suche nach Updates",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch prüfen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check automatically"
+          }
+        }
+      }
+    },
+    "Check for updates…" : {
+      "comment" : "Knopf im Detailfenster: Suche nach Updates von Hand anstoßen",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nach Updates suchen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for updates…"
+          }
+        }
+      }
+    },
     "Checked %@ ago" : {
       "comment" : "Alter des zuletzt gelesenen Snapshots, %@ = laufende Zeitangabe",
       "extractionState" : "manual",
