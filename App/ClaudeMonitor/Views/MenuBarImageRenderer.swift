@@ -124,6 +124,12 @@ enum MenuBarImageRenderer {
         let markers = display.segments.map { segment in
             segment.markerText.map { attributed($0, color: palette.label, font: activeFont) }
         }
+        // Die Restzeit steht gedämpft hinter den Zahlen: Sie ist die Zusatz-,
+        // nicht die Hauptaussage — und ob sie überhaupt dasteht, entscheidet
+        // die Rollenauswahl in `Shared/`, nicht der Zeichner.
+        let resets = display.segments.map { segment in
+            segment.resetText.map { attributed($0, color: palette.dimmedLabel, font: font) }
+        }
         let overflow = display.hasMoreAccounts
             ? attributed(MenuBarDisplay.overflowText, color: palette.dimmedLabel, font: font)
             : nil
@@ -137,13 +143,17 @@ enum MenuBarImageRenderer {
             guard let marker else { return 0 }
             return marker.size().width + markerGap
         }
+        let resetWidths = resets.map { reset -> CGFloat in
+            guard let reset else { return 0 }
+            return dotTextGap + reset.size().width
+        }
         let dotColors = display.segments.map { $0.status.map(palette.status) ?? palette.neutralDot }
 
         let height = NSStatusBar.system.thickness
         var width = horizontalInset * 2
         for (index, textWidth) in widths.enumerated() {
             if index > 0 { width += segmentGap }
-            width += markerWidths[index] + dotDiameter + dotTextGap + textWidth
+            width += markerWidths[index] + dotDiameter + dotTextGap + textWidth + resetWidths[index]
         }
         let overflowWidth = overflow.map { $0.size().width }
         if let overflowWidth { width += segmentGap + overflowWidth }
@@ -172,6 +182,14 @@ enum MenuBarImageRenderer {
 
                 draw(text, at: x, height: height)
                 x += widths[index]
+
+                if let reset = resets[index] {
+                    // `resetWidths` enthält den Abstand bereits — hier nicht
+                    // noch einmal addieren, sonst liefe die letzte Zeile aus
+                    // dem gemessenen Bild heraus.
+                    draw(reset, at: x + dotTextGap, height: height)
+                    x += resetWidths[index]
+                }
             }
             if let overflow {
                 x += segmentGap

@@ -12,17 +12,15 @@ import ClaudeMonitorCore
 ///
 /// Die Regeln, die hier geprüft festgeschrieben sind:
 ///
-/// 1. ``MenuBarMode/bestAccount`` ⇒ höchstens **ein** Segment (der gerankte
-///    erste Account), ``MenuBarMode/allAccounts`` ⇒ alle Accounts.
-/// 2. Die Reihenfolge im Modus „alle" ist die **Kennungsordnung**
-///    (``AccountIdentifierOrder``), nicht das Ranking: Die Position eines
-///    Accounts in der Leiste muss lernbar bleiben und darf nicht springen, nur
-///    weil sich ein Prozentwert geändert hat. Das Ranking bleibt zuständig für
-///    das Detailfenster und für die Auswahl im Modus „nur bester Account".
-///    Sortiert wird ausschließlich über ``AccountIdentifierOrder`` — kein
-///    `localizedStandardCompare` und kein nacktes `sorted()` auf Kennungen,
-///    beides hängt an der Locale des Systems. Ein Quellwächter im Core-Paket
-///    prüft das für dieses Verzeichnis mit.
+/// 1. ``MenuBarMode/activeAccount`` ⇒ genau **ein** Segment (der aktive
+///    Account, ersatzweise der gerankte erste), ``MenuBarMode/overview`` ⇒ ein
+///    bis drei Segmente nach Rolle.
+/// 2. **Welche** Accounts gezeigt werden und in welcher Reihenfolge, entscheidet
+///    ausschließlich ``MenuBarRoleSelection`` — aktiv, bester, frühester Reset.
+///    Die Reihenfolge ist fest und hängt nicht an Zahlen: Die Position eines
+///    Accounts muss lernbar bleiben und darf nicht springen, nur weil sich ein
+///    Prozentwert geändert hat. Diese Datei sortiert selbst **nichts**; die
+///    stabile Kennungsordnung als Gleichstands-Entscheid liegt dort.
 /// 3. Ein Segment trägt **genau zwei** Zahlen in fester Reihenfolge: 5 h, dann
 ///    7 d. Ausdrücklich nicht „alle Fenster" — ein Max-Abo mit `spend` und
 ///    mehreren `scoped`-Kontingenten machte die Leiste sonst beliebig breit.
@@ -48,11 +46,21 @@ import ClaudeMonitorCore
 ///    weil ``MonitoredAccount/bindingPercent`` bei *irgendeinem*
 ///    nicht-endlichen Fenster selbst nicht-endlich wird — unabhängig davon,
 ///    an welcher Stelle dieses Fenster steht.
-/// 8. Trägt kein Segment irgendeine Aussage, sind ``segments`` leer. Sonst
-///    stünde beim Erststart `●–/– ●–/–` ohne jede Information.
-/// 9. Höchstens ``maximumSegments`` Segmente; darüber die ersten in
-///    Kennungsordnung plus ``hasMoreAccounts``. Vollständig ist das
-///    Detailfenster, nicht die Leiste.
+/// 8. Hat **kein einziger Account** verwertbare Daten, sind ``segments`` leer.
+///    Sonst stünde beim Erststart `●–/– ●–/–` ohne jede Information.
+///
+///    Die Bedingung fragt seit v1.0 den **Gesamtbestand** und nicht mehr die
+///    gezeigten Segmente. Der Unterschied entsteht erst mit
+///    ``MenuBarMode/activeAccount``: Dort ist das einzige Segment der aktive
+///    Account, und dessen Token kann tot sein, während alle anderen Daten
+///    liefern. Nach der alten Formulierung verschwände die Leiste ausgerechnet
+///    dann — der Nutzer sähe ein neutrales Symbol und keinen Hinweis darauf,
+///    dass **sein** Account das Problem ist. Der Erststart-Fall, für den die
+///    Regel gedacht war, bleibt unverändert abgedeckt: Dort hat niemand Daten.
+/// 9. Mehr als drei Segmente kann es nicht geben — die Rollenauswahl gibt
+///    höchstens drei her. ``hasMoreAccounts`` ist deshalb immer `false`: Ein
+///    „…" behauptete eine **Kürzung**, wo in Wahrheit eine **Auswahl**
+///    getroffen wurde. Vollständig ist das Detailfenster, nicht die Leiste.
 /// 10. Der in claude-swap **aktive** Account trägt ``AccountSegment/isActive``
 ///    und wird ausgezeichnet (`▸` davor, Zahlen fett) — in **beiden** Modi.
 ///    Die Auszeichnung ändert **nichts** an Auswahl, Reihenfolge oder
@@ -148,19 +156,41 @@ public struct MenuBarDisplay: Equatable, Sendable {
         ///
         /// Der Zeichner erfindet die Markierung nicht selbst, er liest sie hier.
         public let isActive: Bool
+        /// Restzeit bis zum Reset des Engpass-Fensters, fertig formatiert —
+        /// oder `nil`, wenn an diesem Segment keine steht.
+        ///
+        /// Trägt **höchstens ein** Segment: das mit der Reset-Rolle
+        /// (``MenuBarRoleSelection/Role/reset``). Stünde die Zeit an jedem
+        /// Segment, wäre die Leiste doppelt so breit und die Auskunft „auf
+        /// diesen hier wartest du" ginge verloren — genau sie ist der Zweck.
+        public let resetText: String?
 
         public init(
             id: String,
             displayName: String,
             status: StatusLevel?,
             values: [WindowValue],
-            isActive: Bool = false
+            isActive: Bool = false,
+            resetText: String? = nil
         ) {
             self.id = id
             self.displayName = displayName
             self.status = status
             self.values = values
             self.isActive = isActive
+            self.resetText = resetText
+        }
+
+        /// Dasselbe Segment mit gesetzter Restzeit.
+        func withResetText(_ text: String?) -> AccountSegment {
+            AccountSegment(
+                id: id,
+                displayName: displayName,
+                status: status,
+                values: values,
+                isActive: isActive,
+                resetText: text
+            )
         }
 
         /// Das vorangestellte Zeichen des aktiven Accounts; `nil` bei allen
@@ -269,25 +299,33 @@ public struct MenuBarDisplay: Equatable, Sendable {
         let ranked = state.accounts(now: now)
         guard !ranked.isEmpty else { return .unavailable }
 
-        let chosen: [MonitoredAccount]
+        // Regel 8: am Gesamtbestand geprüft, nicht an den gezeigten Segmenten.
+        // Begründung oben — im Modus „Aktiver" verschwände die Leiste sonst
+        // genau dann, wenn der eigene Account das Problem ist.
+        guard ranked.contains(where: \.hasUsableData) else { return .unavailable }
+
+        // Regel 2: Auswahl und Reihenfolge kommen ausschließlich von dort.
+        let selection: MenuBarRoleSelection
         switch mode {
-        case .bestAccount:
-            chosen = Array(ranked.prefix(1))
-        case .allAccounts:
-            // Regel 2: feste Kennungsordnung, nicht das Ranking.
-            chosen = ranked.sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
+        case .activeAccount:
+            selection = MenuBarRoleSelection.activeOnly(from: ranked, now: now)
+        case .overview:
+            selection = MenuBarRoleSelection.make(from: ranked, now: now)
         }
 
-        // Regel 8 wird über **alle** gewählten Accounts geprüft, nicht erst
-        // über die vier gezeigten: Wären die ersten vier in Kennungsordnung
-        // datenlos und der fünfte hätte Werte, kollabierte sonst die ganze
-        // Leiste — samt `hasMoreAccounts == false`. Die Accounts mit echten
-        // Daten verschwänden restlos, ohne auch nur ein „…".
-        let all = chosen.map(segment(for:))
-        guard all.contains(where: \.isInformative) else { return .unavailable }
+        // Regel 9: Mehr als drei kann die Auswahl nicht liefern, ein „…" wäre
+        // deshalb eine falsche Behauptung.
+        return MenuBarDisplay(
+            segments: selection.entries.map { segment(for: $0, now: now) },
+            hasMoreAccounts: false
+        )
+    }
 
-        let shown = Array(all.prefix(maximumSegments))
-        return MenuBarDisplay(segments: shown, hasMoreAccounts: all.count > shown.count)
+    /// Bildet das Segment eines Eintrags der Rollenauswahl — inklusive der
+    /// Restzeit, falls dieser Eintrag die Reset-Rolle hält.
+    public static func segment(for entry: MenuBarRoleSelection.Entry, now: Date = Date()) -> AccountSegment {
+        segment(for: entry.account)
+            .withResetText(MenuBarRoleSelection.resetText(for: entry, now: now))
     }
 
     /// Bildet das Segment eines einzelnen Accounts.

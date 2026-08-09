@@ -185,130 +185,181 @@ struct MenuBarDisplayTests {
 
     // MARK: - Modus und Reihenfolge
 
-    @Test("Der Modus bestimmt, wie viele Accounts in der Leiste stehen")
-    func modeControlsSegmentCount() {
-        let accounts = (1...3).map { index in
-            Fixture.account(
-                id: "\(index)",
-                windows: [
-                    Fixture.window(.fiveHour, percent: Double(index) * 10),
-                    Fixture.window(.sevenDay, percent: Double(index) * 5)
-                ]
-            )
-        }
-        let state = state(accounts)
-
-        #expect(MenuBarDisplay.make(for: state, mode: .bestAccount, now: Fixture.now).segments.count == 1)
-        #expect(MenuBarDisplay.make(for: state, mode: .allAccounts, now: Fixture.now).segments.count == 3)
+    /// Ein Account mit gleichem Wert in beiden sichtbaren Fenstern.
+    private func account(_ id: String, percent: Double, resetsAt: Date? = nil, isActive: Bool = false) -> MonitoredAccount {
+        Fixture.account(
+            id: id,
+            windows: [
+                Fixture.window(.fiveHour, percent: percent, resetsAt: resetsAt),
+                Fixture.window(.sevenDay, percent: percent, resetsAt: resetsAt)
+            ],
+            isActive: isActive
+        )
     }
 
-    @Test("Die Anzeige folgt im Modus „nur bester“ dem gerankten ersten Account")
-    func displayFollowsRanking() {
-        let busy = Fixture.account(
-            id: "1",
-            windows: [Fixture.window(.fiveHour, percent: 95), Fixture.window(.sevenDay, percent: 95)]
-        )
-        let free = Fixture.account(
-            id: "2",
-            windows: [Fixture.window(.fiveHour, percent: 10), Fixture.window(.sevenDay, percent: 10)]
-        )
+    @Test("Der schmale Modus zeigt genau einen Account — den aktiven")
+    func activeModeShowsExactlyTheActiveAccount() {
+        let accounts = [
+            account("1", percent: 60, isActive: true),
+            account("2", percent: 10)
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .activeAccount, now: Fixture.now)
+
+        // Ausdrücklich **nicht** der beste: „2" wäre der gerankte erste.
+        #expect(display.segments.map(\.id) == ["1"])
+        #expect(display.segments.first?.isActive == true)
+        #expect(display.hasMoreAccounts == false)
+    }
+
+    @Test("Ohne markierten aktiven Account fällt der schmale Modus auf den gerankten ersten zurück")
+    func activeModeFallsBackToRanking() {
+        // Der Fall „`sequence.json` fehlt": niemand ist markiert. Eine leere
+        // Leiste wäre die schlechteste Antwort auf eine fehlende Nebendatei.
+        let busy = account("1", percent: 95)
+        let free = account("2", percent: 10)
         let state = state([busy, free])
-        let display = MenuBarDisplay.make(for: state, mode: .bestAccount, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state, mode: .activeAccount, now: Fixture.now)
 
         #expect(state.bestAccount(now: Fixture.now)?.id == "2")
         #expect(display.segments.map(\.id) == ["2"])
         #expect(display.segments.first?.values.map(\.text) == ["10%", "10%"])
     }
 
-    @Test("Im Modus „alle“ gilt die Kennungsordnung — und die springt nicht mit den Prozentwerten")
-    func allAccountsUseIdentifierOrder() {
-        func accounts(percentsById: [String: Double]) -> [MonitoredAccount] {
-            percentsById.keys.sorted().map { id in
-                Fixture.account(
-                    id: id,
-                    windows: [
-                        Fixture.window(.fiveHour, percent: percentsById[id] ?? 0),
-                        Fixture.window(.sevenDay, percent: percentsById[id] ?? 0)
-                    ]
-                )
-            }
-        }
-        // Natürlich-numerisch: "2" vor "10", unabhängig von der Auslastung.
-        let low = state(accounts(percentsById: ["10": 5, "2": 60, "1": 90]))
-        let high = state(accounts(percentsById: ["10": 90, "2": 5, "1": 60]))
+    @Test("Die Reihenfolge im Überblick ist aktiv, bester, Reset")
+    func overviewOrderIsActiveBestReset() {
+        let accounts = [
+            // aktiv, aber mittelmäßig
+            account("1", percent: 60, isActive: true),
+            // bester
+            account("2", percent: 5),
+            // rot mit bekanntem Reset ⇒ Reset-Rolle
+            account("3", percent: 92, resetsAt: Fixture.now.addingTimeInterval(3600))
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
 
-        let first = MenuBarDisplay.make(for: low, mode: .allAccounts, now: Fixture.now)
-        let second = MenuBarDisplay.make(for: high, mode: .allAccounts, now: Fixture.now)
-
-        #expect(first.segments.map(\.id) == ["1", "2", "10"])
-        // Die eigentliche Zusage: dieselbe Reihenfolge, obwohl das Ranking
-        // sich komplett gedreht hat.
-        #expect(second.segments.map(\.id) == first.segments.map(\.id))
-        #expect(low.accounts(now: Fixture.now).map(\.id) != high.accounts(now: Fixture.now).map(\.id))
+        #expect(display.segments.map(\.id) == ["1", "2", "3"])
+        // Nur der mit der Reset-Rolle trägt die Zeit.
+        #expect(display.segments.map(\.resetText) == [nil, nil, "1h00"])
     }
 
-    @Test("Höchstens vier Accounts in der Leiste, der Rest wird angezeigt")
-    func atMostFourSegmentsPlusOverflow() {
-        let accounts = (1...6).map { index in
-            Fixture.account(id: "\(index)", windows: [Fixture.window(.fiveHour, percent: 10)])
-        }
-        let display = MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now)
+    @Test("Aktiv gleich bester ergibt ein Segment, nicht zweimal denselben Account")
+    func overlappingRolesCollapseToOneSegment() {
+        // Der Normalfall: Man wechselt auf den besten Account, also ist der
+        // aktive zugleich der beste.
+        let accounts = [
+            account("1", percent: 5, isActive: true),
+            account("2", percent: 60)
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
 
-        #expect(display.segments.count == MenuBarDisplay.maximumSegments)
-        #expect(display.segments.map(\.id) == ["1", "2", "3", "4"])
-        #expect(display.hasMoreAccounts)
-
-        let four = Array(accounts.prefix(4))
-        #expect(MenuBarDisplay.make(for: state(four), mode: .allAccounts, now: Fixture.now).hasMoreAccounts == false)
-    }
-
-    @Test("Sind die ersten vier stumm, verschwindet der fünfte mit Daten nicht")
-    func silentLeadersDoNotSwallowAccountsWithData() {
-        // Die Kollaps-Regel lief früher **nach** der Obergrenze: Die ersten
-        // vier in Kennungsordnung waren datenlos, also war die geprüfte
-        // Auswahl stumm — und die Leiste kollabierte komplett, samt
-        // `hasMoreAccounts == false`. Die Accounts mit echten Zahlen
-        // verschwanden restlos, ohne auch nur ein „…".
-        let silent = (1...4).map { index in
-            Fixture.account(id: "\(index)", windows: [], fetchedAt: nil, state: .noData)
-        }
-        let loud = (5...6).map { index in
-            Fixture.account(
-                id: "\(index)",
-                windows: [
-                    Fixture.window(.fiveHour, percent: 40),
-                    Fixture.window(.sevenDay, percent: 40)
-                ]
-            )
-        }
-        let display = MenuBarDisplay.make(for: state(silent + loud), mode: .allAccounts, now: Fixture.now)
-
-        #expect(display.segments.isEmpty == false)
-        #expect(display.segments.map(\.id) == ["1", "2", "3", "4"])
-        // Der Hinweis auf die restlichen Accounts ist hier die ganze Information.
-        #expect(display.hasMoreAccounts)
-    }
-
-    @Test("Im Modus „nur bester“ gibt es bewusst kein „…“")
-    func bestAccountNeverAnnouncesMore() {
-        // Festgehaltene Entscheidung, kein Nebeneffekt: Der Modus zeigt genau
-        // einen Account. Ein „…" behauptete eine Kürzung, wo eine Auswahl
-        // getroffen wurde.
-        let accounts = (1...6).map { index in
-            Fixture.account(
-                id: "\(index)",
-                windows: [
-                    Fixture.window(.fiveHour, percent: Double(index) * 10),
-                    Fixture.window(.sevenDay, percent: Double(index) * 3)
-                ]
-            )
-        }
-        let display = MenuBarDisplay.make(for: state(accounts), mode: .bestAccount, now: Fixture.now)
-
-        #expect(display.segments.count == 1)
+        #expect(display.segments.map(\.id) == ["1"])
         #expect(display.hasMoreAccounts == false)
-        // Und im anderen Modus zeigt derselbe Zustand sehr wohl das „…".
-        #expect(MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now).hasMoreAccounts)
+    }
+
+    @Test("Hält ein Account alle drei Rollen, steht er einmal da — mit Restzeit")
+    func allThreeRolesOnOneAccountYieldOneSegment() {
+        // Ein einziger Account, rot, aktiv, bester und der einzige mit Reset.
+        let only = account("1", percent: 95, resetsAt: Fixture.now.addingTimeInterval(2 * 3600 + 14 * 60), isActive: true)
+        let display = MenuBarDisplay.make(for: state([only]), mode: .overview, now: Fixture.now)
+
+        #expect(display.segments.map(\.id) == ["1"])
+        #expect(display.segments.first?.resetText == "2h14")
+        #expect(display.segments.first?.isActive == true)
+    }
+
+    @Test("Nie mehr als drei Segmente — auch bei zehn Accounts, und nie ein „…“")
+    func neverMoreThanThreeSegmentsAndNeverOverflow() {
+        // Genau der Fall, für den die Rollenauswahl gebaut wurde: Bei zehn
+        // Accounts waren die vier alphabetisch ersten eine Auswahl ohne Aussage.
+        let accounts = (1...10).map { index in
+            account("\(index)", percent: Double(index) * 9, resetsAt: Fixture.now.addingTimeInterval(Double(index) * 600), isActive: index == 4)
+        }
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
+
+        #expect(display.segments.count <= 3)
+        // Ein „…" behauptete eine Kürzung, wo eine Auswahl getroffen wurde.
+        #expect(display.hasMoreAccounts == false)
+        // Der aktive steht vorne, der beste dahinter.
+        #expect(display.segments.first?.id == "4")
+        #expect(display.segments.first?.isActive == true)
+    }
+
+    @Test("Ohne roten Account bleibt die Reset-Rolle unbesetzt")
+    func resetRoleStaysEmptyWithoutRedAccount() {
+        // 84 % ist gelb, 85 % wäre rot: Bei entspannter Lage wartet niemand auf
+        // einen Reset — die Zahl stünde nur da und bedeutete nichts.
+        let accounts = [
+            account("1", percent: 84, resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
+            account("2", percent: 10, resetsAt: Fixture.now.addingTimeInterval(60))
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
+
+        #expect(display.segments.map(\.resetText) == [nil, nil])
+
+        // Eine Stufe höher besetzt derselbe Account die Rolle.
+        let red = [
+            account("1", percent: 85, resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
+            account("2", percent: 10, resetsAt: Fixture.now.addingTimeInterval(60))
+        ]
+        let redDisplay = MenuBarDisplay.make(for: state(red), mode: .overview, now: Fixture.now)
+        #expect(redDisplay.segments.first { $0.id == "1" }?.resetText == "30m")
+    }
+
+    @Test("Die Reset-Rolle nimmt den frühesten Reset unter den roten Accounts")
+    func resetRolePicksEarliestAmongRedAccounts() {
+        let accounts = [
+            account("1", percent: 5, isActive: true),
+            account("2", percent: 95, resetsAt: Fixture.now.addingTimeInterval(4 * 3600)),
+            account("3", percent: 99, resetsAt: Fixture.now.addingTimeInterval(1800))
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
+
+        // „3" kommt früher zurück als „2" — obwohl „2" besser dasteht.
+        #expect(display.segments.map(\.id) == ["1", "3"])
+        #expect(display.segments.last?.resetText == "30m")
+    }
+
+    @Test("Auch im schmalen Modus trägt der aktive Account seine Restzeit")
+    func activeModeShowsResetTimeWhenRed() {
+        let accounts = [
+            account("1", percent: 97, resetsAt: Fixture.now.addingTimeInterval(45 * 60), isActive: true),
+            account("2", percent: 10)
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .activeAccount, now: Fixture.now)
+
+        #expect(display.segments.map(\.id) == ["1"])
+        #expect(display.segments.first?.resetText == "45m")
+    }
+
+    @Test("Der schmale Modus zeigt nur den aktiven — auch wenn ein anderer gerade zurückkommt")
+    func activeModeNeverBorrowsAnotherAccountsReset() {
+        // Die Zusage des Modus ist „ein Account". Ein zweites Segment für den
+        // zurückkehrenden Account wäre ein Wortbruch.
+        let accounts = [
+            account("1", percent: 10, isActive: true),
+            account("2", percent: 99, resetsAt: Fixture.now.addingTimeInterval(300))
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .activeAccount, now: Fixture.now)
+
+        #expect(display.segments.map(\.id) == ["1"])
+        #expect(display.segments.first?.resetText == nil)
+    }
+
+    @Test("Ein toter aktiver Account leert die Leiste nicht, solange andere Daten haben")
+    func deadActiveAccountStillShowsInNarrowMode() {
+        // Vor v1.0 zeigte der schmale Modus den gerankten ersten — der ist
+        // praktisch nie tokentot. Jetzt ist es der aktive, und der kann es sehr
+        // wohl sein. Kollabierte die Leiste hier, sähe der Nutzer ein neutrales
+        // Symbol und keinen Hinweis darauf, dass SEIN Account das Problem ist.
+        let accounts = [
+            Fixture.account(id: "1", windows: [], fetchedAt: nil, state: .noData, isActive: true),
+            account("2", percent: 20)
+        ]
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .activeAccount, now: Fixture.now)
+
+        #expect(display.segments.map(\.id) == ["1"])
+        #expect(display.segments.first?.isActive == true)
+        #expect(display.segments.first?.status == nil)
     }
 
     // MARK: - Die zwei Fenster je Segment
@@ -638,7 +689,9 @@ struct MenuBarDisplayTests {
         let ranked = state.accounts(now: Fixture.now)
 
         #expect(ranked.map(\.id) == ["2", "1"])
-        #expect(MenuBarDisplay.make(for: state, mode: .bestAccount, now: Fixture.now).segments.map(\.id) == ["2"])
+        // Ohne markierten aktiven Account fällt der schmale Modus auf den
+        // gerankten ersten zurück — hier also auf „2".
+        #expect(MenuBarDisplay.make(for: state, mode: .activeAccount, now: Fixture.now).segments.map(\.id) == ["2"])
 
         // Monoton nicht besser werdend von oben nach unten.
         let percents = ranked.compactMap { AccountBindingDisplay.make(for: $0).percent }
@@ -648,12 +701,22 @@ struct MenuBarDisplayTests {
 
     // MARK: - Persistenz des Modus
 
-    @Test("Unbekannter oder fehlender gespeicherter Wert fällt auf „nur bester“ zurück")
-    func storedModeFallsBackToBestAccount() {
-        #expect(MenuBarMode(storedValue: nil) == .bestAccount)
-        #expect(MenuBarMode(storedValue: "") == .bestAccount)
-        #expect(MenuBarMode(storedValue: "Müll") == .bestAccount)
-        #expect(MenuBarMode(storedValue: "BestAccount") == .bestAccount)
+    @Test("Die Rohwerte aus v0.x überleben das Update")
+    func storedModeMigratesOldRawValues() {
+        // Ohne diese Abbildung fiele ein gespeichertes „allAccounts" in den
+        // Standardzweig: Der Nutzer stünde nach dem Update **still** wieder auf
+        // der schmalen Anzeige, obwohl er den Überblick bewusst gewählt hatte.
+        #expect(MenuBarMode(storedValue: "allAccounts") == .overview)
+        #expect(MenuBarMode(storedValue: "bestAccount") == .activeAccount)
+    }
+
+    @Test("Unbekannter oder fehlender gespeicherter Wert fällt auf den schmalen Modus zurück")
+    func storedModeFallsBackToActiveAccount() {
+        #expect(MenuBarMode(storedValue: nil) == .activeAccount)
+        #expect(MenuBarMode(storedValue: "") == .activeAccount)
+        #expect(MenuBarMode(storedValue: "Müll") == .activeAccount)
+        // Groß-/Kleinschreibung ist kein gültiger Rohwert — auch nicht der alte.
+        #expect(MenuBarMode(storedValue: "BestAccount") == .activeAccount)
         // Und die gültigen Werte kommen unverändert zurück.
         for mode in MenuBarMode.allCases {
             #expect(MenuBarMode(storedValue: mode.rawValue) == mode)

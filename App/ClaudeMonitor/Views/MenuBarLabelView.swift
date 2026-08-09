@@ -51,10 +51,15 @@ struct MenuBarLabelView: View {
 
     // MARK: - Vorlesetext
 
-    /// Im Modus „alle Accounts" je Account Name, bindender Wert und
+    /// Im Modus „Überblick" je Account Name, bindender Wert und
     /// **Account-Ampel** — die Einzelfenster stehen im Detailfenster. Im Modus
-    /// „nur bester Account" zusätzlich beide Fenster einzeln, weil dort Platz
-    /// für die vollständige Aussage ist.
+    /// „Aktiver" zusätzlich beide Fenster einzeln, weil dort Platz für die
+    /// vollständige Aussage ist.
+    ///
+    /// Die Restzeit wird **mitgesprochen**, wo sie sichtbar ist: Sie ist die
+    /// Antwort auf „wann kommt Kontingent zurück" und dürfte einem
+    /// VoiceOver-Nutzer nicht allein deshalb fehlen, weil sie in der Leiste als
+    /// kleine graue Zahl steht.
     ///
     /// Die gesprochene Stufe ist in beiden Fällen ``MenuBarDisplay/AccountSegment/status``
     /// und nicht die Stufe des genannten Fensters: Genau das ist die Zusage,
@@ -70,17 +75,21 @@ struct MenuBarLabelView: View {
                 value: segment.visibleBinding,
                 status: segment.status
             )
+            let reset = segment.resetText.map {
+                [String(localized: "Resets in \($0)")]
+            } ?? []
+
             switch mode {
-            case .allAccounts:
-                return [summary]
-            case .bestAccount:
+            case .overview:
+                return [summary] + reset
+            case .activeAccount:
                 return [summary] + segment.values.map { value in
                     spoken(
                         name: WindowKindNaming.name(for: value.kind),
                         value: value,
                         status: value.status
                     )
-                }
+                } + reset
             }
         }
         if display.hasMoreAccounts {

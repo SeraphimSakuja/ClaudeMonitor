@@ -73,9 +73,9 @@ struct OrderingSourceGuardTests {
         #expect(order.text.contains("static func compare"))
         #expect(Self.code(order.text).contains("static func compare"))
 
-        let display = try #require(files.first { $0.name == "MenuBarDisplay.swift" })
-        #expect(display.text.contains("public struct MenuBarDisplay"))
-        #expect(Self.code(display.text).contains("public struct MenuBarDisplay"))
+        let selection = try #require(files.first { $0.name == "MenuBarRoleSelection.swift" })
+        #expect(selection.text.contains("public struct MenuBarRoleSelection"))
+        #expect(Self.code(selection.text).contains("public struct MenuBarRoleSelection"))
     }
 
     @Test("Der Kommentarfilter entfernt nur Kommentare — Gegenprobe, beide Pakete")
@@ -84,7 +84,7 @@ struct OrderingSourceGuardTests {
         // Beide Dateien erklären die verbotenen Symbole im Doc-Kommentar,
         // benutzen sie im Code aber nicht. Griffe der Filter für eine der
         // beiden nicht, löste der Wächter hier falsch aus.
-        for name in ["AccountIdentifierOrder.swift", "MenuBarDisplay.swift"] {
+        for name in ["AccountIdentifierOrder.swift", "MenuBarRoleSelection.swift"] {
             let file = try #require(files.first { $0.name == name })
             #expect(file.text.contains("localizedStandard" + "Compare"), "\(name): Nadel fehlt")
             #expect(
@@ -93,9 +93,9 @@ struct OrderingSourceGuardTests {
             )
         }
         // Dieselbe Probe für das zweite verbotene Muster.
-        let display = try #require(files.first { $0.name == "MenuBarDisplay.swift" })
-        #expect(display.text.contains("sorted" + "()"))
-        #expect(Self.code(display.text).contains("sorted" + "()") == false)
+        let selection = try #require(files.first { $0.name == "MenuBarRoleSelection.swift" })
+        #expect(selection.text.contains("sorted" + "()"))
+        #expect(Self.code(selection.text).contains("sorted" + "()") == false)
     }
 
     @Test("Kein Quellcode benutzt localizedStandardCompare für Kennungen")
@@ -120,7 +120,7 @@ struct OrderingSourceGuardTests {
     @Test("Reader, Ranking und Menüleiste sortieren über AccountIdentifierOrder")
     func bothUseSharedOrder() throws {
         let files = try Self.sourceFiles()
-        for name in ["UsageStoreReader.swift", "AccountRanking.swift", "MenuBarDisplay.swift"] {
+        for name in ["UsageStoreReader.swift", "AccountRanking.swift", "MenuBarRoleSelection.swift"] {
             let file = try #require(files.first { $0.name == name })
             #expect(
                 Self.code(file.text).contains("AccountIdentifierOrder.isOrderedBefore"),

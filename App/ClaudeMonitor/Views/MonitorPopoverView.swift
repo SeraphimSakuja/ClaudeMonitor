@@ -15,7 +15,7 @@ struct MonitorPopoverView: View {
     /// Stelle sitzt (``MenuBarMode/init(storedValue:)``). Eine `Settings`-Scene
     /// gibt es nicht: Eine reine Menüleisten-App (`LSUIElement`) müsste sich
     /// dafür erst aktivieren.
-    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.bestAccount.rawValue
+    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.activeAccount.rawValue
 
     /// Das Anmeldeobjekt. `@StateObject` und nicht `@ObservedObject`: Anders als
     /// der Monitor hängt es an keinem App-weiten Lebenszyklus — es fragt nur das
@@ -99,17 +99,17 @@ struct MonitorPopoverView: View {
         }
     }
 
-    /// Wie viele Accounts die Leiste zeigt. „Nur bester" bleibt der Standard:
-    /// Drei Accounts mit je zwei Fenstern sind rund 36 Zeichen, und macOS
-    /// kürzt bei Platzmangel wortlos von rechts.
+    /// Was die Leiste zeigt. „Aktiver" bleibt der Standard: Drei Accounts mit
+    /// je zwei Fenstern sind rund 36 Zeichen, und macOS kürzt bei Platzmangel
+    /// wortlos von rechts.
     private var modeRow: some View {
         HStack(spacing: 8) {
             Text("Menu bar")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Picker(selection: $rawMode) {
-                Text("Best account").tag(MenuBarMode.bestAccount.rawValue)
-                Text("All accounts").tag(MenuBarMode.allAccounts.rawValue)
+                Text("Active account").tag(MenuBarMode.activeAccount.rawValue)
+                Text("Overview").tag(MenuBarMode.overview.rawValue)
             } label: {
                 Text("Menu bar")
             }

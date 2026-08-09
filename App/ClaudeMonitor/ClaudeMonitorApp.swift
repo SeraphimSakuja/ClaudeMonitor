@@ -27,7 +27,7 @@ struct ClaudeMonitorApp: App {
     /// ``MenuBarMode/init(storedValue:)`` auf dem Produktionspfad liegt statt
     /// von SwiftUIs eigener Umwandlung ersetzt zu werden. Dies ist die einzige
     /// Stelle, die sie aufruft.
-    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.bestAccount.rawValue
+    @AppStorage("menuBarMode") private var rawMode: String = MenuBarMode.activeAccount.rawValue
 
     var body: some Scene {
         MenuBarExtra {

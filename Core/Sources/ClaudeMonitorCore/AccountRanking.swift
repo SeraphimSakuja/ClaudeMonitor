@@ -108,17 +108,45 @@ public enum AccountRanking {
         return sanitized(account.bindingPercent)
     }
 
-    /// Restzeit bis zum Reset des Engpass-Fensters, also des am höchsten
-    /// ausgelasteten. Sind mehrere Fenster gleich hoch ausgelastet, zählt das
-    /// mit dem frühesten Reset. ``worstSortValue``, wenn dort kein Reset
-    /// bekannt ist — dann ist über die Rückkehr des Kontingents nichts gesagt.
+    /// Das Fenster, das den Account **ausbremst**: das am höchsten ausgelastete.
+    /// Sind mehrere gleich hoch ausgelastet, zählt das mit dem frühesten Reset.
+    /// `nil`, wenn der Account kein Fenster mit endlichem Wert hat.
+    ///
+    /// **Öffentlich, weil die Anzeige dieselbe Frage stellt wie das Ranking:**
+    /// „Wann ist dieser Account wieder brauchbar?" Die Menüleiste zeigt seit
+    /// v1.0 die Restzeit des Engpasses (``MenuBarRoleSelection``). Eine zweite
+    /// Implementierung derselben Regel wäre genau der Weg, auf dem Ranking und
+    /// Anzeige wieder auseinanderlaufen — dieselbe Begründung wie bei
+    /// ``bindingPercent(for:usable:)``.
+    ///
+    /// Ausdrücklich **nicht** die kürzeste Restzeit über alle Fenster: Der
+    /// Realfall 5h 49 % / 7d 100 % hat einen 5h-Reset in zwei Stunden, der dem
+    /// Nutzer nichts nützt, solange das Wochenlimit noch 70 Stunden dicht ist.
+    public static func bottleneckWindow(of account: MonitoredAccount, now: Date = Date()) -> LimitWindow? {
+        let finite = account.windows.filter { $0.percent.isFinite }
+        guard let peak = finite.map(\.percent).max() else { return nil }
+        // `min(by:)` liefert bei Gleichstand das erste Element der Quellordnung;
+        // die ist über den Reader deterministisch. Ein Vergleich über Kennungen
+        // ist hier also gar nicht nötig.
+        return finite
+            .filter { $0.percent >= peak }
+            .min { remainingForSort($0, now: now) < remainingForSort($1, now: now) }
+    }
+
+    /// Restzeit bis zum Reset des Engpass-Fensters. ``worstSortValue``, wenn
+    /// dort kein Reset bekannt ist — dann ist über die Rückkehr des Kontingents
+    /// nichts gesagt.
+    ///
+    /// Liest ``bottleneckWindow(of:now:)``, statt die Auswahl zu wiederholen.
     static func bottleneckReset(for account: MonitoredAccount, now: Date) -> TimeInterval {
-        let finitePercents = account.windows.map(\.percent).filter { $0.isFinite }
-        guard let peak = finitePercents.max() else { return worstSortValue }
-        let remainings = account.windows
-            .filter { $0.percent.isFinite && $0.percent >= peak }
-            .compactMap { $0.resetTiming(now: now).remainingSeconds }
-        return remainings.min() ?? worstSortValue
+        guard let window = bottleneckWindow(of: account, now: now) else { return worstSortValue }
+        return remainingForSort(window, now: now)
+    }
+
+    /// Restzeit eines Fensters als endlicher Sortierwert; ohne bekannten Reset
+    /// der schlechtestmögliche. „Fällig" ist definitiv 0, nicht unbekannt.
+    private static func remainingForSort(_ window: LimitWindow, now: Date) -> TimeInterval {
+        window.resetTiming(now: now).remainingSeconds ?? worstSortValue
     }
 
     /// Verfügbarkeitsklasse eines Accounts (0 nutzbar, 1 blockiert, 2 ohne Daten).

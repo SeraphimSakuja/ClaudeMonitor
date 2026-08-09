@@ -109,38 +109,20 @@
         }
       }
     },
-    "All accounts" : {
-      "comment" : "Moduswahl der Menüleiste: alle Accounts nebeneinander",
+    "Active account" : {
+      "comment" : "Moduswahl der Menüleiste: nur der in claude-swap aktive Account",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Accounts"
+            "value" : "Aktiver"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "All accounts"
-          }
-        }
-      }
-    },
-    "Best account" : {
-      "comment" : "Moduswahl der Menüleiste: nur der beste Account",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bester Account"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Best account"
+            "value" : "Active account"
           }
         }
       }
@@ -569,6 +551,24 @@
         }
       }
     },
+    "Overview" : {
+      "comment" : "Moduswahl der Menüleiste: bis zu drei Accounts nach Rolle (aktiv, bester, frühester Reset)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Überblick"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overview"
+          }
+        }
+      }
+    },
     "Paused, retrying in %@" : {
       "comment" : "claude-swap pausiert Abfragen, %@ = laufender Countdown",
       "extractionState" : "manual",
@@ -675,7 +675,7 @@
       }
     },
     "Resets in %@" : {
-      "comment" : "Restzeit bis zum Reset, %@ = laufender Countdown",
+      "comment" : "Restzeit bis zum Reset. %@ = laufender Countdown im Detailfenster bzw. grobe Restzeit (2h14) im Vorlesetext der Menüleiste",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {

@@ -35,11 +35,14 @@ struct ActiveAccountDisplayTests {
             account("2", percent: 40, isActive: true),
             account("3", percent: 50)
         ]
-        let display = MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
 
-        #expect(display.segments.map(\.isActive) == [false, true, false])
+        // Rollen: „2" ist aktiv (Position 1), „1" ist bester (Position 2).
+        // Niemand ist rot, die Reset-Rolle bleibt unbesetzt.
+        #expect(display.segments.map(\.id) == ["2", "1"])
+        #expect(display.segments.map(\.isActive) == [true, false])
         #expect(display.segments.filter(\.isActive).count == 1)
-        #expect(display.segments.map(\.markerText) == [nil, "▸", nil])
+        #expect(display.segments.map(\.markerText) == ["▸", nil])
         #expect(ActiveAccountDisplay.marker == "▸")
     }
 
@@ -47,18 +50,20 @@ struct ActiveAccountDisplayTests {
     func nothingIsMarkedWithoutSequenceData() {
         // Genau der Zustand bei fehlender oder kaputter `sequence.json`.
         let accounts = [account("1", percent: 30), account("2", percent: 40)]
-        let display = MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
 
         #expect(display.segments.contains(where: \.isActive) == false)
         #expect(display.segments.compactMap(\.markerText).isEmpty)
-        // … und die Zahlen stehen trotzdem vollständig da.
-        #expect(display.segments.map(\.numbersText) == ["30/15", "40/20"])
+        // Ohne Markierung fallen die Rollen „aktiv" und „bester" auf denselben
+        // Account zusammen — der Überblick zeigt dann folgerichtig einen statt
+        // zweier. Das ist keine Kürzung: Es gibt schlicht keine zweite Aussage.
+        #expect(display.segments.map(\.numbersText) == ["30/15"])
     }
 
     @Test("Die Markierung gilt in beiden Modi")
     func markerAppliesInBothModes() {
-        // Der aktive Account ist zugleich der beste — im Modus „nur bester"
-        // ist er der einzige gezeigte und muss ebenso ausgezeichnet sein.
+        // Der aktive Account ist zugleich der beste — im schmalen Modus ist er
+        // der einzige gezeigte und muss ebenso ausgezeichnet sein.
         let accounts = [account("1", percent: 5, isActive: true), account("2", percent: 90)]
 
         for mode in MenuBarMode.allCases {
@@ -68,31 +73,37 @@ struct ActiveAccountDisplayTests {
         }
     }
 
-    @Test("Im Modus „nur bester“ bleibt ein nicht gezeigter aktiver Account außen vor")
-    func inactiveModeShowsOnlyTheBest() {
-        // Der aktive ist hier der schlechtere: Die Markierung darf ihn nicht
-        // in die Leiste holen — sie zeichnet aus, sie wählt nicht.
+    @Test("Der schmale Modus holt den aktiven Account auch dann, wenn er der schlechtere ist")
+    func narrowModeFollowsTheActiveAccountNotTheBest() {
+        // Umkehrung der Regel aus v0.x: Damals zeigte der schmale Modus den
+        // besten, und die Markierung durfte den aktiven nicht hereinholen.
+        // Jetzt ist der aktive die Auswahl — man will wissen, wie es um den
+        // steht, mit dem man gerade arbeitet.
         let accounts = [account("1", percent: 5), account("2", percent: 90, isActive: true)]
-        let display = MenuBarDisplay.make(for: state(accounts), mode: .bestAccount, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state(accounts), mode: .activeAccount, now: Fixture.now)
 
-        #expect(display.segments.map(\.id) == ["1"])
-        #expect(display.segments.contains(where: \.isActive) == false)
+        #expect(display.segments.map(\.id) == ["2"])
+        #expect(display.segments.first?.isActive == true)
     }
 
-    @Test("Die Markierung ändert die Reihenfolge in der Leiste nicht")
-    func markerDoesNotReorder() {
-        func ids(activeIndex: Int?) -> [String] {
+    @Test("Der aktive Account steht im Überblick immer vorne — unabhängig von den Zahlen")
+    func activeAccountAlwaysLeadsTheOverview() {
+        // Die Position muss lernbar bleiben: Vorne steht immer der aktive,
+        // nicht mal dieser und mal jener, weil sich ein Prozentwert geändert
+        // hat.
+        func first(activeIndex: Int) -> String? {
             let accounts = ["1", "2", "10"].enumerated().map { index, id in
                 account(id, percent: Double(index * 10 + 5), isActive: index == activeIndex)
             }
             return MenuBarDisplay
-                .make(for: state(accounts), mode: .allAccounts, now: Fixture.now)
-                .segments.map(\.id)
+                .make(for: state(accounts), mode: .overview, now: Fixture.now)
+                .segments.first
+                .map(\.id)
         }
 
-        #expect(ids(activeIndex: nil) == ["1", "2", "10"])
-        #expect(ids(activeIndex: 2) == ["1", "2", "10"])
-        #expect(ids(activeIndex: 0) == ["1", "2", "10"])
+        #expect(first(activeIndex: 0) == "1")
+        #expect(first(activeIndex: 1) == "2")
+        #expect(first(activeIndex: 2) == "10")
     }
 
     @Test("Ein aktiver Account ohne Daten hält die Leiste nicht am Leben")
@@ -102,12 +113,12 @@ struct ActiveAccountDisplayTests {
             Fixture.account(id: "2", name: "account-2", state: .authDead(strikes: 1))
         ]
         // Sonst stünde beim Erststart allein „▸●–/–" in der Leiste.
-        #expect(MenuBarDisplay.make(for: state(accounts), mode: .allAccounts, now: Fixture.now).segments.isEmpty)
+        #expect(MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now).segments.isEmpty)
 
         // Ist dagegen etwas zu sagen, bleibt der tote Token markiert — die
         // Auskunft „dieser hier ist gerade aktiv" ist dann besonders wertvoll.
         let mixed = accounts + [account("3", percent: 20)]
-        let display = MenuBarDisplay.make(for: state(mixed), mode: .allAccounts, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state(mixed), mode: .overview, now: Fixture.now)
         #expect(display.segments.first { $0.id == "1" }?.isActive == true)
     }
 
@@ -141,7 +152,7 @@ struct ActiveAccountDisplayTests {
         let state = MonitorViewState().reduced(with: result)
 
         #expect(state.issue == nil, "sequence.json darf keinen Fehlzustand erzeugen")
-        let display = MenuBarDisplay.make(for: state, mode: .allAccounts, now: Fixture.now)
+        let display = MenuBarDisplay.make(for: state, mode: .overview, now: Fixture.now)
         // Die Prozentwerte laufen unverändert weiter …
         #expect(display.segments.map(\.numbersText) == ["43/32"])
         // … nur ausgezeichnet ist niemand.
