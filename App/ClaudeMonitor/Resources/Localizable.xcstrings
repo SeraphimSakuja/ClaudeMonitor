@@ -356,6 +356,24 @@
         }
       }
     },
+    "due" : {
+      "comment" : "Pflichtzustand: Reset liegt in der Vergangenheit — nie ein negativer Countdown. Kurz, weil es in die schmale Spalte neben dem Balken passen muss.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fällig"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "due"
+          }
+        }
+      }
+    },
     "elevated" : {
       "comment" : "Ampelstufe gelb, für Bedienhilfen ausgesprochen",
       "extractionState" : "manual",
@@ -657,37 +675,20 @@
         }
       }
     },
-    "Reset due" : {
-      "comment" : "Pflichtzustand: Reset liegt in der Vergangenheit — kein negativer Countdown",
+    "Resets at %@" : {
+      "comment" : "Tooltip der Fensterzeile: genauer Reset-Zeitpunkt, %@ = Wochentag und Uhrzeit",
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reset fällig"
+            "value" : "Reset am %@"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reset due"
-          }
-        }
-      }
-    },
-    "Reset time unknown" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset-Zeitpunkt unbekannt"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset time unknown"
+            "value" : "Resets at %@"
           }
         }
       }

@@ -3,9 +3,9 @@ import Testing
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 
-/// Reihenfolge der Kärtchen im Detailfenster und die Beträge des
-/// Ausgabenfensters.
-@Suite("Detailfenster: Namensordnung und Beträge")
+/// Reihenfolge der Kärtchen im Detailfenster, die Regel gegen doppelte
+/// Altersangaben und die Beträge des Ausgabenfensters.
+@Suite("Detailfenster: Nummernordnung, Kompaktheit und Beträge")
 struct PopoverOrderAndSpendTests {
 
     private func state(_ accounts: [MonitoredAccount]) -> MonitorViewState {
@@ -20,63 +20,91 @@ struct PopoverOrderAndSpendTests {
         )
     }
 
-    private func names(_ content: PopoverContent) -> [String] {
-        guard case .accounts(let accounts) = content else { return [] }
-        return accounts.map(\.displayName)
-    }
-
     // MARK: - Reihenfolge
 
-    @Test("Die Kärtchen stehen nach Namen, nicht nach Ranking")
-    func cardsAreSortedByName() {
-        // „zeta" ist mit Abstand der beste Account. Stünde er deshalb oben,
-        // müsste man ihn nach jeder Änderung neu suchen — das Detailfenster ist
-        // die Nachschlage-, nicht die Empfehlungsansicht.
+    @Test("Die Kärtchen stehen nach Account-Nummer, nicht nach Ranking")
+    func cardsAreSortedByAccountNumber() {
+        // „3" ist mit Abstand der beste Account. Stünde er deshalb oben, müsste
+        // man ihn nach jeder Änderung neu suchen — das Detailfenster ist die
+        // Nachschlage-, nicht die Empfehlungsansicht.
         let accounts = [
-            account(id: "1", name: "zeta", percent: 2),
-            account(id: "2", name: "alpha", percent: 80),
-            account(id: "3", name: "mike", percent: 40)
+            account(id: "3", name: "zeta", percent: 2),
+            account(id: "1", name: "alpha", percent: 80),
+            account(id: "2", name: "mike", percent: 40)
         ]
-        let content = PopoverContent.make(for: state(accounts), now: Fixture.now)
-
-        #expect(names(content) == ["alpha", "mike", "zeta"])
+        guard case .accounts(let sorted) = PopoverContent.make(for: state(accounts), now: Fixture.now) else {
+            Issue.record("Keine Accounts geliefert")
+            return
+        }
+        #expect(sorted.map(\.id) == ["1", "2", "3"])
     }
 
     @Test("Die Reihenfolge bleibt stehen, wenn sich die Auslastung dreht")
     func orderSurvivesChangingPercentages() {
         func ordered(_ percents: [Double]) -> [String] {
-            let accounts = zip(["zeta", "alpha", "mike"], percents).enumerated().map { index, pair in
-                account(id: "\(index + 1)", name: pair.0, percent: pair.1)
+            let accounts = zip(["3", "1", "2"], percents).map { id, percent in
+                account(id: id, name: "account-\(id)", percent: percent)
             }
-            return names(PopoverContent.make(for: state(accounts), now: Fixture.now))
+            guard case .accounts(let sorted) = PopoverContent.make(for: state(accounts), now: Fixture.now) else {
+                return []
+            }
+            return sorted.map(\.id)
         }
 
         // Dieselbe Ordnung, obwohl das Ranking sich komplett umdreht.
         #expect(ordered([2, 80, 40]) == ordered([80, 2, 40]))
-        #expect(ordered([2, 80, 40]) == ["alpha", "mike", "zeta"])
+        #expect(ordered([2, 80, 40]) == ["1", "2", "3"])
     }
 
-    @Test("Namen werden natürlich-numerisch geordnet, nicht nach Unicode")
-    func namesUseNaturalNumericOrder() {
-        // Nach reiner Zeichenordnung stünde „account-10" vor „account-2".
-        let accounts = [
-            account(id: "1", name: "account-10", percent: 10),
-            account(id: "2", name: "account-2", percent: 10)
+    @Test("Die Reihenfolge hängt nicht am Namen — ein Alias darf sie nicht umwerfen")
+    func renamingAnAliasDoesNotReorder() {
+        // Genau der Grund für die Nummer: Aliase sind jederzeit änderbar.
+        let before = [
+            account(id: "1", name: "zeta", percent: 10),
+            account(id: "2", name: "alpha", percent: 10)
         ]
-        #expect(names(PopoverContent.make(for: state(accounts), now: Fixture.now)) == ["account-2", "account-10"])
+        let after = [
+            account(id: "1", name: "alpha", percent: 10),
+            account(id: "2", name: "zeta", percent: 10)
+        ]
+        func ids(_ accounts: [MonitoredAccount]) -> [String] {
+            guard case .accounts(let sorted) = PopoverContent.make(for: state(accounts), now: Fixture.now) else {
+                return []
+            }
+            return sorted.map(\.id)
+        }
+        #expect(ids(before) == ids(after))
+        #expect(ids(before) == ["1", "2"])
     }
 
-    @Test("Gleiche Namen tauschen nicht bei jedem Durchlauf die Plätze")
-    func equalNamesFallBackToAccountNumber() {
+    @Test("Nummern werden natürlich-numerisch geordnet, nicht nach Unicode")
+    func numbersUseNaturalNumericOrder() {
+        // Nach reiner Zeichenordnung stünde „10" vor „2".
         let accounts = [
-            account(id: "10", name: "gleich", percent: 5),
-            account(id: "2", name: "gleich", percent: 90)
+            account(id: "10", name: "a", percent: 10),
+            account(id: "2", name: "b", percent: 10)
         ]
         guard case .accounts(let sorted) = PopoverContent.make(for: state(accounts), now: Fixture.now) else {
             Issue.record("Keine Accounts geliefert")
             return
         }
         #expect(sorted.map(\.id) == ["2", "10"])
+    }
+
+    // MARK: - Altersangabe steht genau einmal
+
+    @Test("Bei veralteten Daten nennt nur die Statuszeile das Alter")
+    func staleAgeIsStatedOnce() {
+        // Vorher stand zweimal dasselbe im selben Kärtchen: oben „Daten sind
+        // veraltet: 46 Min.", unten „Vor 46 Min. aktualisiert".
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .stale(age: 2760)) == false)
+        // In allen anderen Zuständen bleibt die Fußzeile die einzige Auskunft
+        // über das Alter und muss stehen bleiben.
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .upToDate))
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .noData))
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .reLoginRequired(strikes: 1)))
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .paused(until: Fixture.now)))
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .fetchFailed(message: "kaputt")))
     }
 
     // MARK: - Beträge des Ausgabenfensters

@@ -18,7 +18,7 @@ public enum PopoverContent: Equatable, Sendable {
     /// Keine Accounts, aber ein Fehlzustand. Der Hinweisbalken erklärt die Lage
     /// bereits; ein zusätzlicher (leerer) Bereich darunter wäre nur Lärm.
     case issueOnly
-    /// Diese Accounts werden gezeigt — **nach Namen** sortiert.
+    /// Diese Accounts werden gezeigt — **nach Account-Nummer** sortiert.
     case accounts([MonitoredAccount])
 
     /// Leitet den Inhalt aus dem Gesamtzustand ab.
@@ -28,12 +28,12 @@ public enum PopoverContent: Equatable, Sendable {
     /// unlesbarer Store macht die zuletzt gültigen Zahlen nicht wertlos.
     public static func make(for state: MonitorViewState, now: Date = Date()) -> PopoverContent {
         let accounts = state.accounts(now: now)
-        if !accounts.isEmpty { return .accounts(sortedByName(accounts)) }
+        if !accounts.isEmpty { return .accounts(sortedByNumber(accounts)) }
         if state.issue != nil { return .issueOnly }
         return state.isLoading ? .loading : .empty
     }
 
-    /// Sortiert die Kärtchen **nach Anzeigenamen**, nicht nach Ranking.
+    /// Sortiert die Kärtchen **nach Account-Nummer**, nicht nach Ranking.
     ///
     /// **Warum nicht nach Ranking:** Das Detailfenster ist die Nachschlage-,
     /// nicht die Empfehlungsansicht. Springt ein Account darin nach oben, nur
@@ -41,21 +41,16 @@ public enum PopoverContent: Equatable, Sendable {
     /// suchen. Die Empfehlung „wohin wechseln" trägt die Menüleiste über die
     /// Rolle ``MenuBarRoleSelection/Role/best``.
     ///
-    /// Sortiert wird über ``AccountIdentifierOrder`` — natürlich-numerisch und
-    /// **locale-frei**, dieselbe Ordnung wie überall sonst im Projekt. Ein
-    /// `localizedStandardCompare` wäre bei Anzeigenamen zwar vertretbar, brächte
-    /// aber eine zweite Ordnung ins Projekt; genau davor bewacht der
-    /// Quellwächter im Core-Paket dieses Verzeichnis. Sichtbarer Unterschied
-    /// nur bei Namen, die mit Sonderzeichen beginnen.
+    /// **Warum die Nummer und nicht der Name:** Die Nummer ist die Kennung, mit
+    /// der man in claude-swap wechselt, und sie ist **stabil**. Ein Alias lässt
+    /// sich jederzeit umbenennen — danach stünde die Liste in einer anderen
+    /// Reihenfolge, ohne dass sich an den Accounts etwas geändert hätte.
     ///
-    /// Bei gleichem Namen entscheidet die Account-Nummer — sonst könnten zwei
-    /// gleich benannte Accounts bei jedem Durchlauf die Plätze tauschen.
-    static func sortedByName(_ accounts: [MonitoredAccount]) -> [MonitoredAccount] {
-        accounts.sorted { lhs, rhs in
-            if lhs.displayName != rhs.displayName {
-                return AccountIdentifierOrder.isOrderedBefore(lhs.displayName, rhs.displayName)
-            }
-            return AccountIdentifierOrder.isOrderedBefore(lhs.id, rhs.id)
-        }
+    /// Sortiert wird über ``AccountIdentifierOrder`` — natürlich-numerisch, also
+    /// `#2` vor `#10`, und locale-frei. Dieselbe Ordnung wie überall sonst im
+    /// Projekt; eine zweite daneben ist genau das, was der Quellwächter im
+    /// Core-Paket für dieses Verzeichnis verhindert.
+    static func sortedByNumber(_ accounts: [MonitoredAccount]) -> [MonitoredAccount] {
+        accounts.sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
     }
 }

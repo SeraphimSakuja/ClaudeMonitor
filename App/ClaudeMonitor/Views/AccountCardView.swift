@@ -20,7 +20,7 @@ struct AccountCardView: View {
     private func card(now: Date) -> some View {
         let statusLine = AccountStatusLine.make(for: account, now: now)
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 5) {
             header
 
             if statusLine.isWarning {
@@ -31,13 +31,16 @@ struct AccountCardView: View {
 
             windows(now: now)
 
-            if let fetchedAt = account.fetchedAt {
+            // Nicht doppelt: Nennt die Statuszeile das Alter schon, entfällt
+            // diese Zeile. Die Regel steht geprüft in `Shared/`.
+            if let fetchedAt = account.fetchedAt,
+               AccountCardDisplay.showsUpdatedFooter(statusLine: statusLine) {
                 Text("Updated \(fetchedAt, style: .relative) ago")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(10)
+        .padding(8)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
