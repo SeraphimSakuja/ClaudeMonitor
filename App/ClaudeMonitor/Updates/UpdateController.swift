@@ -42,13 +42,16 @@ final class UpdateController: NSObject, ObservableObject {
     /// **Kein `@Published`, sondern `objectWillChange` von Hand** — und das ist
     /// keine Geschmacksfrage: Mit `@Published` stürzte die App beim ersten
     /// KVO-Rückruf reproduzierbar in `Published.subscript.setter`
-    /// (`EXC_BAD_ACCESS` in `swift_getAtKeyPath`, drei gleichlautende
+    /// (`EXC_BAD_ACCESS` in `swift_getAtKeyPath`, 13 gleichlautende
     /// Absturzberichte). Sichtbar wurde das als „der zweite Beobachter feuert
-    /// nie" — in Wahrheit war der Prozess da schon tot. Der Auslöser ist die
-    /// Kombination aus Eigenschafts-Wrapper und `NSObject`-Erbe, das der
-    /// Sparkle-Delegat erzwingt.
+    /// nie" — in Wahrheit war der Prozess da schon tot. Der Stack zeigt den
+    /// Value-Witness-Pfad der Swift-Runtime (`swift_cvw_initWithCopyImpl`) und
+    /// deutet vermutlich auf die Kombination aus Eigenschafts-Wrapper und
+    /// `NSObject`-Erbe hin, das der Sparkle-Delegat erzwingt — bewiesen ist das
+    /// nicht, nur gestützt durch ``UsageMonitor`` und ``LoginItemController``,
+    /// die `@Published` problemlos nutzen und beide nicht von `NSObject` erben.
     private(set) var canCheckForUpdates = false {
-        willSet { objectWillChange.send() }
+        willSet { if newValue != canCheckForUpdates { objectWillChange.send() } }
     }
 
     /// Spiegel von `SPUUpdater.automaticallyChecksForUpdates`. Gleiche
@@ -60,7 +63,7 @@ final class UpdateController: NSObject, ObservableObject {
     /// Zustand, den Sparkle nicht teilt, sobald der Updater den Wert selbst
     /// ändert.
     private(set) var automaticallyChecksForUpdates = false {
-        willSet { objectWillChange.send() }
+        willSet { if newValue != automaticallyChecksForUpdates { objectWillChange.send() } }
     }
 
     /// `lazy` statt `Optional` + `start()`-Zuweisung: `self` muss als Delegat
@@ -92,22 +95,39 @@ final class UpdateController: NSObject, ObservableObject {
     /// ist hier kein Beiwerk: Er löst die `lazy`-Erzeugung aus und damit den
     /// Start des Updaters — ohne ihn liefe keine geplante Prüfung.
     func start() {
+        // Nicht idempotent ohne diese Wache: Ein zweiter Aufruf legte ein
+        // zweites Abonnement-Paar an und verdoppelte jedes `objectWillChange`.
+        guard cancellables.isEmpty else { return }
+
         let updater = updaterController.updater
 
-        // **Ohne `receive(on:)` und ohne `Task`-Sprung.** Der KVO-Publisher
-        // liefert seinen Anfangswert synchron beim Abonnieren; jede
-        // Zwischenschaltung verschiebt ihn auf einen späteren Durchlauf, in dem
-        // der Schalter bereits falsch gezeichnet wurde. `SPUUpdater` ist im
-        // Sparkle-Header `NS_SWIFT_UI_ACTOR` und meldet deshalb auf dem
-        // Hauptstrang — `assumeIsolated` hält genau das fest, statt es zu
-        // unterstellen.
+        // Synchron vorbelegen, bevor überhaupt abonniert wird: Die
+        // KVO-Quelle für `canCheckForUpdates`/`automaticallyChecksForUpdates`
+        // ist laut Sparkle-Quelltext (`SPUUpdater.m:1038`,
+        // `SPUUpdaterSettings.m:65`, `SUHost.m:88`) `NSUserDefaults`, nicht
+        // `SPUUpdater` selbst. Eine prozessfremde Änderung (`defaults write`,
+        // MDM, zweite Instanz) kann also auf einem Nebenstrang zustellen.
+        // Die Vorbelegung hier läuft synchron im Aufrufer von `start()`
+        // (`applicationDidFinishLaunching`, garantiert Hauptstrang) und trägt
+        // den korrekten Anfangswert, bevor der erste KVO-Rückruf überhaupt
+        // eintreffen kann.
+        canCheckForUpdates = updater.canCheckForUpdates
+        automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
+
+        // `receive(on: DispatchQueue.main)` ist hier **Pflicht, nicht
+        // Kosmetik**: Es garantiert, dass jeder folgende Rückruf auf dem
+        // Hauptstrang zugestellt wird — nur dadurch ist `assumeIsolated`
+        // unten belegt statt unterstellt. Wer dieses `receive(on:)` entfernt,
+        // holt den `fatalError`-Absturzpfad zurück.
         updater.publisher(for: \.canCheckForUpdates)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] value in
                 MainActor.assumeIsolated { self?.canCheckForUpdates = value }
             }
             .store(in: &cancellables)
 
         updater.publisher(for: \.automaticallyChecksForUpdates)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] value in
                 MainActor.assumeIsolated { self?.automaticallyChecksForUpdates = value }
             }
@@ -125,14 +145,28 @@ final class UpdateController: NSObject, ObservableObject {
 
     /// „Nach Updates suchen" aus dem Detailfenster.
     func checkForUpdates() {
+        // Lehnt Sparkle die Sitzung ab (`SPUUpdater.m:708 !_startedUpdater`,
+        // `:713 _sessionInProgress`), kommt nie ein
+        // `standardUserDriverWillFinishUpdateSession` — hat `apply(...)`
+        // darunter bereits `.regular` gesetzt, bliebe das Dock-Symbol
+        // dauerhaft kleben. Heute nur durch `.disabled(...)` in einer View
+        // verhindert; diese Wache schützt jeden weiteren Aufrufer mit.
+        // Unschädlich für „gezeigtes Update nach vorn holen": Dort ist
+        // `canCheckForUpdates == true`.
+        guard canCheckForUpdates else { return }
+
         apply(policy.handle(.userInitiatedCheckStarted))
         // Das Aktivieren gehört **hierher** und nicht allein in die
         // Delegat-Rückrufe: `standardUserDriverWillHandleShowingUpdate` feuert
         // nur, wenn ein Update tatsächlich gezeigt wird. Der häufigste Fall —
         // geklickt, alles aktuell — und der Fehlerdialog bei nicht
-        // erreichbarem Feed liefen sonst hinter fremden Fenstern auf, und eine
-        // `.accessory`-App hat kein Dock-Symbol, über das man sie nach vorn
-        // holen könnte.
+        // erreichbarem Feed liefen sonst hinter fremden Fenstern auf. Was den
+        // Fall rettet, in dem der Nutzer inzwischen in einer anderen App ist
+        // und ein Update später erscheint, ist **nicht** dieser Aufruf —
+        // `SPUStandardUserDriver.showAlert:` aktiviert nicht, es folgt direkt
+        // `runModal` —, sondern das Dock-Symbol aus `apply(...)` (`.regular`
+        // via `standardUserDriverWillHandleShowingUpdate`). Der Aufruf hier
+        // bleibt trotzdem sinnvoll für die `MenuBarExtra`-Panels.
         NSApp.activate()
         updaterController.updater.checkForUpdates()
     }

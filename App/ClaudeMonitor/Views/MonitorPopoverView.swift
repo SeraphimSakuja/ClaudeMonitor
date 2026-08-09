@@ -55,8 +55,16 @@ struct MonitorPopoverView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Text("ClaudeMonitor").font(.headline)
+            // Mit automatischen Updates ist das die einzige Stelle, an der
+            // Nutzer und Support feststellen können, welche Fassung läuft —
+            // und der Beleg dafür, dass ein Update tatsächlich angekommen ist.
+            // `verbatim`: zusammengesetzte Bundle-Werte, kein
+            // Lokalisierungsschlüssel.
+            Text(verbatim: bundleVersionText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Spacer()
             Button {
                 Task { await monitor.refresh() }
@@ -213,24 +221,16 @@ struct MonitorPopoverView: View {
             }
             .buttonStyle(.link)
             // Sparkle verbietet die Prüfung, solange eine läuft oder eine
-            // Installation aussteht. Der Zustand kommt aus einem
-            // `@Published`-Spiegel — direkt auf die Sparkle-Eigenschaft
-            // gebunden bliebe der Knopf nach der ersten Prüfung dauerhaft grau.
+            // Installation aussteht. Der Zustand kommt aus einem von Hand
+            // gepflegten `objectWillChange`-Spiegel — direkt auf die
+            // Sparkle-Eigenschaft gebunden bliebe der Knopf nach der ersten
+            // Prüfung dauerhaft grau.
             .disabled(!updates.canCheckForUpdates)
         }
     }
 
     private var footer: some View {
         HStack {
-            // Mit automatischen Updates ist das die einzige Stelle, an der
-            // Nutzer und Support feststellen können, welche Fassung läuft —
-            // und der Beleg dafür, dass ein Update tatsächlich angekommen ist.
-            // `verbatim`: zusammengesetzte Bundle-Werte, kein
-            // Lokalisierungsschlüssel.
-            Text(verbatim: bundleVersionText)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-
             if let capturedAt = monitor.state.snapshot?.capturedAt {
                 Text("Checked \(capturedAt, style: .relative) ago")
                     .font(.caption2)
