@@ -48,7 +48,7 @@ struct ClaudeMonitorApp: App {
 ///
 /// Eine App ohne Fenster hat keinen View, an dessen Erscheinen man den Start
 /// hängen könnte — und gepollt wird ausdrücklich auch bei geschlossenem Menü,
-/// weil derselbe Snapshot die Widgets versorgt.
+/// weil die Leiste ihre Zahlen dauerhaft zeigt.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 

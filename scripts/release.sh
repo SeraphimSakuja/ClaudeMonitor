@@ -15,16 +15,16 @@
 #   darauf zu verlassen.
 #
 # EINMALIGE VORBEREITUNG — Zugangsdaten für die Notarisierung im Schlüsselbund
-# ablegen (die App-Store-Connect-Schlüssel liegen unter ~/MF-Projects/.secrets):
+# ablegen. Sie liegen danach dort und tauchen nie in diesem Repository auf:
 #
-#   xcrun notarytool store-credentials "$NOTARY_PROFILE" \
-#     --key      ~/MF-Projects/.secrets/DragonSphere/api_key.p8 \
-#     --key-id   NZU5N8RW6A \
-#     --issuer   36b8e495-8f61-453d-98bd-ea7913d64e30
+#   xcrun notarytool store-credentials "ClaudeMonitor-Notary" \
+#     --key      <Pfad zum App-Store-Connect-Schlüssel .p8> \
+#     --key-id   <Key ID> \
+#     --issuer   <Issuer ID>
 #
-# Notarisierung ist team-, nicht app-gebunden — derselbe Schlüssel gilt für alle
-# Apps des Teams. Alternativ ginge `--apple-id` mit einem app-spezifischen
-# Passwort.
+# Notarisierung ist team-, nicht app-gebunden — ein vorhandener Schlüssel des
+# Teams genügt, es braucht keinen eigenen für diese App. Alternativ geht
+# `--apple-id` mit einem app-spezifischen Passwort.
 
 set -euo pipefail
 

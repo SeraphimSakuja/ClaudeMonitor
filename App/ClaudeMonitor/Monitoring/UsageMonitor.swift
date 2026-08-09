@@ -10,8 +10,14 @@ import ClaudeMonitorShared
 /// `usage.json`, kein File-Lock, kein eigener OAuth-Refresh, kein Aufruf des
 /// `cswap`-Binaries. Der Monitor beobachtet, er greift nicht ein.
 ///
-/// Gepollt wird **durchgehend**, auch wenn das Menü geschlossen ist: Derselbe
-/// Snapshot versorgt die Widget-Extension, die selbst nicht lesen darf.
+/// Gepollt wird **durchgehend**, auch wenn das Fenster geschlossen ist: Die
+/// Menüleiste zeigt die Zahlen dauerhaft an, nicht erst beim Aufklappen — sie
+/// wären sonst so alt wie der letzte Blick hinein.
+///
+/// Solange die Widget-Extension auf Hold liegt, schreibt der Durchlauf keinen
+/// Snapshot mehr (kein App-Group-Entitlement, siehe `App/Signing.xcconfig`).
+/// Der Schreibpfad bleibt trotzdem stehen: Er ist geprüft, kostet ohne
+/// Entitlement nichts und ist der Andockpunkt für die Rückkehr der Widgets.
 @MainActor
 final class UsageMonitor: ObservableObject {
 
