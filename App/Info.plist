@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEIL-Plist für Sparkle.
+
+  `GENERATE_INFOPLIST_FILE = YES` bleibt im Projekt gesetzt — Xcode führt eine
+  zusätzlich gesetzte `INFOPLIST_FILE` mit den generierten Keys ZUSAMMEN,
+  statt sie zu ersetzen. Alle vier `INFOPLIST_KEY_*`-Build-Settings
+  (LSApplicationCategoryType, LSUIElement, NSHumanReadableCopyright sowie die
+  von Xcode selbst ergänzten CFBundle*/LSMinimumSystemVersion-Keys) bleiben
+  dadurch unverändert und stehen NICHT hier drin. Diese Datei enthält
+  ausschließlich die fünf Sparkle-Keys.
+-->
+<plist version="1.0">
+<dict>
+	<!-- Feed + Ed25519-Public-Key für die Signaturprüfung des Appcasts. -->
+	<key>SUFeedURL</key>
+	<string>https://seraphimsakuja.github.io/ClaudeMonitor/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>xe1+/8jYc45qORKi4EzxgBfxsOk0K5NWRS79mjuJQj0=</string>
+
+	<!-- true vermeidet Sparkles Erlaubnisdialog beim zweiten Start — der
+	     könnte bei einer LSUIElement-App (kein Dock-Icon, kein Fenster im
+	     Vordergrund) hinter fremden Fenstern stranden und dort unsichtbar
+	     hängen bleiben. Automatisches INSTALLIEREN ist davon unabhängig und
+	     hängt an SUAutomaticallyUpdate — das bleibt false, es wird also nie
+	     still installiert, nur automatisch nach Updates gesucht. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+
+	<!-- Sparkles Default (1 Tag in Sekunden), hier bewusst festgeschrieben
+	     statt implizit zu bleiben. -->
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+
+	<!-- SUEnableSystemProfiling fehlt absichtlich: Die App sendet keine
+	     Telemetrie (Leitplanke L8 der SSOT). -->
+</dict>
+</plist>

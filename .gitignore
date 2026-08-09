@@ -5,6 +5,13 @@
 .swiftpm/
 Package.resolved
 
+# Ausnahme: Das App-Projekt löst Sparkle als Remote-SPM-Paket auf. Diese
+# Package.resolved MUSS versioniert werden, sonst ist die Version des
+# Update-Frameworks ungepinnt und `upToNextMinorVersion` könnte beim nächsten
+# `xcodebuild` unbemerkt eine andere 2.x-Version ziehen — ein fremdes
+# Framework, das Code auf Nutzermaschinen installiert.
+!App/ClaudeMonitor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
 # Xcode
 DerivedData/
 xcuserdata/

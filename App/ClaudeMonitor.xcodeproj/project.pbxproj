@@ -9,12 +9,14 @@
 /* Begin PBXBuildFile section */
 		CE000000000000000000001B /* ClaudeMonitorCore in Frameworks */ = {isa = PBXBuildFile; productRef = CE000000000000000000001A /* ClaudeMonitorCore */; };
 		CE0000000000000000000022 /* ClaudeMonitorShared in Frameworks */ = {isa = PBXBuildFile; productRef = CE0000000000000000000021 /* ClaudeMonitorShared */; };
+		CE0000000000000000000026 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CE0000000000000000000025 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		CE0000000000000000000004 /* ClaudeMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE000000000000000000001E /* ClaudeMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClaudeMonitor.entitlements; sourceTree = "<group>"; };
 		CE000000000000000000001F /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		CE0000000000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,6 +34,7 @@
 			files = (
 				CE000000000000000000001B /* ClaudeMonitorCore in Frameworks */,
 				CE0000000000000000000022 /* ClaudeMonitorShared in Frameworks */,
+				CE0000000000000000000026 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -43,6 +46,7 @@
 			children = (
 				CE0000000000000000000006 /* ClaudeMonitor */,
 				CE000000000000000000001E /* ClaudeMonitor.entitlements */,
+				CE0000000000000000000023 /* Info.plist */,
 				CE000000000000000000001F /* Signing.xcconfig */,
 				CE0000000000000000000003 /* Products */,
 			);
@@ -78,6 +82,7 @@
 			packageProductDependencies = (
 				CE000000000000000000001A /* ClaudeMonitorCore */,
 				CE0000000000000000000021 /* ClaudeMonitorShared */,
+				CE0000000000000000000025 /* Sparkle */,
 			);
 			productName = ClaudeMonitor;
 			productReference = CE0000000000000000000004 /* ClaudeMonitor.app */;
@@ -111,6 +116,7 @@
 			packageReferences = (
 				CE0000000000000000000019 /* XCLocalSwiftPackageReference "../Core" */,
 				CE0000000000000000000020 /* XCLocalSwiftPackageReference "../Shared" */,
+				CE0000000000000000000024 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CE0000000000000000000003 /* Products */;
@@ -239,6 +245,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -267,6 +274,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -318,6 +326,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		CE0000000000000000000024 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 2.9.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		CE000000000000000000001A /* ClaudeMonitorCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -326,6 +345,11 @@
 		CE0000000000000000000021 /* ClaudeMonitorShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClaudeMonitorShared;
+		};
+		CE0000000000000000000025 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE0000000000000000000024 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
