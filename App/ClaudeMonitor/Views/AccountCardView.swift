@@ -59,6 +59,14 @@ struct AccountCardView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            // Die Nummer, mit der man in claude-swap wechselt. Gedämpft und
+            // klein: Sie ist die Nachschlage-, nicht die Hauptinformation —
+            // aber ohne sie muss man raten, welcher Alias welche Nummer hat.
+            Text(verbatim: "#\(account.id)")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .layoutPriority(1)
             Spacer(minLength: 8)
             if let text = AccountBindingDisplay.make(for: account).text {
                 Text(verbatim: text)

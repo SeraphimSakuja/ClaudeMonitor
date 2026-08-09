@@ -1,6 +1,24 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%1$@ of %2$@" : {
+      "comment" : "Ausgabenfenster: %1$@ = verbrauchter Betrag, %2$@ = Gesamtbudget",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ von %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ of %2$@"
+          }
+        }
+      }
+    },
     "%1$@: %2$@, %3$@" : {
       "comment" : "Menüleisten-Vorlesetext: %1$@ = Bezeichnung (Account oder Limitfenster), %2$@ = Wert, %3$@ = Ampelstufe in Worten",
       "extractionState" : "manual",

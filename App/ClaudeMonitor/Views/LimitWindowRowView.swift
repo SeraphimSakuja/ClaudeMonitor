@@ -29,9 +29,32 @@ struct LimitWindowRowView: View {
                 .progressViewStyle(.linear)
                 .tint(StatusAppearance.color(for: window.status))
 
+            spendLine
+
             resetLine
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Beim Ausgabenfenster die echten Beträge — „12,34 $ von 50,00 $".
+    ///
+    /// Nur dort: Alle anderen Fenster zählen Anfragen, keine Währung. Die
+    /// Zahlen selbst formatiert ``SpendAmountDisplay`` in `Shared/`, damit die
+    /// Fehlfälle (fehlende Währung, Limit null, kaputte Werte) geprüft sind;
+    /// hier steht nur der Satzbau, weil der in den Sprachkatalog gehört.
+    @ViewBuilder private var spendLine: some View {
+        if let spend = window.spend, let amounts = SpendAmountDisplay.amounts(for: spend) {
+            Group {
+                if let limit = amounts.limit {
+                    Text("\(amounts.used) of \(limit)")
+                } else {
+                    Text(verbatim: amounts.used)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
         }
     }
 

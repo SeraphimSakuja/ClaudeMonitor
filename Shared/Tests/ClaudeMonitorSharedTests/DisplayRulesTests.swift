@@ -103,16 +103,27 @@ struct DisplayRulesTests {
         #expect(PopoverContent.make(for: state, now: Fixture.now) == .issueOnly)
     }
 
-    @Test("Der Inhalt kommt in Ranking-Reihenfolge, nicht in Snapshot-Reihenfolge")
-    func contentFollowsRanking() {
+    @Test("Der Inhalt kommt nach Namen — weder in Ranking- noch in Snapshot-Reihenfolge")
+    func contentFollowsNameOrder() {
+        // Bis v1.0 stand hier die Ranking-Reihenfolge. Geändert auf Wunsch
+        // (Markus, 09.08.2026): Das Detailfenster ist die Nachschlage-, nicht
+        // die Empfehlungsansicht — springt ein Account darin nach oben, nur
+        // weil sich ein Prozentwert geändert hat, muss man ihn jedes Mal neu
+        // suchen. Die Empfehlung trägt die Menüleiste über die Rolle „bester".
         let busy = Fixture.account(
             id: "1",
+            name: "zeta",
             windows: [Fixture.window(.fiveHour, percent: 95), Fixture.window(.sevenDay, percent: 95)]
         )
         let free = Fixture.account(
             id: "2",
+            name: "alpha",
             windows: [Fixture.window(.fiveHour, percent: 10), Fixture.window(.sevenDay, percent: 10)]
         )
+        // Im Snapshot steht „zeta" zuerst, im Ranking „alpha" — die Anzeige
+        // folgt keinem von beidem, sondern dem Namen. Hier fallen Ranking und
+        // Namensordnung zufällig zusammen; der Gegenbeweis dazu steht in
+        // `PopoverOrderAndSpendTests`.
         let state = MonitorViewState(snapshot: Fixture.snapshot([busy, free]), isLoading: false)
 
         #expect(PopoverContent.make(for: state, now: Fixture.now) == .accounts([free, busy]))

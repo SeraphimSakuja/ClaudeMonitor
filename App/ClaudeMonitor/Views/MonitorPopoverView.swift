@@ -26,6 +26,10 @@ struct MonitorPopoverView: View {
     /// ohne Scrollen, darüber bleibt das Fenster handhabbar.
     private let maximumHeight: CGFloat = 460
 
+    /// Gemessene Höhe der Kärtchenliste. Sie ist die einzige Quelle für die
+    /// Höhe des Scrollbereichs — Begründung an der Verwendungsstelle.
+    @State private var contentHeight: CGFloat = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
@@ -90,8 +94,23 @@ struct MonitorPopoverView: View {
                             AccountCardView(account: account)
                         }
                     }
+                    // Die Inhaltshöhe nach außen melden — siehe unten.
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+                        }
+                    )
                 }
-                .frame(maxHeight: maximumHeight)
+                // ⚠️ **Die feste Höhe ist der Kern, nicht Kosmetik.** Ein
+                // `ScrollView` hat keine eigene Inhaltshöhe; er nimmt, was ihm
+                // angeboten wird. In einem Fenster, das sich selbst nach seinem
+                // Inhalt bemisst — und ein `MenuBarExtra`-Fenster tut das —,
+                // ist das Angebot nahezu null: Die Liste fiel auf Höhe null
+                // zusammen und der Bereich blieb **leer**, obwohl die Kärtchen
+                // gebaut wurden. `maxHeight` allein deckelt nur nach oben und
+                // hilft dagegen nicht.
+                .frame(height: min(contentHeight, maximumHeight))
+                .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
                 // Ohne Scrollbalken-Reserve springt das Fenster beim Erscheinen
                 // der Leiste um.
                 .scrollBounceBehavior(.basedOnSize)
@@ -177,5 +196,18 @@ struct MonitorPopoverView: View {
             }
             .keyboardShortcut("q")
         }
+    }
+}
+
+/// Meldet die Höhe der Kärtchenliste an den Scrollbereich.
+///
+/// `max` statt Überschreiben: Bei mehreren meldenden Kindern gewinnt die
+/// größte Höhe. Hier meldet zwar nur eines, aber ein stiller `0`-Gewinner wäre
+/// genau der Fehler, der den Bereich leer aussehen ließ.
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
