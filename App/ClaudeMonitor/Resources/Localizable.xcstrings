@@ -234,24 +234,6 @@
         }
       }
     },
-    "Checking for updates…" : {
-      "comment" : "Erklärung unter dem gesperrten Update-Knopf, solange eine Prüfung läuft",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suche nach Updates…"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Checking for updates…"
-          }
-        }
-      }
-    },
     "Claude usage" : {
       "comment" : "Bedienhilfen-Bezeichnung des Menüleisten-Symbols",
       "extractionState" : "manual",
@@ -711,6 +693,24 @@
         }
       }
     },
+    "Reinstall ClaudeMonitor to repair it." : {
+      "comment" : "Abhilfe, wenn der Updater nie gestartet ist — jede Ursache ist ein dauerhafter Bundle-Defekt, den nur eine Neuinstallation behebt",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installiere ClaudeMonitor neu, um das zu beheben."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinstall ClaudeMonitor to repair it."
+          }
+        }
+      }
+    },
     "Resets at %@" : {
       "comment" : "Tooltip der Fensterzeile: genauer Reset-Zeitpunkt, %@ = Wochentag und Uhrzeit",
       "extractionState" : "manual",
@@ -743,24 +743,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Resets in %@"
-          }
-        }
-      }
-    },
-    "Restart ClaudeMonitor to try again." : {
-      "comment" : "Einziger Ausweg, wenn der Updater nie gestartet ist — er startet nur einmal je Prozess",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starte ClaudeMonitor neu, um es erneut zu versuchen."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restart ClaudeMonitor to try again."
           }
         }
       }
@@ -866,6 +848,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Updated %@ ago"
+          }
+        }
+      }
+    },
+    "Update in progress…" : {
+      "comment" : "Erklärung unter dem gesperrten Update-Knopf: Prüfung läuft oder Installation steht aus",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update-Vorgang läuft…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update in progress…"
           }
         }
       }

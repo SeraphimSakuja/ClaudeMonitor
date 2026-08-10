@@ -77,8 +77,10 @@ struct LoginItemStateTests {
         // Es gibt keinen Systemzustand, aus dem ein Ortswechsel folgt. Jeder
         // gesperrte Zustand hier muss über `needsSystemSettings` einen Ausweg
         // zeigen — ein anderer Erklärgrund existiert nicht mehr.
-        let all: [LoginItemState] = [.enabled, .disabled, .requiresApproval]
-        for state in all where !state.isToggleable {
+        // Über `allCases`, nicht über eine handgepflegte Liste: Eine Aufzählung
+        // von Hand ließe einen künftigen vierten Fall still durchrutschen —
+        // genau die Lücke, die dieser Wächter schließen soll.
+        for state in LoginItemState.allCases where !state.isToggleable {
             #expect(state.needsSystemSettings)
         }
         // Und kein erreichbarer Systemstatus führt in einen gesperrten Zustand

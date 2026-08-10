@@ -75,21 +75,6 @@ final class UpdateController: NSObject, ObservableObject {
         )
     }
 
-    /// Der Fehlertext des Systems, falls Sparkle einen liefert — nie ein
-    /// geratener Text.
-    ///
-    /// ⚠️ **Der Startfehler erreicht diese Eigenschaft nicht.** Scheitert
-    /// `startUpdater`, behandelt ``SPUStandardUpdaterController`` das
-    /// vollständig selbst (`SPUStandardUpdaterController.m:78-101`: `SULog` plus
-    /// ein eigener `runModal` nach einer Sekunde) und reicht den Fehler an
-    /// **keinen** Delegaten weiter. Gefüllt wird der Text daher nur von
-    /// `updater(_:didAbortWithError:)`, also von abgebrochenen Prüfläufen. Die
-    /// Zustandsregel in ``UpdateAvailability`` trägt auch ohne ihn — dieser Text
-    /// ist eine Zugabe, keine Voraussetzung.
-    private(set) var lastUpdateError: String? {
-        willSet { if newValue != lastUpdateError { objectWillChange.send() } }
-    }
-
     /// Spiegel von `SPUUpdater.automaticallyChecksForUpdates`. Gleiche
     /// Begründung wie oben, warum hier kein Eigenschafts-Wrapper steht.
     ///
@@ -107,14 +92,24 @@ final class UpdateController: NSObject, ObservableObject {
     /// `Optional` bräuchte an jeder Verwendungsstelle ein `!` oder ein `guard`
     /// für einen Fall, den es nie gibt.
     ///
-    /// `self` steht in **beiden** Delegat-Feldern: Der `userDriverDelegate`
-    /// steuert Aktivierung und Dock-Abzeichen, der `updaterDelegate` liefert
-    /// den Fehlertext eines abgebrochenen Prüflaufs. Beide sind laut Header
-    /// **schwach** gehalten — `self` ist prozesslang und damit der einzige
-    /// Kandidat, der nicht still eingesammelt wird.
+    /// `self` steht nur im `userDriverDelegate`: Der steuert Aktivierung und
+    /// Dock-Abzeichen. Er ist laut Header **schwach** gehalten — `self` ist
+    /// prozesslang und damit der einzige Kandidat, der nicht still eingesammelt
+    /// wird.
+    ///
+    /// `updaterDelegate: nil` ist eine Entscheidung, kein Versäumnis. Bis CM-12
+    /// stand hier `self` für `updater(_:didAbortWithError:)`. Dieser Rückruf ist
+    /// **kein Fehlerkanal**: `SPUUpdaterDelegate.h:449-450` nennt ausdrücklich
+    /// `SUNoUpdateError` („No new update was found") und
+    /// `SUInstallationCanceledError` als mögliche Codes, und `SPUUpdater.m:803`
+    /// filtert davon nur `SUInstallationAuthorizeLaterError` heraus. Ein daraus
+    /// gespeister Text trüge nach jeder normalen „alles aktuell"-Prüfung eine
+    /// Erfolgsmeldung als Fehler. Ein echter Fehlerkanal für den Startfehler
+    /// steht als CM-13 an (`startingUpdater: false` + eigenes
+    /// `try updater.start()`); bis dahin trägt die Zustandsregel allein.
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
-        updaterDelegate: self,
+        updaterDelegate: nil,
         userDriverDelegate: self
     )
 
@@ -228,11 +223,6 @@ final class UpdateController: NSObject, ObservableObject {
         // `canCheckForUpdates == true`.
         guard canCheckForUpdates else { return }
 
-        // Ein neuer Lauf darf nicht unter dem Fehlertext des vorigen starten —
-        // sonst erklärt die Oberfläche den aktuellen Zustand mit einem
-        // Ereignis, das vorbei ist.
-        lastUpdateError = nil
-
         apply(policy.handle(.userInitiatedCheckStarted))
         // Das Aktivieren gehört **hierher** und nicht allein in die
         // Delegat-Rückrufe: `standardUserDriverWillHandleShowingUpdate` feuert
@@ -326,30 +316,3 @@ extension UpdateController: @preconcurrency SPUStandardUserDriverDelegate {
         apply(policy.handle(.sessionFinished))
     }
 }
-
-/// Nur ein einziges Mitglied, und nur zu einem Zweck: den Fehlertext des
-/// Systems zu bekommen, statt einen zu erfinden.
-///
-/// ⚠️ Wie beim User-Driver-Protokoll sind **alle** Mitglieder `@optional` — ein
-/// vertippter Name kompiliert anstandslos und feuert nie. Die Signatur unten ist
-/// wörtlich aus `SPUUpdaterDelegate.h:455` übernommen
-/// (`- (void)updater:(SPUUpdater *)updater didAbortWithError:(NSError *)error;`)
-/// und compilergeprüft (siehe Umsetzungsprotokoll zu CM-11). Nicht „aufräumen".
-///
-/// Anders als bei ``SPUStandardUserDriverDelegate`` steht hier **kein**
-/// `@preconcurrency`: `SPUUpdaterDelegate` ist im Header bereits
-/// `NS_SWIFT_UI_ACTOR`, der Rumpf ist also ohnehin `@MainActor`-isoliert. Der
-/// Compiler weist die Annotation ausdrücklich zurück („has no effect") — sie
-/// nachzurüsten holt nur eine Warnung.
-extension UpdateController: SPUUpdaterDelegate {
-
-    /// Der Prüflauf ist mit einem Fehler abgebrochen.
-    ///
-    /// Nicht gefiltert: Welcher Code „harmlos" ist, entscheidet hier niemand.
-    /// Der Text wird ohnehin nur dort gezeigt, wo der Knopf gesperrt ist, und
-    /// beim nächsten Prüflauf wieder gelöscht.
-    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
-        lastUpdateError = error.localizedDescription
-    }
-}
-

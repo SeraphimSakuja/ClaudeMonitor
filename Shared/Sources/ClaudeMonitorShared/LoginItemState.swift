@@ -33,7 +33,11 @@ import ServiceManagement
 /// Regel ist und Regeln in diesem Projekt geprüft werden (`swift test`, ohne
 /// Xcode-Testrunner). Sie registriert nichts und fragt nichts ab — sie bildet
 /// nur ab.
-public enum LoginItemState: Equatable, Sendable {
+///
+/// `CaseIterable` ist nicht für die App da, sondern für den Wächtertest: Er
+/// iteriert über ``allCases`` statt über eine handgepflegte Liste, damit ein
+/// künftiger vierter Fall nicht still an ihm vorbeikommt.
+public enum LoginItemState: Equatable, Sendable, CaseIterable {
 
     /// Startet beim Anmelden.
     case enabled

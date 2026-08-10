@@ -241,25 +241,43 @@ struct MonitorPopoverView: View {
             case .ready:
                 EmptyView()
             case .checking:
-                Text("Checking for updates…")
+                // Deckt beide Lagen, die ``UpdateAvailability`` in diesem Fall
+                // zusammenfasst (`UpdateAvailability.swift:14-15`): Prüfung
+                // läuft **oder** Installation steht aus. „Checking for
+                // updates…" behauptete davon nur die erste.
+                Text("Update in progress…")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             case .unavailable:
                 Text("Updates are unavailable.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                // Der einzige Ausweg aus diesem Zustand — der Updater startet
-                // nur einmal je Prozess.
-                Text("Restart ClaudeMonitor to try again.")
+                // Jede Ursache in `SPUUpdater.m
+                // checkIfConfiguredProperlyAndRequireFeedURL:` ist ein
+                // dauerhafter Bundle-Defekt (Sparkle.framework nicht
+                // auffindbar, keine Bundle-ID, ungültige Version, XPC-Service
+                // falsch platziert, keine Feed-URL). Ein Neustart behebt
+                // beweisbar keinen davon — eine Neuinstallation schon.
+                Text("Reinstall ClaudeMonitor to repair it.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                if let failure = updates.lastUpdateError {
-                    // `verbatim`: Text vom System bzw. von Sparkle, bereits
-                    // übersetzt und kein Lokalisierungsschlüssel.
-                    Text(verbatim: failure)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                }
+                // **Hier steht bewusst kein Fehlertext.** Bis CM-12 hing an
+                // dieser Stelle ein Fehlertext aus
+                // `updater(_:didAbortWithError:)` — ein toter Zweig: Dieser
+                // Zustand heißt „`startUpdater:` gescheitert", und dann ruft
+                // Sparkle gar keinen Delegaten
+                // (`SPUStandardUpdaterController.m:78-102`: `SULog` plus
+                // eigener `runModal` nach einer Sekunde). Umgekehrt setzt
+                // `didAbortWithError` einen gelaufenen Driver voraus, also
+                // einen erfolgreichen Start — die beiden Bedingungen schließen
+                // einander aus. Und dort, wo der Rückruf feuert, trägt er laut
+                // `SPUUpdaterDelegate.h:449-450` auch `SUNoUpdateError`, also
+                // eine Erfolgsmeldung. Ein Kanal, der im relevanten Zustand nie
+                // feuert und im irrelevanten Erfolg als Fehler ausgibt, ist
+                // schlechter als keiner. Der Weg zu einer echten Ursache steht
+                // als CM-13 in der SSOT (`startingUpdater: false` + eigenes
+                // `try updater.start()`); bis dahin trägt die Zustandsregel
+                // allein.
             }
         }
     }

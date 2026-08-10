@@ -39,8 +39,14 @@ final class LoginItemController: ObservableObject {
     /// Nötig, weil der Nutzer das Anmeldeobjekt jederzeit **außerhalb** der App
     /// umschalten kann. Wird beim Öffnen des Fensters aufgerufen — ein Poller
     /// wäre für eine Einstellung, die sich praktisch nie ändert, verschwendet.
+    /// Der Fehlertext des letzten Versuchs wird dabei verworfen: Die View hält
+    /// diesen Controller als `@StateObject` und überlebt bei
+    /// `MenuBarExtra(.window)` das Schließen des Fensters. Ohne das Löschen
+    /// stünde beim nächsten Öffnen ein alter Fehler unter einem inzwischen
+    /// gesunden Schalter — er beschriebe einen Zustand, den es nicht mehr gibt.
     func refresh() {
         state = LoginItemState(status: service.status)
+        lastFailure = nil
     }
 
     /// Schaltet das Anmeldeobjekt ein oder aus.
@@ -51,7 +57,9 @@ final class LoginItemController: ObservableObject {
     /// `.requiresApproval` — und genau dieser Zustand gehört in die Anzeige,
     /// nicht die Fehlermeldung allein.
     func setEnabled(_ enabled: Bool) {
-        lastFailure = nil
+        // Lokal gehalten und **nach** `refresh()` zugewiesen: `refresh()` löscht
+        // ``lastFailure``, ein vorher gesetzter Text wäre also wieder weg.
+        var failure: String?
         do {
             if enabled {
                 try service.register()
@@ -60,13 +68,13 @@ final class LoginItemController: ObservableObject {
             }
         } catch {
             logger.error("Anmeldeobjekt konnte nicht geändert werden: \(error.localizedDescription)")
-            lastFailure = error.localizedDescription
+            failure = error.localizedDescription
         }
         refresh()
         // Der Fehler ist nur dann eine Meldung wert, wenn der Zustand ihn nicht
         // schon erklärt: `.requiresApproval` zeigt die Oberfläche mitsamt dem
         // Weg in die Systemeinstellungen ohnehin an.
-        if state.needsSystemSettings { lastFailure = nil }
+        lastFailure = state.needsSystemSettings ? nil : failure
     }
 
     /// Öffnet die Systemeinstellungen bei „Anmelden & Erweiterungen".
