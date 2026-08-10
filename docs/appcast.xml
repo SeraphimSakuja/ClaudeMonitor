@@ -1,8 +1,20 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeMonitor</title>
+        <item>
+            <title>1.0.1</title>
+            <pubDate>Mon, 10 Aug 2026 20:04:06 +0200</pubDate>
+            <link>https://github.com/SeraphimSakuja/ClaudeMonitor</link>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink sparkle:edSignature="h9KsPkU1Yh+H5+Zcz0NKyerlU+xiw3wRYNB74pE+udEjxS5+2J8gUMFQ7v1GUeHD/llqJWEVSSEaON5/vGLPBA==" sparkle:length="1615">https://seraphimsakuja.github.io/ClaudeMonitor/ClaudeMonitor-1.0.1.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0.1/ClaudeMonitor-1.0.1.dmg" length="2190847" type="application/octet-stream" sparkle:edSignature="a50ieEGG//79VwPGYi7ZxAxZX9K0iK4l+h5ViuIwFe4NZ/aT++BmLgvVvqUeG37v8U2rQkh5gnkUCs8krYmGDg=="/>
+        </item>
         <item>
             <title>1.0</title>
             <pubDate>Mon, 10 Aug 2026 15:37:17 +0200</pubDate>
@@ -11,10 +23,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink sparkle:edSignature="16QIDEFJyOHyysvqaNd8GGxKPm1ajf2xzVrFcoYGQ04uYwIPGybNF5xTSv0c7WV0RtFUSO1k5ChwBj9Lh49zBA==" sparkle:length="2120">https://seraphimsakuja.github.io/ClaudeMonitor/ClaudeMonitor-1.0.md</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0/ClaudeMonitor-1.0.dmg" length="2187843" type="application/octet-stream" sparkle:edSignature="sV17fJsZHz8w8fzKMb2wXKBG/qG0EFSQi1wFQxUvq1arPUvIEk3CMeTk8mscIA/D86XEp2XSgkLjOTMKJS0TDw=="></enclosure>
+            <enclosure url="https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0/ClaudeMonitor-1.0.dmg" length="2187843" type="application/octet-stream" sparkle:edSignature="sV17fJsZHz8w8fzKMb2wXKBG/qG0EFSQi1wFQxUvq1arPUvIEk3CMeTk8mscIA/D86XEp2XSgkLjOTMKJS0TDw=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: pMu255PDCiMXEeKg9TM56X3pUEqSzBpUOK+bC1STu36NieZcs+aJsHEWNfMZmJK1mgF88M+n+0xxZ159xwFHBA==
-length: 1393
+</rss>
+<!-- sparkle-signatures:
+edSignature: dfKqZb/A+UuDXbJ5zfRjgxIakTwlG0fkug6D+zrRVJtxyY2BETSrX/TMyZdId7KzV+p5RAOTQsiPTN60iAtMBQ==
+length: 2343
 -->
