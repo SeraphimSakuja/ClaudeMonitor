@@ -627,6 +627,31 @@ fi
 mkdir -p "$(dirname "$DOCS_APPCAST")"
 cp -f "$APPCAST" "$DOCS_APPCAST"
 
+# Die Release Notes müssen MIT nach docs/. `generate_appcast` legt den
+# <sparkle:releaseNotesLink> neben den Feed — es leitet die Adresse aus der
+# SUFeedURL des Bundles ab. Läge die Datei nur im Archivverzeichnis, zeigte der
+# Link ins Leere und der Update-Dialog bliebe mit leerem Notizfeld stehen.
+# Beim ersten echten Lauf am 10.08.2026 genau so passiert.
+#
+# ⚠️ Kopiert wird die Datei AUS DEM ARCHIVVERZEICHNIS, nicht das Original von
+# vorher: `generate_appcast` schreibt ihr eine Signaturwarnung in den Kopf und
+# signiert danach GENAU diesen Inhalt. Eine andere Fassung — und sei es nur
+# ohne den Kopf — bricht `sparkle:edSignature` am releaseNotesLink.
+DOCS_NOTES="$(dirname "$DOCS_APPCAST")/$(basename "$RELEASE_NOTES")"
+cp -f "$RELEASE_NOTES" "$DOCS_NOTES"
+
+# Gegenprobe: Jede Adresse unter der Feed-Domain muss auch als Datei in docs/
+# liegen. Sonst verspricht der Appcast etwas, das die Seite nicht ausliefert.
+FEED_BASE="$(dirname "$FEED_URL")"
+while IFS= read -r link; do
+  [ -n "$link" ] || continue
+  candidate="$(dirname "$DOCS_APPCAST")/${link#"$FEED_BASE/"}"
+  [ -f "$candidate" ] \
+    || fail "Der Appcast verweist auf $link, aber $candidate fehlt.
+  GitHub Pages liefert die Adresse dann nicht aus, und der Update-Dialog bleibt leer."
+done < <(grep -oE "$FEED_BASE/[^<\"[:space:]]+" "$DOCS_APPCAST" | grep -v "$(basename "$DOCS_APPCAST")\$" | sort -u)
+echo "  ✓ alle Feed-Adressen sind in docs/ vorhanden"
+
 printf '\n\033[32m✔ Fertig: %s\033[0m\n' "$DMG"
 echo "  Release-Archiv: $RELEASES_DIR"
 echo "  Appcast im Repo: $DOCS_APPCAST"
