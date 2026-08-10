@@ -9,7 +9,7 @@
   (LSApplicationCategoryType, LSUIElement, NSHumanReadableCopyright sowie die
   von Xcode selbst ergänzten CFBundle*/LSMinimumSystemVersion-Keys) bleiben
   dadurch unverändert und stehen NICHT hier drin. Diese Datei enthält
-  ausschließlich die fünf Sparkle-Keys.
+  ausschließlich die sieben Sparkle-Keys.
 -->
 <plist version="1.0">
 <dict>
@@ -19,12 +19,58 @@
 	<key>SUPublicEDKey</key>
 	<string>xe1+/8jYc45qORKi4EzxgBfxsOk0K5NWRS79mjuJQj0=</string>
 
+	<!-- WARUM DIE FEED-SIGNATUR ERZWUNGEN WIRD — und warum ausgerechnet jetzt.
+
+	     Ohne SURequireSignedFeed deckt die EdDSA-Signatur nur das DMG, nicht die
+	     Feed-Metadaten. Wer GitHub Pages kontrolliert, braucht dann den privaten
+	     Schlüssel gar nicht: Er trägt sparkle:version="999" ein und lässt die
+	     Enclosure auf ein ÄLTERES, echt signiertes DMG zeigen. Die Signatur
+	     deckt Dateibytes, nicht die behauptete Version — das Downgrade geht
+	     durch. Genauso frei setzbar wären Release-Notes-HTML und criticalUpdate.
+
+	     Jetzt, weil der Schutz nur in der INSTALLIERTEN App wirkt:
+	     SUAppcastDriver.m:95 liest ihn aus `_host`, also aus dem Bundle auf der
+	     Nutzermaschine. Jede Kopie, die ohne diesen Key ausgeliefert wurde,
+	     bleibt für immer ungeschützt — nachträglich lässt sich das nicht
+	     einholen. v1.0 ist die erste Fassung, es gibt keine Altclients; das ist
+	     der einzige Moment, in dem der Schutz nichts kostet.
+
+	     SUVerifyUpdateBeforeExtraction ist dabei nicht optional, sondern
+	     Bedingung: SPUUpdater.m:373 verlangt beide Keys zusammen.
+
+	     FOLGE FÜR DEN BETRIEB: docs/appcast.xml darf ab hier NIE von Hand
+	     bearbeitet werden — jede manuelle Änderung bricht die Feed-Signatur und
+	     der Feed wird von allen Clients abgelehnt. Der Appcast entsteht
+	     ausschließlich über generate_appcast in scripts/release.sh.
+
+	     SICHERHEITSNETZ: Schlägt die Feed-Prüfung dauerhaft fehl (etwa nach
+	     Schlüsselverlust), geht Sparkle nach 20 Tagen in einen Fallback
+	     (SUAppcastDriver.m:39) — ein verlorener Schlüssel sperrt die App also
+	     nicht auf ewig aus.
+
+	     release.sh braucht dafür KEINE Änderung: generate_appcast liest
+	     SURequireSignedFeed aus dem Info.plist der App im DMG
+	     (ArchiveItem.swift:257) und signiert daraufhin den ganzen Feed
+	     (FeedXML.swift:650). Am Sparkle-Quelltext verifiziert. -->
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+
 	<!-- true vermeidet Sparkles Erlaubnisdialog beim zweiten Start — der
 	     könnte bei einer LSUIElement-App (kein Dock-Icon, kein Fenster im
 	     Vordergrund) hinter fremden Fenstern stranden und dort unsichtbar
-	     hängen bleiben. Automatisches INSTALLIEREN ist davon unabhängig und
-	     hängt an SUAutomaticallyUpdate — das bleibt false, es wird also nie
-	     still installiert, nur automatisch nach Updates gesucht. -->
+	     hängen bleiben.
+
+	     SUAutomaticallyUpdate = false ist die VOREINSTELLUNG, kein Riegel:
+	     SPUUpdaterSettings.m:325 liest den Wert mit Vorrang für UserDefaults,
+	     und Sparkles Update-Dialog bietet die Checkbox „Automatically download
+	     and install updates" an (sie fällt mangels SUAllowsAutomaticUpdates auf
+	     automaticallyChecksForUpdates = true zurück und ist deshalb sichtbar).
+	     Wer sie bewusst anklickt, hat der stillen Installation zugestimmt — die
+	     Checkbox bleibt daher absichtlich erreichbar, SUAllowsAutomaticUpdates
+	     wird bewusst NICHT gesetzt. Ohne Zutun des Nutzers wird nichts still
+	     installiert, es wird nur automatisch nach Updates gesucht. -->
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>

@@ -77,6 +77,19 @@ APPCAST="$RELEASES_DIR/appcast.xml"
 DOCS_APPCAST="$PROJECT_DIR/docs/appcast.xml"
 
 SPARKLE_KEY_FILE="${CLAUDEMONITOR_SPARKLE_KEY:-$HOME/MF-Projects/.secrets/ClaudeMonitor/sparkle_ed25519.key}"
+
+# Die Teil-Plist der Arbeitskopie mit den Sparkle-Keys. Xcode MERGT sie beim
+# Bauen mit den generierten Keys ins Bundle — dass das passiert, prüft der
+# Vertrauensanker-Wächter in Schritt 4 nach.
+SOURCE_INFO_PLIST="$PROJECT_DIR/App/Info.plist"
+
+# EINGEFRORENER VERTRAUENSANKER (Leitplanke L9). Bewusst als Konstante HIER und
+# nicht aus App/Info.plist gelesen: Das ist der zweite, UNABHÄNGIGE Anker.
+# Verändert jemand App/Info.plist — versehentlich oder absichtlich —, schlägt
+# genau dieser Vergleich an, während ein Vergleich Bundle-gegen-Arbeitskopie
+# allein die Änderung anstandslos durchwinken würde.
+SPARKLE_PUBLIC_KEY="xe1+/8jYc45qORKi4EzxgBfxsOk0K5NWRS79mjuJQj0="
+
 TEAM_ID="94794Q4RW7"
 DOWNLOAD_URL_BASE="https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download"
 PROJECT_URL="https://github.com/SeraphimSakuja/ClaudeMonitor"
@@ -90,21 +103,28 @@ fail() { printf '\n\033[31m✘ %s\033[0m\n' "$1" >&2; exit 1; }
 #
 # generate_appcast und sign_update liegen NICHT im PATH. Sie stecken im
 # SPM-Artefakt unterhalb von DerivedData — einem Pfad, der beim nächsten
-# Aufräumen ersatzlos verschwindet. Deshalb: erst PATH, dann gezielt unterhalb
-# des tatsächlich konfigurierten DerivedData-Pfades suchen, sonst hart
-# abbrechen. Der Appcast-Schritt wird NIE stillschweigend übersprungen — ein
-# fehlender Appcast fällt sonst erst auf, wenn die Nutzer kein Update bekommen.
+# Aufräumen ersatzlos verschwindet.
+#
+# REIHENFOLGE: erst das SPM-Artefakt, DANN der PATH. Sie war früher andersherum
+# und das war die falsche Wahl: Dem gefundenen Binary wird `--ed-key-file`
+# gereicht, also der PFAD ZUM PRIVATEN SIGNATURSCHLÜSSEL. Ein untergeschobenes
+# `generate_appcast` (manipulierter PATH, kompromittiertes Homebrew-Cask) könnte
+# ihn damit ausleiten. Ein gestohlener EdDSA-Schlüssel ist bei dieser
+# Architektur der Totalverlust: Leitplanke L9 friert den Public Key im Bundle
+# ein, es gibt also keinen schmerzfreien Rotationspfad — jede ausgelieferte
+# Kopie müsste von Hand ersetzt werden. Das SPM-Artefakt stammt dagegen aus der
+# committeten, prüfsummengesicherten Package.resolved und ist damit die
+# vertrauenswürdigere Quelle. Der PATH bleibt nur als Rückfallebene.
+#
+# Fehlt beides: hart abbrechen. Der Appcast-Schritt wird NIE stillschweigend
+# übersprungen — ein fehlender Appcast fällt sonst erst auf, wenn die Nutzer
+# kein Update bekommen.
 #
 # $1 = BUILD_DIR-Buildsetting (…/DerivedData/<Projekt>/Build/Products)
 # Ergebnis in der globalen Variablen SPARKLE_BIN.
 resolve_sparkle_tools() {
   local derived_products="$1" derived_root candidate
   SPARKLE_BIN=""
-
-  if command -v generate_appcast >/dev/null 2>&1; then
-    SPARKLE_BIN="$(dirname "$(command -v generate_appcast)")"
-    return 0
-  fi
 
   derived_root="${derived_products%/Build/Products}"
   if [ -d "$derived_root/SourcePackages/artifacts" ]; then
@@ -115,6 +135,11 @@ resolve_sparkle_tools() {
       SPARKLE_BIN="$(dirname "$candidate")"
       return 0
     fi
+  fi
+
+  if command -v generate_appcast >/dev/null 2>&1; then
+    SPARKLE_BIN="$(dirname "$(command -v generate_appcast)")"
+    return 0
   fi
 
   fail "Sparkle-Werkzeuge (generate_appcast/sign_update) nicht gefunden.
@@ -278,6 +303,15 @@ if [ -f "$APPCAST" ]; then
   Abhilfe: CURRENT_PROJECT_VERSION in $XCODEPROJ auf mindestens $((MAX_FEED_VERSION + 1)) erhöhen
   (Xcode → Target ClaudeMonitor → Build Settings → „Current Project Version\")."
   fi
+else
+  # Ein still übersprungener Wächter ist schlimmer als gar keiner: Zeigt
+  # CLAUDEMONITOR_RELEASES_DIR versehentlich auf ein leeres Verzeichnis, entfiele
+  # dieser Vergleich WORTLOS — und zugleich träte der Schaden ein, den der Kopf
+  # dieser Datei beschreibt (generate_appcast hielte alle Einträge für neu und
+  # schriebe --download-url-prefix mit dem AKTUELLEN Tag auf ALLE). Deshalb wird
+  # das Überspringen hier ausdrücklich gemeldet. Die Gegenprobe nach Schritt 11
+  # fängt den zweiten Teil des Schadens.
+  echo "  ⚠ Kein vorhandener Appcast in $RELEASES_DIR — Monotonieprüfung entfällt (nur beim Erstrelease korrekt)."
 fi
 
 # WÄCHTER: Sparkle-Signaturschlüssel vorhanden und nur für den Eigentümer lesbar.
@@ -292,6 +326,69 @@ KEY_MODE="$(stat -f '%OLp' "$SPARKLE_KEY_FILE")"
 [ "$KEY_MODE" = "600" ] \
   || fail "Sparkle-Signaturschlüssel hat Rechte $KEY_MODE statt 600: $SPARKLE_KEY_FILE
   Abhilfe: chmod 600 \"$SPARKLE_KEY_FILE\""
+
+# Der Modus allein genügt nicht: 0600 sagt „nur der Eigentümer darf lesen" —
+# nicht, dass der Eigentümer auch ICH bin. Und ein weit offenes Elternverzeichnis
+# lässt Fremde die Datei umbenennen oder ersetzen, ohne sie je zu lesen.
+KEY_OWNER="$(stat -f '%u' "$SPARKLE_KEY_FILE")"
+[ "$KEY_OWNER" = "$(id -u)" ] \
+  || fail "Sparkle-Signaturschlüssel gehört UID $KEY_OWNER, nicht dem laufenden Benutzer (UID $(id -u)): $SPARKLE_KEY_FILE
+  0600 schützt nur den Eigentümer — ist das ein anderer, ist der Schlüssel für ihn offen und für dich fremdbestimmt.
+  Abhilfe: sudo chown $(id -u) \"$SPARKLE_KEY_FILE\""
+
+KEY_DIR="$(dirname "$SPARKLE_KEY_FILE")"
+KEY_DIR_MODE="$(stat -f '%OLp' "$KEY_DIR")"
+[ "$KEY_DIR_MODE" = "700" ] \
+  || fail "Verzeichnis des Signaturschlüssels hat Rechte $KEY_DIR_MODE statt 700: $KEY_DIR
+  Bei offenerem Verzeichnis kann ein fremder Prozess die Schlüsseldatei ersetzen oder verschieben, ohne sie lesen zu müssen.
+  Abhilfe: chmod 700 \"$KEY_DIR\""
+
+# WÄCHTER: Der private Schlüssel gehört zum eingebetteten Public Key.
+#
+# Bisher wurde nur geprüft, dass die Datei EXISTIERT und 0600 ist — nicht, dass
+# sie zu SPARKLE_PUBLIC_KEY passt. Ein falscher, aber technisch gültiger
+# Schlüssel (versehentliche Rotation, zweiter Rechner, gesetztes
+# CLAUDEMONITOR_SPARKLE_KEY) erzeugt einen fehlerfrei signierten Appcast, den
+# ABER KEIN EINZIGER CLIENT AKZEPTIERT. Der Lauf meldet Erfolg, das Release geht
+# raus, und auffallen würde es erst Wochen später — daran, dass niemand ein
+# Update bekommt.
+#
+# Die Datei enthält Base64 des 32-Byte-Seeds; daraus lässt sich der Public Key
+# ableiten. Bewusst NICHT über `generate_keys -p`: Das ginge über den
+# Schlüsselbund und könnte mitten im Release einen GUI-Dialog aufwerfen — genau
+# das, was die Entscheidung im Kopf dieser Datei vermeiden will.
+#
+# Das Hilfsprogramm ist ein Wegwerf-Artefakt unter build/ und gehört nicht ins
+# Repo. Es gibt ausschließlich den PUBLIC Key aus; der private verlässt weder
+# die Datei noch diesen Prozess.
+mkdir -p "$BUILD_DIR"
+KEYCHECK_SWIFT="$BUILD_DIR/sparkle_pubkey_from_seed.swift"
+cat >"$KEYCHECK_SWIFT" <<'SWIFT'
+import Foundation
+import CryptoKit
+let raw = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+guard let seed = Data(base64Encoded: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+      let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed) else { exit(1) }
+print(key.publicKey.rawRepresentation.base64EncodedString())
+SWIFT
+
+DERIVED_PUBLIC_KEY="$(swift "$KEYCHECK_SWIFT" "$SPARKLE_KEY_FILE" 2>/dev/null | tail -n 1 || true)"
+rm -f "$KEYCHECK_SWIFT"
+
+[ -n "$DERIVED_PUBLIC_KEY" ] \
+  || fail "Aus $SPARKLE_KEY_FILE ließ sich kein Ed25519-Public-Key ableiten.
+  Erwartet wird Base64 eines 32-Byte-Seeds — genau das, was „generate_keys -x\" schreibt.
+  Ist die Datei leer, abgeschnitten oder ein anderes Format, wäre der erzeugte Appcast wertlos."
+
+[ "$DERIVED_PUBLIC_KEY" = "$SPARKLE_PUBLIC_KEY" ] \
+  || fail "Der Signaturschlüssel gehört NICHT zum Vertrauensanker der App.
+  Schlüsseldatei:   $SPARKLE_KEY_FILE
+  daraus abgeleitet: $DERIVED_PUBLIC_KEY
+  im Bundle erwartet: $SPARKLE_PUBLIC_KEY
+  Der Appcast entstünde fehlerfrei und wäre sauber signiert — und würde von JEDEM
+  Client abgelehnt. Niemand bekäme je ein Update, und auffallen würde es erst Wochen später.
+  Abhilfe: den richtigen Schlüssel exportieren bzw. CLAUDEMONITOR_SPARKLE_KEY korrigieren.
+  Den Vertrauensanker zu ändern ist KEINE Abhilfe — er ist per Leitplanke L9 eingefroren."
 
 # WÄCHTER: Release Notes.
 # generate_appcast zieht eine Notizdatei mit DEMSELBEN BASISNAMEN wie das
@@ -310,6 +407,7 @@ RELEASE_NOTES="$RELEASES_DIR/ClaudeMonitor-$SHORT_VERSION.md"
 resolve_sparkle_tools "$DERIVED_PRODUCTS"
 
 echo "  ✓ Zertifikat, notarytool-Profil, Signaturschlüssel, Release Notes"
+echo "  ✓ Signaturschlüssel gehört zum Vertrauensanker $SPARKLE_PUBLIC_KEY"
 echo "  ✓ Version $SHORT_VERSION (Build $BUILD_VERSION)"
 echo "  ✓ Sparkle-Werkzeuge: $SPARKLE_BIN"
 echo "  ✓ Release-Archiv:    $RELEASES_DIR"
@@ -368,6 +466,63 @@ PLIST_BUILD="$(defaults read "$APP/Contents/Info.plist" CFBundleVersion)"
   || fail "Version im Bundle ($PLIST_SHORT/$PLIST_BUILD) weicht von den Buildsettings ($SHORT_VERSION/$BUILD_VERSION) ab.
   Der Versions-Wächter in Schritt 0 hat damit die falsche Zahl geprüft."
 
+# ---------------------------------------------------------------------------
+# WÄCHTER: Vertrauensanker im exportierten Bundle.
+#
+# Dass SUPublicEDKey und SUFeedURL überhaupt im Bundle landen, hängt an
+# undokumentiertem Xcode-Verhalten: GENERATE_INFOPLIST_FILE = YES MERGT die
+# zusätzlich gesetzte INFOPLIST_FILE, statt sie zu ersetzen. Kippt dieses
+# Verhalten mit einer künftigen Xcode-Version, fehlen die Keys — und Sparkle
+# BRICHT NICHT AB: Es loggt eine Deprecation-Zeile und validiert Updates
+# fortan ALLEIN über Apple Code Signing (SPUUpdater.m:340-355). Ein solcher
+# Build besteht jeden anderen Wächter dieses Skripts, wird notarisiert und geht
+# raus. Genau deshalb steht der Wächter hier.
+#
+# Geprüft werden ZWEI Dinge, und das ist Absicht:
+#   1. MERGE   — Bundle-Werte == Werte in App/Info.plist der Arbeitskopie.
+#                Fängt das Kippen des Xcode-Verhaltens.
+#   2. L9      — SUPublicEDKey im Bundle == eingefrorene Konstante oben.
+#                Zweiter, unabhängiger Anker: Verändert jemand App/Info.plist,
+#                bestünde Prüfung 1 anstandslos — Prüfung 2 nicht.
+#
+# Bewusst OHNE eigene Schrittnummer, wie die Versions-Gegenprobe darüber: Die
+# Nummerierung 0/11…11/11 bleibt dadurch lückenlos.
+plist_value() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || true; }
+
+SOURCE_ED_KEY="$(plist_value "$SOURCE_INFO_PLIST" SUPublicEDKey)"
+SOURCE_FEED_URL="$(plist_value "$SOURCE_INFO_PLIST" SUFeedURL)"
+[ -n "$SOURCE_ED_KEY" ] && [ -n "$SOURCE_FEED_URL" ] \
+  || fail "SUPublicEDKey oder SUFeedURL fehlt bereits in der Arbeitskopie: $SOURCE_INFO_PLIST
+  Ohne diese beiden Keys hat die App keinen Vertrauensanker."
+
+BUNDLE_ED_KEY="$(defaults read "$APP/Contents/Info.plist" SUPublicEDKey 2>/dev/null || true)"
+BUNDLE_FEED_URL="$(defaults read "$APP/Contents/Info.plist" SUFeedURL 2>/dev/null || true)"
+
+[ "$BUNDLE_ED_KEY" = "$SOURCE_ED_KEY" ] && [ "$BUNDLE_FEED_URL" = "$SOURCE_FEED_URL" ] \
+  || fail "Der Vertrauensanker im exportierten Bundle weicht von $SOURCE_INFO_PLIST ab.
+  im Bundle:      SUPublicEDKey=\"$BUNDLE_ED_KEY\"  SUFeedURL=\"$BUNDLE_FEED_URL\"
+  in der Quelle:  SUPublicEDKey=\"$SOURCE_ED_KEY\"  SUFeedURL=\"$SOURCE_FEED_URL\"
+  Sind die Werte LEER, hat der Info.plist-Merge nicht stattgefunden
+  (GENERATE_INFOPLIST_FILE + INFOPLIST_FILE, siehe Kopf von App/Info.plist).
+  BEDEUTUNG: Sparkle bricht deswegen NICHT ab — es validiert Updates dann
+  stillschweigend allein über Apple Code Signing (SPUUpdater.m:340-355), und die
+  EdDSA-Prüfung von Feed und Archiv entfällt ersatzlos. Dieses Bundle darf nicht
+  ausgeliefert werden."
+
+[ "$BUNDLE_ED_KEY" = "$SPARKLE_PUBLIC_KEY" ] \
+  || fail "SUPublicEDKey im Bundle ist nicht der eingefrorene Vertrauensanker.
+  im Bundle:   $BUNDLE_ED_KEY
+  eingefroren: $SPARKLE_PUBLIC_KEY
+  Der Anker ist per Leitplanke L9 festgeschrieben: Jede bereits ausgelieferte Kopie
+  prüft gegen den ALTEN Schlüssel. Ein Bundle mit anderem Anker bekäme von diesen
+  Clients nie ein Update — und Updates dieses Bundles wären mit dem bisherigen
+  Schlüssel nicht mehr signierbar.
+  Abhilfe ist NICHT, die Konstante in diesem Skript anzupassen, sondern
+  App/Info.plist zurückzusetzen."
+
+echo "  ✓ SUPublicEDKey und SUFeedURL im Bundle == Arbeitskopie"
+echo "  ✓ SUPublicEDKey == eingefrorener Anker $SPARKLE_PUBLIC_KEY"
+
 DMG="$BUILD_DIR/ClaudeMonitor-$SHORT_VERSION.dmg"
 
 step "5/11  Entitlements prüfen (alle Code-Objekte)"
@@ -406,7 +561,19 @@ codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | sed 's/^/  /'
 spctl -a -vvv -t install "$APP" 2>&1 | sed 's/^/  /' \
   || fail "spctl weist die App ab."
 xcrun stapler validate "$APP" 2>&1 | sed 's/^/  /'
-xcrun stapler staple "$DMG" >/dev/null 2>&1 || true
+
+# Das DMG bekommt bewusst KEIN eigenes Ticket angeheftet.
+#
+# Hier stand ein `xcrun stapler staple "$DMG" >/dev/null 2>&1 || true`. Der
+# Aufruf MUSSTE fehlschlagen — eingereicht wird in Schritt 7 ein ZIP der .app,
+# nie das DMG; für das DMG existiert also gar kein Ticket, das sich abholen
+# ließe. Mit unterdrückter Ausgabe und `|| true` tarnte er sich trotzdem als
+# geglückter Schritt und behauptete etwas, das nie stattgefunden hat.
+#
+# Ein Ticket am DMG braucht es auch nicht: Die .app IM DMG trägt ihres aus
+# Schritt 8, und geprüft wird die App — von Gatekeeper beim ersten Start
+# (Schritt 10 belegt das mit `spctl -t install`) und von Sparkle beim Update.
+# Das DMG ist nur die Hülle für den Transport.
 
 # ---------------------------------------------------------------------------
 # Appcast fortschreiben. Reihenfolge ist zwingend (siehe Kopf der Datei):
@@ -427,6 +594,36 @@ cp -f "$DMG" "$RELEASES_DIR/"
   "$RELEASES_DIR" \
   || fail "generate_appcast fehlgeschlagen."
 [ -f "$APPCAST" ] || fail "generate_appcast hat keinen appcast.xml erzeugt: $APPCAST"
+
+# WÄCHTER: kein Eintrag darf verloren gehen (Gegenprobe zum Monotonie-Wächter).
+#
+# Der committete docs/appcast.xml ist der Stand, den die Nutzer heute sehen.
+# Jede Enclosure-URL daraus MUSS im neu erzeugten Appcast wieder auftauchen.
+# Fehlt eine, war das Release-Archiv unvollständig — dann hat generate_appcast
+# die älteren Einträge nicht fortgeschrieben, sondern neu erfunden und ihnen
+# --download-url-prefix mit dem AKTUELLEN Tag verpasst. Für jeden Nutzer, der
+# eine Version übersprungen hat, endet das in einem 404 (siehe Kopf dieser
+# Datei). Beim Erstrelease gibt es noch keinen committeten Appcast — dann
+# entfällt der Vergleich naturgemäß.
+if git -C "$PROJECT_DIR" cat-file -e HEAD:docs/appcast.xml 2>/dev/null; then
+  while IFS= read -r url; do
+    [ -n "$url" ] || continue
+    grep -qF "$url" "$APPCAST" \
+      || fail "Der neue Appcast hat einen Eintrag verloren, der im committeten docs/appcast.xml steht:
+  $url
+  Das Release-Archiv $RELEASES_DIR war also unvollständig. generate_appcast hat die
+  älteren Einträge nicht fortgeschrieben, sondern neu erzeugt — mit dem Tag v$SHORT_VERSION
+  in der Enclosure-URL. Jeder Nutzer, der eine Version übersprungen hat, liefe damit in ein 404.
+  Abhilfe: alle bisherigen DMGs (und deren Release Notes) nach $RELEASES_DIR zurückholen
+  und das Skript erneut laufen lassen. docs/appcast.xml NICHT von Hand reparieren —
+  das bricht die Feed-Signatur (SURequireSignedFeed)."
+  done < <(git -C "$PROJECT_DIR" show HEAD:docs/appcast.xml \
+             | grep -oE 'url="[^"]+"' | sed 's/^url="//; s/"$//' | sort -u)
+  echo "  ✓ alle Enclosure-URLs des committeten Appcasts sind erhalten"
+else
+  echo "  ⚠ Kein committeter docs/appcast.xml — Verlust-Gegenprobe entfällt (nur beim Erstrelease korrekt)."
+fi
+
 mkdir -p "$(dirname "$DOCS_APPCAST")"
 cp -f "$APPCAST" "$DOCS_APPCAST"
 

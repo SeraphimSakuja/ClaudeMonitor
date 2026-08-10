@@ -101,6 +101,26 @@ final class UpdateController: NSObject, ObservableObject {
 
         let updater = updaterController.updater
 
+        // Feed auf den code-signierten Wert pinnen.
+        //
+        // `SUHost.m:395` gibt UserDefaults Vorrang vor dem Info.plist. Ein
+        // `defaults write at.markusfricke.claudemonitor SUFeedURL http://…`
+        // biegt den Update-Kanal also dauerhaft um — und HTTP wird von Sparkle
+        // nur geloggt, nicht abgelehnt. Der Vertrauensanker selbst bleibt
+        // unantastbar (`SUPublicEDKey` liest Sparkle NUR aus dem
+        // Info-Dictionary, `SUHost.m:193`), aber ein fremdbestimmter Kanal ist
+        // trotzdem nichts, was diese App hinnehmen muss: Der Feed ist
+        // code-signiert im Bundle hinterlegt, und genau der soll gelten.
+        //
+        // Beseitigt zugleich Sparkles Deprecation-Warnung aus
+        // `SPUUpdater.m:179`.
+        //
+        // Reihenfolge stimmt: `startingUpdater: true` oben hat `startUpdater`
+        // bereits ausgelöst, das den Prüfzyklus aber per `dispatch_async` auf
+        // den nächsten Runloop-Durchlauf plant — dieses Löschen läuft synchron
+        // davor, also vor der ersten Feed-Anfrage.
+        updater.clearFeedURLFromUserDefaults()
+
         // Synchron vorbelegen, bevor überhaupt abonniert wird: Die
         // KVO-Quelle für `canCheckForUpdates`/`automaticallyChecksForUpdates`
         // ist laut Sparkle-Quelltext (`SPUUpdater.m:1038`,
