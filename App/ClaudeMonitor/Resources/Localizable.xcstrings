@@ -234,6 +234,24 @@
         }
       }
     },
+    "Checking for updates…" : {
+      "comment" : "Erklärung unter dem gesperrten Update-Knopf, solange eine Prüfung läuft",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suche nach Updates…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking for updates…"
+          }
+        }
+      }
+    },
     "Claude usage" : {
       "comment" : "Bedienhilfen-Bezeichnung des Menüleisten-Symbols",
       "extractionState" : "manual",
@@ -498,24 +516,6 @@
         }
       }
     },
-    "Move ClaudeMonitor to the Applications folder first." : {
-      "comment" : "Anmeldeobjekt nicht möglich, solange die App außerhalb von /Programme liegt",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ClaudeMonitor zuerst in den Programme-Ordner bewegen."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move ClaudeMonitor to the Applications folder first."
-          }
-        }
-      }
-    },
     "No accounts in claude-swap" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -747,6 +747,24 @@
         }
       }
     },
+    "Restart ClaudeMonitor to try again." : {
+      "comment" : "Einziger Ausweg, wenn der Updater nie gestartet ist — er startet nur einmal je Prozess",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starte ClaudeMonitor neu, um es erneut zu versuchen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart ClaudeMonitor to try again."
+          }
+        }
+      }
+    },
     "Spend" : {
       "comment" : "Name des Ausgabenfensters",
       "extractionState" : "manual",
@@ -848,6 +866,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Updated %@ ago"
+          }
+        }
+      }
+    },
+    "Updates are unavailable." : {
+      "comment" : "Erklärung unter dem dauerhaft gesperrten Update-Knopf — der Updater ist nie gestartet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates sind nicht verfügbar."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates are unavailable."
           }
         }
       }

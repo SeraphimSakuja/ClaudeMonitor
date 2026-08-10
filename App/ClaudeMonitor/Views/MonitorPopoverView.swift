@@ -151,14 +151,22 @@ struct MonitorPopoverView: View {
         }
     }
 
-    /// „Beim Anmelden starten" — mitsamt der beiden Zustände, in denen der
-    /// Schalter allein nicht weiterhilft.
+    /// „Beim Anmelden starten" — mitsamt dem einen Zustand, in dem der Schalter
+    /// allein nicht weiterhilft.
     ///
     /// Die Verzweigung entscheidet ``LoginItemState`` in `Shared/`; hier wird
-    /// sie nur gezeichnet. Ohne die beiden Erklärzeilen wäre der Schalter in
-    /// genau den Fällen wortlos tot, in denen der Nutzer eine Erklärung
-    /// braucht: gesperrt in den Systemeinstellungen, oder App noch nicht in
-    /// `/Programme`.
+    /// sie nur gezeichnet. Gesperrt ist einzig `.requiresApproval`, und genau
+    /// dort steht der Weg in die Systemeinstellungen darunter. Den früheren
+    /// zweiten Erklärzweig („erst nach /Programme bewegen") gibt es nicht mehr:
+    /// Er beruhte auf einer erfundenen Annahme und sperrte jede
+    /// Erstinstallation aus (CM-12).
+    ///
+    /// ⚠️ ``LoginItemController/lastFailure`` steht **nicht** mehr am Ende einer
+    /// `else if`-Kette. Vorher verdeckten die Erklärzweige den echten
+    /// Systemfehler in genau den Zuständen, in denen er am meisten erklärt
+    /// hätte. Ausgenommen bleibt nur `.requiresApproval` — dort löscht
+    /// ``LoginItemController`` den Fehler ohnehin bewusst, weil der Link die
+    /// bessere Auskunft ist.
     private var loginItemRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(isOn: Binding(
@@ -179,11 +187,9 @@ struct MonitorPopoverView: View {
                         .font(.caption2)
                 }
                 .buttonStyle(.link)
-            } else if loginItem.state.needsRelocation {
-                Text("Move ClaudeMonitor to the Applications folder first.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if let failure = loginItem.lastFailure {
+            }
+
+            if let failure = loginItem.lastFailure {
                 // `verbatim`: Der Text kommt vom System, ist bereits übersetzt
                 // und darf nicht als Lokalisierungsschlüssel behandelt werden.
                 Text(verbatim: failure)
@@ -225,7 +231,36 @@ struct MonitorPopoverView: View {
             // gepflegten `objectWillChange`-Spiegel — direkt auf die
             // Sparkle-Eigenschaft gebunden bliebe der Knopf nach der ersten
             // Prüfung dauerhaft grau.
-            .disabled(!updates.canCheckForUpdates)
+            .disabled(updates.buttonState != .ready)
+
+            // Ein gesperrter Knopf ohne sichtbare Begründung ist in dieser App
+            // seit CM-11/CM-12 ein Fehler. Welche der beiden Begründungen gilt,
+            // entscheidet ``UpdateAvailability`` in `Shared/`; dass sie
+            // überhaupt dasteht, entscheidet sich hier.
+            switch updates.buttonState {
+            case .ready:
+                EmptyView()
+            case .checking:
+                Text("Checking for updates…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            case .unavailable:
+                Text("Updates are unavailable.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                // Der einzige Ausweg aus diesem Zustand — der Updater startet
+                // nur einmal je Prozess.
+                Text("Restart ClaudeMonitor to try again.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let failure = updates.lastUpdateError {
+                    // `verbatim`: Text vom System bzw. von Sparkle, bereits
+                    // übersetzt und kein Lokalisierungsschlüssel.
+                    Text(verbatim: failure)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+            }
         }
     }
 

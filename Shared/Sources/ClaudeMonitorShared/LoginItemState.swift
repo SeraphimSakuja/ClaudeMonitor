@@ -13,6 +13,22 @@ import ServiceManagement
 /// Deshalb ist das hier ein **eigener** Fall, den die Oberfläche sichtbar
 /// machen muss — mit dem Weg in die Systemeinstellungen.
 ///
+/// ⚠️ **`.notFound` heißt „noch nie registriert" — nicht „liegt am falschen
+/// Ort".** Bis v1.0 gab es hier einen vierten Fall (`unavailable`), der genau
+/// das behauptete und den Schalter sperrte. Die Behauptung ist **gemessen
+/// widerlegt** (10.08.2026, Developer-ID-signiertes Sonden-Bundle):
+///
+/// | Lage | gemessener Status |
+/// |---|---|
+/// | nie registriert, **außerhalb** `/Programme` | `notFound` (3) |
+/// | nach `register()` — **von außerhalb** `/Programme` | `enabled` (1) |
+/// | nach `unregister()` | `notRegistered` (0) |
+///
+/// Der Ort im Dateisystem spielt keine Rolle; `register()` gelingt von jedem
+/// Pfad. Die alte Annahme stammte aus `SMAppService.h:127-130` — einem Absatz
+/// über **LaunchDaemons**, die vor dem Login bootstrappen müssen. Für `mainApp`
+/// gilt er nicht. Wer den Fall wieder einführen will, muss ihn erst messen.
+///
 /// Die Abbildung liegt in `Shared/` und nicht im App-Target, weil sie eine
 /// Regel ist und Regeln in diesem Projekt geprüft werden (`swift test`, ohne
 /// Xcode-Testrunner). Sie registriert nichts und fragt nichts ab — sie bildet
@@ -21,44 +37,36 @@ public enum LoginItemState: Equatable, Sendable {
 
     /// Startet beim Anmelden.
     case enabled
-    /// Startet nicht; lässt sich einschalten.
+    /// Startet nicht; lässt sich einschalten. Umfasst „nie registriert"
+    /// (`.notFound`) und „abgemeldet" (`.notRegistered`) — für den Nutzer
+    /// derselbe Zustand, und in beiden wirkt `register()`.
     case disabled
     /// Registriert, aber vom Nutzer in den Systemeinstellungen abgeschaltet.
     /// Nur dort wieder einschaltbar — nicht aus der App heraus.
     case requiresApproval
-    /// Das System kennt kein Anmeldeobjekt zu diesem Programm. Tritt
-    /// typischerweise auf, solange die App nicht in `/Programme` liegt.
-    case unavailable
 
     /// Stellung des Schalters. `.requiresApproval` zählt ausdrücklich **nicht**
     /// als eingeschaltet: Die App startet in diesem Zustand nicht mit.
     public var isOn: Bool { self == .enabled }
 
-    /// Ob der Schalter bedienbar ist — nur in den beiden Zuständen, in denen
-    /// das Umlegen auch wirkt.
+    /// Ob der Schalter bedienbar ist.
     ///
-    /// Bei `.requiresApproval` entscheidet ausschließlich das System, bei
-    /// `.unavailable` kennt es das Objekt nicht. In beiden Fällen wäre ein
-    /// bedienbarer Schalter eine Attrappe.
-    public var isToggleable: Bool { self == .enabled || self == .disabled }
+    /// Gesperrt ist einzig `.requiresApproval` — dort entscheidet
+    /// ausschließlich das System, ein bedienbarer Schalter wäre eine Attrappe.
+    /// In jedem anderen Zustand wirkt das Umlegen.
+    public var isToggleable: Bool { self != .requiresApproval }
 
     /// Ob die Oberfläche auf die Systemeinstellungen verweisen muss.
     public var needsSystemSettings: Bool { self == .requiresApproval }
-
-    /// Ob die Oberfläche erklären muss, dass die App erst nach `/Programme`
-    /// gehört. Der häufigste Erstkontakt: Das DMG wird geöffnet und die App aus
-    /// `~/Downloads` gestartet — dort kennt das System kein Anmeldeobjekt zu
-    /// ihr, und der Schalter bliebe ohne diesen Hinweis wortlos tot.
-    public var needsRelocation: Bool { self == .unavailable }
 }
 
 extension LoginItemState {
 
     /// Bildet den Systemzustand ab.
     ///
-    /// `.notFound` wird zu ``unavailable`` und nicht zu ``disabled``: Ein
-    /// Schalter, den man umlegen kann, obwohl das System das Objekt gar nicht
-    /// kennt, verspricht etwas, das er nicht halten kann.
+    /// `.notFound` wird zu ``disabled``: Das System kennt zu diesem Programm
+    /// noch kein Anmeldeobjekt, und genau das legt `register()` an — gemessen
+    /// auch außerhalb von `/Programme`.
     public init(status: SMAppService.Status) {
         switch status {
         case .enabled:
@@ -68,11 +76,14 @@ extension LoginItemState {
         case .requiresApproval:
             self = .requiresApproval
         case .notFound:
-            self = .unavailable
+            self = .disabled
         @unknown default:
-            // Unbekannt heißt „nicht anbieten" — die Abbildung irrt nur zur
-            // sicheren Seite, wie die Entitlement-Wache auch.
-            self = .unavailable
+            // Bewusst schaltbar statt gesperrt: Ein unbekannter Systemzustand
+            // ist kein Grund, dem Nutzer die einzige Handlung zu verbieten.
+            // Scheitert `register()`, zeigt die Oberfläche den Fehlertext des
+            // Systems — das ist die ehrliche Auskunft. Eine geratene Erklärung
+            // war der Fehler, den diese Datei bis v1.0 gemacht hat.
+            self = .disabled
         }
     }
 }

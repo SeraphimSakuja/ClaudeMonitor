@@ -57,8 +57,9 @@ than frozen at its last percentage.
 ## Installing
 
 Download the notarised `.dmg` from [Releases](../../releases) and drag the app into
-`/Applications`. Moving it there matters: macOS only offers the "Open at login" registration for
-apps in the Applications folder, and the app will tell you so if you run it from elsewhere.
+`/Applications`. That's a recommendation, not a requirement — everything, including "Start at
+login", works from any location. It's just that an app left in `~/Downloads` tends to disappear
+during the next tidy-up.
 
 ## Updates
 

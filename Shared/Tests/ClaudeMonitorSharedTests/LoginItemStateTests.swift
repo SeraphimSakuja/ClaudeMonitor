@@ -4,11 +4,19 @@ import ClaudeMonitorShared
 
 /// Die Abbildung `SMAppService.Status` → ``LoginItemState``.
 ///
-/// Der Test, der wirklich zählt, ist ``requiresApprovalIsNeitherOnNorToggleable``:
-/// Bildete man `.requiresApproval` auf `.disabled` ab — die naheliegende
-/// Abkürzung, weil die App ja nicht mitstartet —, bekäme der Nutzer einen
-/// Schalter, der sich klicken lässt und nichts tut. Genau diese Abkürzung soll
-/// hier scheitern.
+/// Zwei Tests tragen hier die Last:
+///
+/// ``requiresApprovalIsNeitherOnNorToggleable`` — bildete man
+/// `.requiresApproval` auf `.disabled` ab (die naheliegende Abkürzung, weil die
+/// App ja nicht mitstartet), bekäme der Nutzer einen Schalter, der sich klicken
+/// lässt und nichts tut.
+///
+/// ``notFoundIsOffButToggleable`` — die Gegenrichtung, und die teurere Lehre:
+/// Bis v1.0 sperrte `.notFound` den Schalter mit der Begründung, die App müsse
+/// erst nach `/Programme`. Die Begründung war **erfunden** und ist gemessen
+/// widerlegt (10.08.2026); der Fehler traf jede Erstinstallation. Der alte Test
+/// war grün, weil er dieselbe Annahme wiederholte — deshalb prüft dieser hier
+/// die **Wirkung** (schaltbar), nicht bloß den Fallnamen.
 @Suite("Anmeldeobjekt-Zustand")
 struct LoginItemStateTests {
 
@@ -39,36 +47,56 @@ struct LoginItemStateTests {
         #expect(state.needsSystemSettings)
     }
 
-    @Test func notFoundIsUnavailableRatherThanOff() {
+    @Test func notFoundIsOffButToggleable() {
         let state = LoginItemState(status: .notFound)
-        // Bewusst nicht `.disabled`: Ein bedienbarer Schalter würde etwas
-        // versprechen, das das System nicht kennt.
-        #expect(state == .unavailable)
+        // „Noch nie registriert" — gemessen, nicht hergeleitet: `register()`
+        // gelingt aus diesem Zustand heraus von jedem Pfad aus.
+        #expect(state == .disabled)
         #expect(!state.isOn)
-        #expect(!state.isToggleable)
-        // Nicht die Systemeinstellungen sind hier der Weg, sondern /Programme.
+        // Der eigentliche Fix von CM-12: Der Schalter muss bedienbar sein.
+        #expect(state.isToggleable)
+        // Und es gibt nichts zu erklären — die Systemeinstellungen sind hier
+        // nicht der Weg, der Schalter selbst ist es.
         #expect(!state.needsSystemSettings)
-        #expect(state.needsRelocation)
     }
 
-    @Test func onlyTheTwoWorkingStatesAreToggleable() {
-        // Ein Schalter darf genau dann bedienbar sein, wenn das Umlegen auch
-        // wirkt — sonst ist er eine Attrappe.
+    @Test func onlyApprovalBlocksTheSwitch() {
+        // Ein Schalter darf genau dann gesperrt sein, wenn das Umlegen
+        // nachweislich nicht wirkt. Das ist genau ein Zustand.
         #expect(LoginItemState.enabled.isToggleable)
         #expect(LoginItemState.disabled.isToggleable)
         #expect(!LoginItemState.requiresApproval.isToggleable)
-        #expect(!LoginItemState.unavailable.isToggleable)
-        // Und die beiden Erklärtexte schließen einander aus.
+        // Und der einzige gesperrte Zustand zeigt auch den Ausweg.
         #expect(LoginItemState.requiresApproval.needsSystemSettings)
-        #expect(!LoginItemState.requiresApproval.needsRelocation)
-        #expect(!LoginItemState.unavailable.needsSystemSettings)
-        #expect(LoginItemState.unavailable.needsRelocation)
+        #expect(!LoginItemState.enabled.needsSystemSettings)
+        #expect(!LoginItemState.disabled.needsSystemSettings)
     }
 
-    @Test func unknownStatusFallsBackToUnavailable() {
-        // Ein künftiger Systemzustand darf die Oberfläche nicht dazu bringen,
-        // etwas anzubieten, das sie nicht einlösen kann.
+    @Test func noStateDemandsBeingMovedToApplications() {
+        // Festgehalten, damit die widerlegte Folklore nicht zurückkommt:
+        // Es gibt keinen Systemzustand, aus dem ein Ortswechsel folgt. Jeder
+        // gesperrte Zustand hier muss über `needsSystemSettings` einen Ausweg
+        // zeigen — ein anderer Erklärgrund existiert nicht mehr.
+        let all: [LoginItemState] = [.enabled, .disabled, .requiresApproval]
+        for state in all where !state.isToggleable {
+            #expect(state.needsSystemSettings)
+        }
+        // Und kein erreichbarer Systemstatus führt in einen gesperrten Zustand
+        // ohne Ausweg.
+        let statuses: [SMAppService.Status] = [.enabled, .notRegistered, .requiresApproval, .notFound]
+        for status in statuses {
+            let state = LoginItemState(status: status)
+            #expect(state.isToggleable || state.needsSystemSettings)
+        }
+    }
+
+    @Test func unknownStatusStaysToggleable() {
+        // Ein künftiger Systemzustand darf dem Nutzer nicht die einzige
+        // Handlung verbieten. Scheitert `register()`, zeigt die Oberfläche den
+        // Fehlertext des Systems — eine geratene Erklärung war der Fehler.
         let state = LoginItemState(status: SMAppService.Status(rawValue: 99) ?? .notFound)
-        #expect(state == .unavailable)
+        #expect(state == .disabled)
+        #expect(state.isToggleable)
+        #expect(!state.needsSystemSettings)
     }
 }
