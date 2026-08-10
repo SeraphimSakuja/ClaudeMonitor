@@ -586,6 +586,37 @@ xcrun stapler validate "$APP" 2>&1 | sed 's/^/  /'
 #      GitHub Pages ausliefert.
 step "11/11  Appcast erzeugen"
 cp -f "$DMG" "$RELEASES_DIR/"
+
+# ⚠️ NUR das Archiv der AKTUELLEN Version darf im Wurzelverzeichnis liegen.
+#
+# `generate_appcast` erzeugt für JEDES dort gefundene Archiv einen Eintrag NEU
+# und wendet dabei `--download-url-prefix` mit dem AKTUELLEN Tag an. Ein altes
+# DMG im Wurzelverzeichnis bekommt dadurch eine Enclosure-URL unter dem neuen
+# Tag — wo diese Datei nie liegen wird. Ergebnis: 404 für jeden Nutzer, der
+# eine Version übersprungen hat, und zwar erst Monate später bemerkbar.
+#
+# Ein persistentes Archiv allein genügt also NICHT; das war beim ersten
+# 1.0.1-Lauf am 10.08.2026 die falsche Annahme, und die Verlust-Gegenprobe
+# weiter unten hat sie gestoppt, bevor docs/ Schaden nahm.
+#
+# GEMESSEN (10.08.2026, an einer Kopie des Archivs): Liegt das alte Archiv in
+# `old_updates/`, meldet das Werkzeug „Wrote 1 new update, updated 0 existing
+# updates" und übernimmt den alten Eintrag unverändert aus dem vorhandenen
+# Appcast — die alte URL bleibt korrekt erhalten.
+#
+# Preis: keine Delta-Updates mehr (die bräuchten das Vorgängerarchiv am selben
+# Ort). Bei rund 2 MB Gesamtgröße ist das kein Verlust.
+mkdir -p "$RELEASES_DIR/old_updates"
+STALE=0
+while IFS= read -r stale; do
+  [ -n "$stale" ] || continue
+  mv "$stale" "$RELEASES_DIR/old_updates/"
+  STALE=$((STALE + 1))
+done < <(find "$RELEASES_DIR" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.delta' \) \
+           ! -name "$(basename "$DMG")")
+[ "$STALE" -eq 0 ] \
+  && echo "  ✓ nur das aktuelle Archiv im Wurzelverzeichnis" \
+  || echo "  ✓ $STALE ältere(s) Archiv(e) nach old_updates/ verschoben"
 "$SPARKLE_BIN/generate_appcast" \
   --account ClaudeMonitor \
   --ed-key-file "$SPARKLE_KEY_FILE" \
