@@ -144,6 +144,16 @@ public enum AccountSequenceReader {
     /// sondern eine Zeichenlast.
     static let maximumAliasLength = 64
 
+    /// Obergrenze für die Identitätsmenge selbst (unabhängig vom
+    /// Alias-Deckel ``maximumAccounts``). claude-swap verwaltet eine
+    /// Handvoll Accounts; deutlich über jeder realistischen Zahl, aber
+    /// deutlich unter dem, was die 8-MB-Dateigrenze (``SourceFileGuard``)
+    /// überhaupt an Einträgen tragen könnte. Oberhalb gilt die ganze Menge
+    /// als „nichts gesagt" (`nil`, nicht filtern) — **kein** Truncate: Eine
+    /// Teilmenge würde echte Accounts jenseits der Schwelle verstecken,
+    /// genau der Fehler, den die Mengenregel sonst vermeidet.
+    static let maximumKnownAccounts = 4096
+
     /// Liest die Datei, die zur angegebenen `usage.json` gehört.
     public static func read(
         forStoreAt storeURL: URL,
@@ -186,10 +196,13 @@ public enum AccountSequenceReader {
 
         let activeID = identifier(from: root["activeAccountNumber"])
 
-        let known = identities(from: root["accounts"])
+        // Einmal casten, beide Ableitungen (Identitäten + Aliase) daraus
+        // speisen — spart den zweiten separaten Cast/Traversal derselben Menge.
+        let accountsObject = root["accounts"] as? [String: Any]
+        let known = identities(from: accountsObject)
 
         var aliases: [String: String] = [:]
-        if let accounts = root["accounts"] as? [String: Any] {
+        if let accounts = accountsObject {
             // Kennungsordnung statt Wörterbuch-Reihenfolge: Greift die
             // Obergrenze, soll immer dieselbe Teilmenge übrig bleiben und nicht
             // bei jedem Lauf eine andere.
@@ -222,6 +235,10 @@ public enum AccountSequenceReader {
     /// Fremddateien steht bereits ``SourceFileGuard``.
     private static func identities(from raw: Any?) -> [String: AccountIdentity]? {
         guard let accounts = raw as? [String: Any] else { return nil }
+        // Oberhalb dieser Grenze ist die Datei keine Verwaltung mehr, sondern
+        // Ballast — „nichts gesagt" (nicht filtern) statt einer Teilmenge, die
+        // echte Accounts verstecken würde (siehe ``maximumKnownAccounts``).
+        guard accounts.count <= maximumKnownAccounts else { return nil }
 
         var identities: [String: AccountIdentity] = [:]
         for (id, entry) in accounts {

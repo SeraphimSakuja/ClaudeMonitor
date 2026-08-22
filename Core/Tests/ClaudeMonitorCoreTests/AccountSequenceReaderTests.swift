@@ -122,7 +122,7 @@ struct AccountSequenceReaderTests {
         #expect(AccountSequenceReader.decode(Data("{\"accounts\": {}}".utf8)).knownAccounts == [:])
     }
 
-    @Test("Die Identitätsmenge wird nicht gedeckelt")
+    @Test("Die Identitätsmenge wird nicht am Alias-Deckel gekappt")
     func knownAccountsAreNotCapped() throws {
         let count = AccountSequenceReader.maximumAccounts * 2
         let entries = (1...count)
@@ -135,6 +135,21 @@ struct AccountSequenceReaderTests {
         #expect(known.count == count)
         // Der Alias-Deckel bleibt davon unberührt — er schützt das Zeichnen.
         #expect(AccountSequenceReader.maximumAccounts == 64)
+    }
+
+    @Test("Jenseits von maximumKnownAccounts wird fail-open statt getruncated")
+    func excessiveKnownAccountsFailOpen() throws {
+        // Anders als der Alias-Deckel: Es wird keine Teilmenge übernommen
+        // (das versteckte echte Accounts jenseits der Schwelle), sondern die
+        // ganze Menge gilt als „nichts gesagt" — dieselbe Fail-open-Semantik
+        // wie bei jedem anderen unlesbaren Zustand der Quelle.
+        let count = AccountSequenceReader.maximumKnownAccounts + 1
+        let entries = (1...count)
+            .map { "\"\($0)\": {\"email\": \"a\"}" }
+            .joined(separator: ", ")
+        #expect(
+            AccountSequenceReader.decode(Data("{\"accounts\": {\(entries)}}".utf8)).knownAccounts == nil
+        )
     }
 
     // MARK: - Fehlfälle: alle enden bei `empty`

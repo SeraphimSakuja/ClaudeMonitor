@@ -85,6 +85,11 @@ public struct UsageStoreReader: Sendable {
         if let reason = SourceFileGuard.inspect(url).reason {
             return .unreadable(reason: reason)
         }
+        // Bewusst VOR usage.json gelesen: Fügt claude-swap zwischen beiden
+        // Lesevorgängen einen Account hinzu, bleibt er bis zum nächsten
+        // 30s-Takt unsichtbar (selbstheilend). In umgekehrter Reihenfolge
+        // bliebe stattdessen ein bereits entfernter Account kurz sichtbar —
+        // die schlechtere Seite, auf der geirrt werden kann. Nicht umdrehen.
         let sequence = sequence
             ?? AccountSequenceReader.read(forStoreAt: url, fileManager: fileManager)
         do {

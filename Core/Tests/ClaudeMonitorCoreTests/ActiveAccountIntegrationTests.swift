@@ -60,9 +60,10 @@ struct ActiveAccountIntegrationTests {
             ).snapshot
         )
 
-        #expect(snapshot.accounts[0].displayName == "first")
-        // Ohne Alias bleibt es bei der E-Mail.
-        #expect(snapshot.accounts[1].displayName == "user2@example.com")
+        // Ohne Alias bleibt es bei der E-Mail. Über `map` statt Index-Zugriff,
+        // damit eine künftig leere Menge den Test rot statt den Prozess abstürzen
+        // lässt.
+        #expect(snapshot.accounts.map(\.displayName) == ["first", "user2@example.com"])
     }
 
     @Test("Ohne Alias und ohne E-Mail bleibt „Account <id>“")
@@ -314,6 +315,29 @@ struct ActiveAccountIntegrationTests {
             ).snapshot
         )
         #expect(snapshot.accounts.map(\.id) == ["1"])
+    }
+
+    @Test("Ein falsch getippter organizationUuid-Wert zählt wie „nichts gesagt“")
+    func mistypedOrganizationCountsAsUnstated() throws {
+        // Eine Zahl statt eines Strings darf nicht wie eine echte Aussage
+        // ("") behandelt werden — sonst bliebe ein Account mit altem,
+        // fehlerhaftem sequence.json-Eintrag dauerhaft ausgeblendet.
+        let root = try TestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try TestSupport.writeStoreLayout(
+            in: root,
+            usage: try TestSupport.fixtureData("usage_real_format"),
+            sequence: Data("""
+            {"accounts": {"1": {"email": "user1@example.com", "organizationUuid": 7},
+                           "2": {"email": "user2@example.com",
+                                 "organizationUuid": "00000000-0000-4000-8000-000000000002"}}}
+            """.utf8)
+        )
+
+        let snapshot = try #require(reader.read(contentsOf: store, now: now).snapshot)
+        // Nur die E-Mail entscheidet, weil organizationUuid unlesbar war —
+        // beide Accounts bleiben sichtbar.
+        #expect(snapshot.accounts.map(\.id) == ["1", "2"])
     }
 
     @Test("Auch jenseits von 64 Slots wird richtig gefiltert")
