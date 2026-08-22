@@ -6,6 +6,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeMonitor</title>
         <item>
+            <title>1.0.2</title>
+            <pubDate>Sat, 22 Aug 2026 20:31:20 +0200</pubDate>
+            <link>https://github.com/SeraphimSakuja/ClaudeMonitor</link>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink sparkle:edSignature="/0CvJ0LxSuRHolNFvPcuubYl2fAPHroHZogZE2C8suGpWvcuRqhKqVbXTGXAxZQ81EcIQKOViP+Qz+9da75iDw==" sparkle:length="1894">https://seraphimsakuja.github.io/ClaudeMonitor/ClaudeMonitor-1.0.2.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0.2/ClaudeMonitor-1.0.2.dmg" length="2208216" type="application/octet-stream" sparkle:edSignature="yn1kPAbLzQr9xLuywnkAjkgz/pEGXMgPcT3K1iUBngJrL3VOieRaCrTXubmhtlgyJxZczw6mWNHmvyH8fxdBBA=="/>
+        </item>
+        <item>
             <title>1.0.1</title>
             <pubDate>Mon, 10 Aug 2026 20:04:06 +0200</pubDate>
             <link>https://github.com/SeraphimSakuja/ClaudeMonitor</link>
@@ -28,6 +38,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: dfKqZb/A+UuDXbJ5zfRjgxIakTwlG0fkug6D+zrRVJtxyY2BETSrX/TMyZdId7KzV+p5RAOTQsiPTN60iAtMBQ==
-length: 2343
+edSignature: Hj1uhl9BF7Ym8MuJFDykPIkgu5HAvz7H9PvUa1sMH9WZ92BEXuzyl1s1uELmrza7WLuBWsyXW5rxEDgBKKYyDg==
+length: 3301
 -->
