@@ -86,6 +86,10 @@ enum RawLastGoodEntry: Decodable {
 /// Ein Account im Rohformat.
 struct RawAccount: Decodable {
     var email: String?
+    /// Zusammen mit `email` die Identität hinter der Slot-Kennung — claude-swap
+    /// vergibt Slot-Nummern nach dem Entfernen aller Accounts wieder von vorn
+    /// (``AccountSequenceInfo/recognizes(id:email:organizationUuid:)``).
+    var organizationUuid: String?
     var lastGood: [String: RawLastGoodEntry]?
     var fetchedAt: Double?
     var backoffUntil: Double?
@@ -96,6 +100,7 @@ struct RawAccount: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case email
+        case organizationUuid
         case lastGood
         case fetchedAt
         case backoffUntil
@@ -107,6 +112,7 @@ struct RawAccount: Decodable {
     init(from decoder: Decoder) throws {
         guard let container = try? decoder.container(keyedBy: CodingKeys.self) else { return }
         email = container.lenient(String.self, .email)
+        organizationUuid = container.lenient(String.self, .organizationUuid)
         lastGood = container.lenient([String: RawLastGoodEntry].self, .lastGood)
         fetchedAt = container.lenient(Double.self, .fetchedAt)
         backoffUntil = container.lenient(Double.self, .backoffUntil)

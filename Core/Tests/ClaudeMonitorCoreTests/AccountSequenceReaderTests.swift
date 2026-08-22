@@ -60,11 +60,97 @@ struct AccountSequenceReaderTests {
         #expect(info.alias(for: "3") == "third")
     }
 
+    // MARK: - Identitätsmenge
+
+    @Test("Die Identität je Kennung wird gelesen")
+    func readsKnownAccounts() throws {
+        let data = Data("""
+        {"activeAccountNumber": 2,
+         "accounts": {
+           "2": {"email": "user2@example.com", "organizationUuid": "org-2", "alias": "second"},
+           "3": {"email": "user3@example.com", "organizationUuid": ""}
+         }}
+        """.utf8)
+        let known = try #require(AccountSequenceReader.decode(data).knownAccounts)
+
+        #expect(known["2"] == AccountIdentity(email: "user2@example.com", organizationUuid: "org-2"))
+        // `""` bleibt `""` — das ist die Aussage „persönlicher Account" und
+        // etwas anderes als ein fehlender Schlüssel.
+        #expect(known["3"] == AccountIdentity(email: "user3@example.com", organizationUuid: ""))
+        #expect(known.count == 2)
+    }
+
+    @Test("Fehlt der organizationUuid-Schlüssel, bleibt die Identität ohne Organisation")
+    func missingOrganizationStaysUnstated() throws {
+        let known = try #require(
+            AccountSequenceReader.decode(Data("{\"accounts\": {\"1\": {\"email\": \"a@b.c\"}}}".utf8))
+                .knownAccounts
+        )
+        #expect(known["1"] == AccountIdentity(email: "a@b.c", organizationUuid: nil))
+    }
+
+    @Test("Kein accounts-Objekt ⇒ die Quelle hat nichts gesagt", arguments: [
+        "{\"activeAccountNumber\": 1}",                    // Schlüssel fehlt ganz
+        "{\"accounts\": null}",                            // ausdrücklich leer
+        "{\"accounts\": [\"1\", \"2\"]}",                  // Liste statt Objekt
+        "{\"accounts\": 5}"                                // Zahl statt Objekt
+    ])
+    func withoutAccountsObjectNothingIsKnown(_ json: String) {
+        // `nil` heißt ausdrücklich **nicht** „es gibt keine Accounts" — sonst
+        // versteckte eine Nebenquelle die Zahlen.
+        #expect(AccountSequenceReader.decode(Data(json.utf8)).knownAccounts == nil)
+    }
+
+    @Test("Ein einziger unlesbarer Eintrag verwirft die ganze Menge")
+    func oneBrokenEntryDiscardsTheWholeSet() {
+        for json in [
+            "{\"accounts\": {\"1\": {\"email\": \"a@b.c\"}, \"2\": \"nur ein Text\"}}",
+            "{\"accounts\": {\"1\": {\"email\": \"a@b.c\"}, \"2\": {\"alias\": \"ohne E-Mail\"}}}",
+            "{\"accounts\": {\"1\": {\"email\": \"a@b.c\"}, \"2\": {\"email\": 7}}}"
+        ] {
+            #expect(
+                AccountSequenceReader.decode(Data(json.utf8)).knownAccounts == nil,
+                "Teilmenge übernommen aus: \(json)"
+            )
+        }
+    }
+
+    @Test("Ein leeres accounts-Objekt ist eine Aussage: gar keine Accounts")
+    func emptyAccountsObjectIsAnEmptySet() {
+        // Genau das schreibt claude-swap beim Erstlauf und nach dem Entfernen
+        // des letzten Accounts — hier darf **nicht** `nil` herauskommen.
+        #expect(AccountSequenceReader.decode(Data("{\"accounts\": {}}".utf8)).knownAccounts == [:])
+    }
+
+    @Test("Die Identitätsmenge wird nicht gedeckelt")
+    func knownAccountsAreNotCapped() throws {
+        let count = AccountSequenceReader.maximumAccounts * 2
+        let entries = (1...count)
+            .map { "\"\($0)\": {\"email\": \"user\($0)@example.com\"}" }
+            .joined(separator: ", ")
+        let known = try #require(
+            AccountSequenceReader.decode(Data("{\"accounts\": {\(entries)}}".utf8)).knownAccounts
+        )
+
+        #expect(known.count == count)
+        // Der Alias-Deckel bleibt davon unberührt — er schützt das Zeichnen.
+        #expect(AccountSequenceReader.maximumAccounts == 64)
+    }
+
     // MARK: - Fehlfälle: alle enden bei `empty`
 
     @Test("Kein JSON ⇒ nichts bekannt, kein Absturz")
     func garbageIsEmpty() {
         #expect(AccountSequenceReader.decode(Data("nicht mal JSON {{{".utf8)) == .empty)
+    }
+
+    @Test("„Nichts bekannt“ heißt fail-open, nicht „keine Accounts“")
+    func emptyKnowsNoAccountSet() {
+        // Wäre hier `[:]` hinterlegt, blendete jeder Fehlfall dieser
+        // Nebenquelle sämtliche Accounts aus — aus einem fehlenden Kurznamen
+        // würde eine leere App.
+        #expect(AccountSequenceInfo.empty.knownAccounts == nil)
+        #expect(AccountSequenceInfo.empty.recognizes(id: "1", email: nil, organizationUuid: nil))
     }
 
     @Test("Halb geschriebener Stand ⇒ nichts bekannt")

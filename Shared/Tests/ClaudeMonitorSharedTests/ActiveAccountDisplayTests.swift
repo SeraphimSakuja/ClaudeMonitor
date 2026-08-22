@@ -161,6 +161,33 @@ struct ActiveAccountDisplayTests {
         #expect(display.segments.map(\.displayName) == ["user1@example.com"])
     }
 
+    @Test("Ein Account, den claude-swap nicht mehr kennt, verschwindet aus der Leiste")
+    func removedAccountLeavesTheMenuBar() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeMonitorSequenceTests-\(UUID().uuidString)", isDirectory: true)
+        let cache = root.appending(path: "cache")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = cache.appending(path: "usage.json")
+        try Self.usageJSON.write(to: store)
+        // Gültige sequence.json, die den Account „1" nicht (mehr) führt: Seine
+        // Zahlen sind eingefroren und dürften sonst als „bester Account" in der
+        // Leiste stehen.
+        try Data("""
+        {"activeAccountNumber": 2,
+         "accounts": {"2": {"email": "user2@example.com", "organizationUuid": "org-2"}}}
+        """.utf8).write(to: root.appending(path: "sequence.json"))
+
+        let result = UsageStoreReader().read(contentsOf: store, now: Fixture.now)
+        let state = MonitorViewState().reduced(with: result)
+
+        // Kein Fehlzustand — nur eben nichts mehr anzuzeigen.
+        #expect(state.issue == nil)
+        #expect(state.snapshot?.accounts.isEmpty == true)
+        #expect(MenuBarDisplay.make(for: state, mode: .overview, now: Fixture.now).segments.isEmpty)
+    }
+
     // MARK: - Anzeigename
 
     @Test("Der Anzeigename der Leiste ist der des Accounts — Alias inbegriffen")

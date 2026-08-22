@@ -65,7 +65,7 @@ public struct UsageStoreReader: Sendable {
 
     /// Liest einen konkreten Store-Pfad.
     ///
-    /// - Parameter sequence: Aktiver Account und Aliase. `nil` ⇒ im selben
+    /// - Parameter sequence: Bekannte Accounts, aktiver Account und Aliase. `nil` ⇒ im selben
     ///   Durchlauf aus der Geschwisterdatei `sequence.json` gelesen. Diese
     ///   Quelle kann nicht scheitern (``AccountSequenceReader``); ein Problem
     ///   dort ergibt niemals ein anderes ``UsageStoreReadResult``.
@@ -126,7 +126,19 @@ public struct UsageStoreReader: Sendable {
             )
         }
 
+        // `sequence.json` ist die Verwaltung, dieser Store nur der
+        // Zahlen-Zwischenspeicher: Eine Zeile, die claude-swap nicht mehr kennt,
+        // trägt eingefrorene Werte und rangierte mit ihnen als „bester Account".
+        // Deshalb hier — nach der Schemaprüfung, vor jeder Abbildung — aus der
+        // Menge werfen. Sagt die Nebenquelle nichts, wird nicht gefiltert.
         let accounts = (raw.accounts ?? [:])
+            .filter {
+                sequence.recognizes(
+                    id: $0.key,
+                    email: $0.value.email,
+                    organizationUuid: $0.value.organizationUuid
+                )
+            }
             .map { account(id: $0.key, raw: $0.value, now: now, sequence: sequence) }
             .sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
 
