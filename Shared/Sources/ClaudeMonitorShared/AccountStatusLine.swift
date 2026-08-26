@@ -18,7 +18,11 @@ public enum AccountStatusLine: Equatable, Sendable {
     /// claude-swap pausiert Abfragen bis zu diesem Zeitpunkt.
     case paused(until: Date)
     /// Letzter Abrufversuch schlug fehl; alte Zahlen können noch stehen.
-    case fetchFailed(message: String)
+    ///
+    /// `staleAge` ist gesetzt, wenn die stehengebliebenen Zahlen zusätzlich
+    /// älter als ``staleThreshold`` sind — sonst sähen 21 h alte Zahlen neben
+    /// dem Fehlerhinweis aus wie frische.
+    case fetchFailed(message: String, staleAge: TimeInterval?)
     /// Daten sind älter als die Toleranz — mit Altersangabe anzuzeigen.
     case stale(age: TimeInterval)
 
@@ -45,7 +49,9 @@ public enum AccountStatusLine: Equatable, Sendable {
             if until > now { return .paused(until: until) }
             return staleOrUpToDate(account, now: now)
         case .failing(let message):
-            return .fetchFailed(message: message)
+            let age = account.dataAge(now: now)
+            let staleAge = (age.map { $0 > staleThreshold }) == true ? age : nil
+            return .fetchFailed(message: message, staleAge: staleAge)
         case .ok:
             return staleOrUpToDate(account, now: now)
         }

@@ -104,7 +104,10 @@ struct PopoverOrderAndSpendTests {
         #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .noData))
         #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .reLoginRequired(strikes: 1)))
         #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .paused(until: Fixture.now)))
-        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .fetchFailed(message: "kaputt")))
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .fetchFailed(message: "kaputt", staleAge: nil)))
+        // CM-15: nennt der Fehlversuch selbst schon das Alter, gilt dieselbe
+        // Einmal-Regel wie bei `.stale`.
+        #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .fetchFailed(message: "kaputt", staleAge: 2760)) == false)
     }
 
     // MARK: - Beträge des Ausgabenfensters

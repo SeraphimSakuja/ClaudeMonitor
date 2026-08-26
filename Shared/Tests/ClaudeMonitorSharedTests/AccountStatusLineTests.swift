@@ -43,13 +43,26 @@ struct AccountStatusLineTests {
         #expect(AccountStatusLine.make(for: account, now: Fixture.now) == .upToDate)
     }
 
-    @Test("Fehlversuch wird als solcher gemeldet")
+    @Test("Fehlversuch bei frischen Daten nennt kein Alter")
     func failingIsReported() {
         let account = Fixture.account(
             windows: [Fixture.window(.fiveHour, percent: 10)],
             state: .failing(message: "timeout")
         )
-        #expect(AccountStatusLine.make(for: account, now: Fixture.now) == .fetchFailed(message: "timeout"))
+        #expect(AccountStatusLine.make(for: account, now: Fixture.now) == .fetchFailed(message: "timeout", staleAge: nil))
+    }
+
+    @Test("Fehlversuch bei veralteten Daten nennt zusätzlich das Alter")
+    func failingWithStaleDataCarriesItsAge() {
+        // CM-15: 21 h alte Zahlen sahen neben dem Fehlerhinweis wie frische aus,
+        // weil `.failing` nie auf `staleThreshold` prüfte.
+        let age = AccountStatusLine.staleThreshold + 3600
+        let account = Fixture.account(
+            windows: [Fixture.window(.fiveHour, percent: 10)],
+            fetchedAt: Fixture.now.addingTimeInterval(-age),
+            state: .failing(message: "timeout")
+        )
+        #expect(AccountStatusLine.make(for: account, now: Fixture.now) == .fetchFailed(message: "timeout", staleAge: age))
     }
 
     @Test("Alte Daten gelten als veraltet — mit Altersangabe")

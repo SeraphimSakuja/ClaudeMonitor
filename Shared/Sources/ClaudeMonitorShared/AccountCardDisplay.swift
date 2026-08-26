@@ -15,7 +15,15 @@ public enum AccountCardDisplay {
     /// Altersangabe**") bleibt dabei erhalten: Sie wandert nicht weg, sie steht
     /// nur noch an **einer** Stelle — der auffälligeren.
     public static func showsUpdatedFooter(statusLine: AccountStatusLine) -> Bool {
-        if case .stale = statusLine { return false }
-        return true
+        switch statusLine {
+        case .stale:
+            return false
+        case .fetchFailed(_, let staleAge):
+            // Nennt die Statuszeile das Alter schon selbst (CM-15), stünde es
+            // sonst ein zweites Mal im Footer — dieselbe Regel wie bei `.stale`.
+            return staleAge == nil
+        default:
+            return true
+        }
     }
 }

@@ -115,8 +115,16 @@ struct AccountCardView: View {
             } icon: {
                 Image(systemName: "pause.circle")
             }
-        case .fetchFailed:
-            Label("Last fetch failed", systemImage: "exclamationmark.triangle")
+        case .fetchFailed(_, let staleAge):
+            Label {
+                if let staleAge, let duration = DataAgeDisplay.duration(for: staleAge) {
+                    Text("Last fetch failed — data is outdated: \(duration, format: .units(allowed: [.days, .hours, .minutes], width: .abbreviated))")
+                } else {
+                    Text("Last fetch failed")
+                }
+            } icon: {
+                Image(systemName: "exclamationmark.triangle")
+            }
         case .stale(let age):
             Label {
                 // Die SSOT verlangt die Altersangabe — „veraltet" allein lässt
