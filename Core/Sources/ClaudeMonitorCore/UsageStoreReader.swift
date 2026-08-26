@@ -78,34 +78,29 @@ public struct UsageStoreReader: Sendable {
         guard fileManager.fileExists(atPath: url.path) else {
             return .storeNotFound(searchedPaths: [url.path])
         }
-        // Vor dem vollständigen Lesen prüfen, dass der Pfad wirklich auf eine
-        // gewöhnliche Datei vernünftiger Größe zeigt. Ohne diese Wache
-        // blockierte eine untergeschobene FIFO das Öffnen endlos und der
-        // Poller stünde lautlos still (siehe ``SourceFileGuard``).
-        if let reason = SourceFileGuard.inspect(url).reason {
-            return .unreadable(reason: reason)
-        }
         // Bewusst VOR usage.json gelesen: Fügt claude-swap zwischen beiden
         // Lesevorgängen einen Account hinzu, bleibt er bis zum nächsten
         // 30s-Takt unsichtbar (selbstheilend). In umgekehrter Reihenfolge
         // bliebe stattdessen ein bereits entfernter Account kurz sichtbar —
         // die schlechtere Seite, auf der geirrt werden kann. Nicht umdrehen.
+        // Läuft unabhängig davon, ob usage.json unten als lesbar gilt (eigene
+        // Datei, eigene Fehlerbehandlung, kein Zusammenhang).
         let sequence = sequence
             ?? AccountSequenceReader.read(forStoreAt: url, fileManager: fileManager)
-        do {
-            // Reines Lesen ohne Koordination und ohne Lock (L1).
-            let data = try Data(contentsOf: url, options: [.uncached])
+        // TOCTOU-sicher (CM-16): prüft denselben Datei-Deskriptor, den es
+        // liest — `inspect()` gefolgt von `Data(contentsOf:)` ließe ein
+        // Rennfenster offen, in dem eine untergeschobene FIFO das Öffnen
+        // endlos blockiert (siehe ``SourceFileGuard``).
+        switch SourceFileGuard.readIfSafe(url) {
+        case .success(let data):
             return decode(data, now: now, sequence: sequence)
-        } catch {
-            // TOCTOU: Zwischen Existenzprüfung und Lesen kann claude-swap die
-            // Datei ersetzt haben. „Verschwunden" ist kein Lesefehler, sondern
-            // derselbe Zustand wie „nie da gewesen".
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain,
-               nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError {
-                return .storeNotFound(searchedPaths: [url.path])
-            }
-            return .unreadable(reason: error.localizedDescription)
+        case .notFound:
+            // claude-swap kann die Datei zwischen Existenzprüfung und Öffnen
+            // ersetzt oder entfernt haben. „Verschwunden" ist kein Lesefehler,
+            // sondern derselbe Zustand wie „nie da gewesen".
+            return .storeNotFound(searchedPaths: [url.path])
+        case .rejected(let verdict):
+            return .unreadable(reason: verdict.reason ?? "Die Quelldatei ist nicht lesbar.")
         }
     }
 

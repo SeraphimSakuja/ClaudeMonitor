@@ -171,16 +171,17 @@ public enum AccountSequenceReader {
         fileManager: FileManager = .default
     ) -> AccountSequenceInfo {
         guard fileManager.fileExists(atPath: url.path) else { return .empty }
-        // Dieselbe Wache wie bei `usage.json`: Eine FIFO an dieser Stelle würde
-        // das Öffnen endlos blockieren, und weil dieser Leser im selben
-        // Durchlauf wie der Store-Leser läuft, stünde damit auch die Anzeige
-        // der Zahlen still (siehe ``SourceFileGuard``).
-        guard SourceFileGuard.inspect(url) == .ok else { return .empty }
-        // Reines Lesen ohne Koordination und ohne Lock (L1) — genau wie bei
-        // `usage.json`. Ein halb geschriebener Stand ist ein normaler Fall und
-        // heilt beim nächsten Durchlauf von selbst.
-        guard let data = try? Data(contentsOf: url, options: [.uncached]) else { return .empty }
+        // TOCTOU-sicher (CM-16), dieselbe Wache wie bei `usage.json`: prüft
+        // denselben Datei-Deskriptor, den es liest — ein getrennter `inspect()`
+        // gefolgt von `Data(contentsOf:)` ließe ein Rennfenster offen, in dem
+        // eine untergeschobene FIFO das Öffnen endlos blockiert und damit auch
+        // die Anzeige der Zahlen still stünde (siehe ``SourceFileGuard``).
+        // Ein halb geschriebener Stand ist ein normaler Fall und heilt beim
+        // nächsten Durchlauf von selbst — jeder Fehlschlag wird darum
+        // gleichermaßen zu `.empty`, ohne Unterscheidung nach Grund.
+        guard case .success(let data) = SourceFileGuard.readIfSafe(url) else { return .empty }
         return decode(data)
+
     }
 
     /// Interpretiert den Dateiinhalt. Getrennt vom Dateizugriff, damit der

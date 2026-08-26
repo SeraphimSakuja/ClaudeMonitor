@@ -9,12 +9,15 @@ import Testing
 /// und kehrte nie zurück — dieselbe Fehlerklasse wie die App-Group-Blockade aus
 /// Leitplanke L7.
 ///
-/// **Warum hier keine FIFO gelesen wird:** Ein Test, der ohne die Wache
-/// *blockiert* statt fehlzuschlagen, hängt die ganze Suite auf. Die FIFO wird
-/// deshalb ausschließlich der Wache vorgelegt (die die Datei nicht öffnet und
-/// darum nicht blockieren kann); dass die Leser die Wache auch wirklich
-/// befragen, ist über Verzeichnis und Übergröße geprüft — beides misslingt
-/// ohne die Wache sichtbar, statt zu hängen.
+/// **Warum `inspect(_:)` hier nur vorgelegt, nicht gelesen wird:** `inspect`
+/// öffnet die Datei nicht und kann darum nicht blockieren — ein Test, der ohne
+/// die Wache *blockiert* statt fehlzuschlagen, hängt sonst die ganze Suite auf.
+/// Dass die Leser die Wache auch wirklich befragen, ist über Verzeichnis und
+/// Übergröße geprüft — beides misslingt ohne die Wache sichtbar, statt zu
+/// hängen. `readIfSafe(_:)` (CM-16) öffnet die Datei zwar, aber mit
+/// `O_NONBLOCK` — genau deshalb wird die FIFO dort unten mit Zeitschranke
+/// tatsächlich vorgelegt, als Beweis, dass das Öffnen selbst nicht mehr
+/// blockiert.
 @Suite("Wache vor dem Lesen fremder Dateien")
 struct SourceFileGuardTests {
 
@@ -55,6 +58,36 @@ struct SourceFileGuardTests {
         // Ein Öffnen der FIFO bliebe hier stehen.
         #expect(SourceFileGuard.inspect(fifo) == .notRegularFile)
         #expect(SourceFileGuard.Verdict.notRegularFile.reason != nil)
+    }
+
+    /// Kleine `@unchecked Sendable`-Box, um das Ergebnis aus dem Hintergrund-
+    /// Thread unten zurückzutragen — sicher, weil der Semaphore eine
+    /// Geschieht-vorher-Beziehung zwischen Schreiben und Lesen erzwingt.
+    private final class ResultBox: @unchecked Sendable {
+        var value: SourceFileGuard.ReadResult?
+    }
+
+    @Test("CM-16: Das tatsächliche Lesen einer FIFO blockiert nicht mehr")
+    func fifoReadDoesNotBlock() throws {
+        // Defekt-Fixture, nicht nur gelesen: vor dem Fix hätte `open` hier auf
+        // eine FIFO ohne Schreiber gewartet — endlos, siehe Dateikopf. Läuft
+        // der Aufruf auf einem eigenen Thread mit Zeitschranke: kehrt ein
+        // Regress zur alten TOCTOU-Lücke zurück, macht das den Test rot statt
+        // die ganze Suite aufzuhängen.
+        let root = try TestSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fifo = try Self.makeFIFO(in: root)
+
+        let box = ResultBox()
+        let semaphore = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            box.value = SourceFileGuard.readIfSafe(fifo)
+            semaphore.signal()
+        }
+
+        let outcome = semaphore.wait(timeout: .now() + 2)
+        #expect(outcome == .success, "readIfSafe(fifo) kehrte nicht innerhalb von 2s zurück — blockiert vermutlich beim Öffnen der FIFO")
+        #expect(box.value == .rejected(.notRegularFile))
     }
 
     @Test("Ein Verzeichnis ist keine gewöhnliche Datei")
