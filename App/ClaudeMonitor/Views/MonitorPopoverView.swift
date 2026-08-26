@@ -261,23 +261,20 @@ struct MonitorPopoverView: View {
                 Text("Reinstall ClaudeMonitor to repair it.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                // **Hier steht bewusst kein Fehlertext.** Bis CM-12 hing an
-                // dieser Stelle ein Fehlertext aus
-                // `updater(_:didAbortWithError:)` — ein toter Zweig: Dieser
-                // Zustand heißt „`startUpdater:` gescheitert", und dann ruft
-                // Sparkle gar keinen Delegaten
-                // (`SPUStandardUpdaterController.m:78-102`: `SULog` plus
-                // eigener `runModal` nach einer Sekunde). Umgekehrt setzt
-                // `didAbortWithError` einen gelaufenen Driver voraus, also
-                // einen erfolgreichen Start — die beiden Bedingungen schließen
-                // einander aus. Und dort, wo der Rückruf feuert, trägt er laut
-                // `SPUUpdaterDelegate.h:449-450` auch `SUNoUpdateError`, also
-                // eine Erfolgsmeldung. Ein Kanal, der im relevanten Zustand nie
-                // feuert und im irrelevanten Erfolg als Fehler ausgibt, ist
-                // schlechter als keiner. Der Weg zu einer echten Ursache steht
-                // als CM-13 in der SSOT (`startingUpdater: false` + eigenes
-                // `try updater.start()`); bis dahin trägt die Zustandsregel
-                // allein.
+                // CM-13: Bis hierher stand bewusst kein Fehlertext — der alte
+                // Kanal (`updater(_:didAbortWithError:)`) feuert im relevanten
+                // Zustand nie (Sparkle ruft dort keinen Delegaten,
+                // `SPUStandardUpdaterController.m:78-102`) und im irrelevanten
+                // Erfolgsfall trägt er `SUNoUpdateError`
+                // (`SPUUpdaterDelegate.h:449-450`) — ein Kanal, der schlechter
+                // war als keiner. `updates.startupError` stammt jetzt aus dem
+                // echten `try updater.start()` in ``UpdateController``, nicht
+                // aus einem toten Rückruf.
+                if let reason = updates.startupError {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

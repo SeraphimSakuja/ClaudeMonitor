@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import OSLog
 import Sparkle
 import ClaudeMonitorShared
 
@@ -104,20 +105,43 @@ final class UpdateController: NSObject, ObservableObject {
     /// `SUInstallationCanceledError` als mögliche Codes, und `SPUUpdater.m:803`
     /// filtert davon nur `SUInstallationAuthorizeLaterError` heraus. Ein daraus
     /// gespeister Text trüge nach jeder normalen „alles aktuell"-Prüfung eine
-    /// Erfolgsmeldung als Fehler. Ein echter Fehlerkanal für den Startfehler
-    /// steht als CM-13 an (`startingUpdater: false` + eigenes
-    /// `try updater.start()`); bis dahin trägt die Zustandsregel allein.
+    /// Erfolgsmeldung als Fehler.
+    ///
+    /// **`startingUpdater: false` (CM-13):** `SPUStandardUpdaterController
+    /// .startUpdater` (`.m:78-101`) fängt einen Fehlschlag vollständig selbst
+    /// ab — `SULog` plus eigener `runModal` nach einer Sekunde — und reicht ihn
+    /// an **keinen** Delegaten weiter. `_initUpdater` läuft trotzdem
+    /// unbedingt in `initWithStartingUpdater:`, bevor die Weiche überhaupt
+    /// geprüft wird — `updaterController.updater` ist danach bereits ein
+    /// gültiges Objekt, nur eben nicht gestartet. ``start()`` ruft
+    /// `updater.start()` deshalb selbst auf und wertet den echten Fehler
+    /// aus (`SPUUpdater.m:146-190`).
     private lazy var updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
+        startingUpdater: false,
         updaterDelegate: nil,
         userDriverDelegate: self
     )
+
+    /// Grund, falls `updater.start()` scheiterte (CM-13) — `nil` im
+    /// Normalfall. Zeigt die Oberfläche neben ``UpdateButtonState/unavailable``,
+    /// wo bis hierher bewusst kein Fehlertext stand (s. `MonitorPopoverView`).
+    ///
+    /// Kandidatenursachen laut `SPUUpdater.m
+    /// checkIfConfiguredProperlyAndRequireFeedURL:` sind Bundle-Defekte
+    /// (Sparkle.framework nicht auffindbar, keine Bundle-ID/Version, falsch
+    /// platzierter XPC-Service) — zwei davon tragen den Bundle-Pfad. Der zeigt
+    /// zwar in den App-Ordner, nicht in Nutzerdaten, aber dieselbe Vorsicht wie
+    /// in ``log(_:)`` gilt: **nicht** `.public` beim Loggen.
+    private(set) var startupError: String? = nil {
+        willSet { if newValue != startupError { objectWillChange.send() } }
+    }
 
     /// Die geprüfte Regel aus `Shared/`. Sie hält den gesamten Sitzungszustand;
     /// dieser Typ hält keinen eigenen.
     private var policy = UpdateSessionPolicy()
 
     private var cancellables = Set<AnyCancellable>()
+    private let logger = Logger(subsystem: AppGroup.loggingSubsystem, category: "UpdateController")
 
     /// `NSObject`-Erbe ist keine Bequemlichkeit: `SPUStandardUserDriverDelegate`
     /// erweitert `NSObjectProtocol`, und dem lässt sich in Swift nur durch
@@ -137,6 +161,19 @@ final class UpdateController: NSObject, ObservableObject {
         guard cancellables.isEmpty else { return }
 
         let updater = updaterController.updater
+
+        // CM-13: `startingUpdater: false` oben verlangt diesen Aufruf hier —
+        // ohne ihn liefe nie eine geplante Prüfung. Der echte Fehler (statt
+        // Sparkles eigenem, stummem `runModal`) landet in ``startupError`` und
+        // damit sichtbar in der Oberfläche.
+        do {
+            try updater.start()
+        } catch {
+            // Ohne `.public`: zwei der Kandidatenursachen tragen den
+            // Bundle-Pfad (s. Doku an ``startupError``).
+            logger.error("Updater konnte nicht gestartet werden: \(error.localizedDescription)")
+            startupError = error.localizedDescription
+        }
 
         // Feed auf den code-signierten Wert pinnen.
         //
