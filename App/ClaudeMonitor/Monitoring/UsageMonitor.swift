@@ -108,10 +108,19 @@ final class UsageMonitor: ObservableObject {
         // sitzt in ``SnapshotStore/containerDirectory`` und ist damit nicht zu
         // umgehen. `write` meldet ohne Deklaration `containerUnavailable`,
         // ohne den Container je anzufassen.
-        let outcome = await Task.detached(priority: .utility) { () -> (UsageStoreReadResult, SnapshotStore.WriteResult?) in
+        let outcome = await Task.detached(priority: .utility) { () -> (UsageStoreReadResult, SnapshotStore.WriteResult?, Int?) in
             let result = reader.read()
-            guard case .success(let snapshot) = result else { return (result, nil) }
-            return (result, writer.write(snapshot))
+            // CM-18: eigenständig (nicht über `reader.read()`, das die Quelle
+            // intern liest und verwirft) für die Diagnose unten — reiner,
+            // zustandsloser Zweitzugriff auf dieselbe, bereits gedeckelte
+            // Quelle (L1), keine neue Kopplung.
+            let knownAccountCount = UsageStoreLocator
+                .locate(environment: ProcessInfo.processInfo.environment,
+                        homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                        fileManager: .default)
+                .flatMap { AccountSequenceReader.read(forStoreAt: $0).knownAccounts?.count }
+            guard case .success(let snapshot) = result else { return (result, nil, knownAccountCount) }
+            return (result, writer.write(snapshot), knownAccountCount)
         }.value
 
         state = state.reduced(with: outcome.0)
@@ -121,6 +130,25 @@ final class UsageMonitor: ObservableObject {
         }
 
         if let issue = state.issue { log(issue) }
+        logIdentityDriftIfNeeded(result: outcome.0, knownAccountCount: outcome.2)
+    }
+
+    /// CM-18: Bedingung selbst steht framework-frei in ``IdentityDriftDiagnostic``
+    /// (Shared) — hier nur der Log-Aufruf. Nur Zahlen, keine E-Mail/
+    /// `organizationUuid` — sonst kippt die PII-Linie aus ``log(_:)``.
+    private func logIdentityDriftIfNeeded(result: UsageStoreReadResult, knownAccountCount: Int?) {
+        guard case .success(let snapshot) = result,
+              IdentityDriftDiagnostic.isSuspected(
+                accountsIsEmpty: snapshot.accounts.isEmpty,
+                knownAccountCount: knownAccountCount
+              )
+        else { return }
+        logger.debug(
+            """
+            sequence.json kennt \(knownAccountCount ?? 0, privacy: .public) Account(s), aber usage.json \
+            ergab dazu keinen Treffer — möglicherweise Identitäts-Drift statt „kein Account mehr".
+            """
+        )
     }
 
     /// Protokolliert Schreibergebnisse nur bei Änderung — sonst flutet der
