@@ -131,16 +131,25 @@ public struct UsageStoreReader: Sendable {
         // trägt eingefrorene Werte und rangierte mit ihnen als „bester Account".
         // Deshalb hier — nach der Schemaprüfung, vor jeder Abbildung — aus der
         // Menge werfen. Sagt die Nebenquelle nichts, wird nicht gefiltert.
-        let accounts = (raw.accounts ?? [:])
-            .filter {
-                sequence.recognizes(
-                    id: $0.key,
-                    email: $0.value.email,
-                    organizationUuid: $0.value.organizationUuid
-                )
-            }
-            .map { account(id: $0.key, raw: $0.value, now: now, sequence: sequence) }
-            .sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
+        let accounts = Array(
+            (raw.accounts ?? [:])
+                .filter {
+                    sequence.recognizes(
+                        id: $0.key,
+                        email: $0.value.email,
+                        organizationUuid: $0.value.organizationUuid
+                    )
+                }
+                .map { account(id: $0.key, raw: $0.value, now: now, sequence: sequence) }
+                .sorted { AccountIdentifierOrder.isOrderedBefore($0.id, $1.id) }
+                // CM-17: nichts deckelte bisher die Account-Zahl selbst — nur
+                // die Fenster je Account (``maximumWindowsPerAccount``). Das
+                // Detailfenster zeichnet die Liste nicht-lazy; der CM-14-Filter
+                // oben mindert das nur im Nicht-fail-open-Fall. Sortierung
+                // davor sichert eine deterministische, nicht willkürliche
+                // Auswahl der ersten `maximumAccounts`.
+                .prefix(Self.maximumAccounts)
+        )
 
         return .success(
             AccountsSnapshot(
@@ -266,6 +275,17 @@ public struct UsageStoreReader: Sendable {
     /// stimmen ja. Die Sortierung davor sichert zu, dass 5 h und 7 d nie dem
     /// Deckel zum Opfer fallen.
     static let maximumWindowsPerAccount = 64
+
+    /// Obergrenze für die Zahl der Accounts selbst (CM-17).
+    ///
+    /// Eine randvolle 8-MB-`usage.json` (``SourceFileGuard/maximumFileSize``)
+    /// ergäbe bei minimalen Einträgen rund 370.000 Accounts; das Detailfenster
+    /// zeichnet die Liste nicht-lazy. Real verwaltet claude-swap eine
+    /// Handvoll — 64 liegt weit darüber. Dieselbe Größenordnung wie
+    /// ``maximumWindowsPerAccount`` und wie `AccountSequenceReader
+    /// .maximumAccounts`, aus demselben Grund: still gekürzt statt als Fehler
+    /// gemeldet, weil die verbleibenden Zahlen weiterhin stimmen.
+    static let maximumAccounts = 64
 
     /// Wandelt ein Rohfenster um; `nil`, wenn kein verwertbarer Prozentwert
     /// ableitbar ist (dann liegen für dieses Fenster schlicht keine Daten vor —

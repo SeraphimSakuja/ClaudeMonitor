@@ -36,6 +36,30 @@ struct ForeignDataLimitsTests {
         #expect(account.window(kind: .fiveHour)?.percent == 10)
     }
 
+    @Test("CM-17: Eine aufgeblähte Account-Zahl aus usage.json wird gedeckelt")
+    func accountCountFromUsageStoreIsCapped() throws {
+        // Fail-open-Fall (`sequence: .empty` ⇒ `recognizes` filtert nichts,
+        // siehe Doku dort): genau der Fall, in dem der CM-14-Filter die
+        // Account-Zahl NICHT mindert und `usage.json` allein entscheidet.
+        let count = UsageStoreReader.maximumAccounts + 20
+        let entries = (1...count)
+            .map { #""\#($0)": {"email": "user\#($0)@example.com", "lastGood": {"five_hour": {"pct": 5.0}}}"# }
+            .joined(separator: ",")
+        let json = #"{"schemaVersion": 2, "accounts": {\#(entries)}}"#
+
+        let first = UsageStoreReader().decode(Data(json.utf8), now: TestSupport.now)
+        let second = UsageStoreReader().decode(Data(json.utf8), now: TestSupport.now)
+
+        guard case .success(let firstSnapshot) = first, case .success(let secondSnapshot) = second else {
+            Issue.record("Erwartet: .success auf beiden Seiten, bekommen: \(first), \(second)")
+            return
+        }
+        #expect(firstSnapshot.accounts.count == UsageStoreReader.maximumAccounts)
+        // Kennungsordnung statt Wörterbuch-Reihenfolge: Zweimal dasselbe
+        // Ergebnis, sonst wechselte die Anzeige bei jedem Lauf.
+        #expect(firstSnapshot.accounts.map(\.id) == secondSnapshot.accounts.map(\.id))
+    }
+
     @Test("Ein überlanger Alias wird beschnitten, nicht verworfen")
     func longAliasIsTruncated() {
         let long = String(repeating: "x", count: AccountSequenceReader.maximumAliasLength + 100)
