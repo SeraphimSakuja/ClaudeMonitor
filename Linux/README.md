@@ -126,3 +126,144 @@ If that value is empty or `/`, no path is printed at all.
 One line is knowingly less safe than the rest: the reason of the `unreadable` case can be a decoder
 error text, which is platform dependent in wording and language. It is redacted like everything
 else, but its content is not under this project's control.
+
+---
+
+# `claude-monitor-tray` — the resident tray process (CM-20)
+
+Unlike the smoke tool above, this **is** a user-facing artefact: a resident process that shows the
+same numbers in the GNOME panel that the macOS build shows in the menu bar. It speaks
+`org.kde.StatusNotifierItem` and `com.canonical.dbusmenu` directly, over a D-Bus client written in
+plain Swift (Foundation + Glibc sockets). No GTK, no libayatana-appindicator, no libdbus, no
+GObject introspection, no pkg-config, no `-dev` headers, no SwiftPM dependency.
+
+The reason for that route is not purity, it is the **self-contained single binary** that `CM-22`
+builds on. A release binary links against `libm`, `libstdc++`, `libgcc_s`, `libc` and `ld-linux`
+and nothing else; any foreign runtime in the shipped artefact would be a step back from that goal.
+
+## Targets
+
+| Target | Kind | Contains |
+|---|---|---|
+| `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
+| `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping and the `ItemsPropertiesUpdated` diff |
+| `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
+| `TrayTests` | test | the proof slot for the two libraries |
+
+The split is deliberate. Everything that can be judged without a live session lives in a library, so
+that it is reachable from the test slot; the executable keeps only what needs a real bus.
+
+## Building and running
+
+```sh
+( cd Linux && swift build )
+( cd Linux && swift build -c release --static-swift-stdlib )   # the shippable binary, ~70 MB
+./Linux/.build/release/claude-monitor-tray
+```
+
+The process runs in the **foreground**, does not fork and does not daemonise — `CM-21` wraps it in a
+systemd user service. `SIGTERM`/`SIGINT` tear it down cleanly; the watcher notices and drops the
+item from the panel. It re-registers by itself when `gnome-shell` restarts (`NameOwnerChanged`).
+
+It is strictly read-only, like the smoke tool: it never writes, never locks and never calls
+`SnapshotStore.write` — the tray targets do not even link `SnapshotStore`, so the promise cannot be
+broken by accident. That holds for `--selftest` too.
+
+## Exit contract
+
+| Exit | Meaning |
+|---|---|
+| 0 | ended normally, or `--selftest` passed |
+| 5 | `DBUS_SESSION_BUS_ADDRESS` is not set — **there was no session** |
+| 6 | connection or SASL failed, or the bus disappeared while running |
+| 7 | `--selftest` only: registered, but the query sequence never arrived |
+| 8 | another instance already owns `org.claudemonitor.Tray` |
+| 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
+
+Exit 8 is the single-instance guard. Without it, an autostart instance plus a hand start — the
+normal case once `CM-21` exists — would put **two** entries in the panel, because the watcher keys
+items by `busName@objectPath`.
+
+Exit 9 is only an abort in `--selftest`. In normal operation a missing watcher is not a reason to
+stop: the process says so once and registers as soon as the watcher appears.
+
+## `--selftest` runs on the host, never in the container
+
+⚠️ **The container (`swift:6.3.3`) has no session bus.** `--selftest` there yields exit 5, and
+**exit 5 is "did not run", never a pass.** The self-test is only meaningful on a host with a live
+session, that is where `busctl --user list` shows `org.kde.StatusNotifierWatcher`:
+
+```sh
+busctl --user list | grep StatusNotifierWatcher     # precondition
+./Linux/.build/release/claude-monitor-tray --selftest ; echo "selftest exit=$?"
+```
+
+It passes when the shell asks for the item's properties **and** fetches the menu layout. Both are
+required: an item whose menu is never queried is never visible either, which is the whole reason the
+menu is mandatory rather than optional.
+
+Useful counter-checks while an instance is running:
+
+```sh
+busctl --user get-property org.claudemonitor.Tray /StatusNotifierItem \
+  org.kde.StatusNotifierItem XAyatanaLabel Status IconPixmap
+busctl --user get-property org.claudemonitor.Tray /StatusNotifierItem \
+  org.kde.StatusNotifierItem AnythingUnknown          # must NOT be an Unknown* error
+busctl --user call org.claudemonitor.Tray /StatusNotifierItem/Menu \
+  com.canonical.dbusmenu GetLayout iias 0 -- -1 0
+```
+
+The second one matters more than it looks: the `ubuntu-appindicators` extension **destroys** an item
+that answers its 10-second liveness question with `org.freedesktop.DBus.Error.Unknown*` — even while
+`Status` is `Active`. The dispatcher therefore answers every property, unknown ones with a
+type-appropriate empty value. It cannot do otherwise: the result type of an object handler has no
+error case at all.
+
+What the panel shows is the one thing no machine check here covers. That `XAyatanaLabel` really
+appears as text in the panel, and changes within 30 s of a change in `usage.json`, is a **manual**
+acceptance point and is recorded as one.
+
+## What the tray process never prints
+
+The same print contract as the smoke tool, with one addition and one tightening.
+
+The addition: on macOS `os_log` redacts dynamic strings by itself, and `UsageMonitor` relies on
+that. A hand-written logger does not, so `TrayLog` does it — every line is assembled from named
+scalars and passes through a single `redact(_:)`. No reflection of a model, display or menu type, and
+no wire dump of D-Bus messages: a message body can carry every name in the store.
+
+The tightening: the `reason` of the `unreadable` case is **not** printed at all. The smoke tool still
+prints it, knowingly, because it is a one-shot developer aid. This process is resident and its lines
+stay in the journal.
+
+The target is **stderr only** — no log file of its own. Under `CM-21` the journal handles capture and
+rotation; a second pile next to it is one nobody clears out. Repeated lines are debounced, the same
+way `UsageMonitor.logIfChanged` does it.
+
+The **surface** is the opposite case and deliberately so: the menu shows `displayName`, because
+without it the accounts cannot be told apart. Redaction applies to the log, not to the menu.
+
+## Colours
+
+The three levels use Linux-specific sRGB values: green (52, 199, 89), yellow (255, 149, 0), red
+(255, 59, 48). The yellow one has a twin on macOS — `StatusAppearance.swift:19-25` maps the same
+level to `systemOrange`, for the same reason: yellow on a light background is effectively invisible.
+The level keeps the name `yellow` on both sides; the name belongs to the model, the colour to the
+presentation.
+
+Two further icons exist beside the three levels: a neutral dot for an account without a verdict, and
+an open ring for "no usable data". Neither may ever be sent empty — an empty pixmap makes the
+extension raise `Empty Icon found` and the panel falls back to `image-loading-symbolic`, the error
+placeholder.
+
+## Test baseline
+
+The Linux baseline is **three** numbers now:
+
+```sh
+( cd Core && swift test )     # 155 tests
+( cd Shared && swift test )   # 125 tests
+( cd Linux && swift test )    # TrayTests — the CM-20 slot
+```
+
+The third suite is built from the real diff after the verify gate, not by the implementer.
