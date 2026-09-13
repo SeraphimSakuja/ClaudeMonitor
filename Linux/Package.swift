@@ -5,7 +5,11 @@ let package = Package(
     name: "ClaudeMonitorLinux",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "claude-monitor", targets: ["claude-monitor"])
+        .executable(name: "claude-monitor", targets: ["claude-monitor"]),
+        // CM-20: der residente Tray-Prozess. Eigenes Product neben der
+        // Rauchprobe, nicht an ihrer Stelle — die Rauchprobe bleibt das
+        // Werkzeug, mit dem sich die Datenkette ohne Oberfläche prüfen lässt.
+        .executable(name: "claude-monitor-tray", targets: ["claude-monitor-tray"])
     ],
     dependencies: [
         .package(path: "../Core"),
@@ -34,6 +38,18 @@ let package = Package(
             name: "TrayPresentation",
             dependencies: [
                 "DBusWire",
+                .product(name: "ClaudeMonitorCore", package: "Core"),
+                .product(name: "ClaudeMonitorShared", package: "Shared")
+            ]
+        ),
+
+        // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife. Hier
+        // steht nur, was sich ohne lebende Sitzung nicht prüfen lässt.
+        .executableTarget(
+            name: "claude-monitor-tray",
+            dependencies: [
+                "DBusWire",
+                "TrayPresentation",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")
             ]
