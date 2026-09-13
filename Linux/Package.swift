@@ -43,8 +43,12 @@ let package = Package(
             ]
         ),
 
-        // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife. Hier
-        // steht nur, was sich ohne lebende Sitzung nicht prüfen lässt.
+        // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife des
+        // residenten Tray-Prozesses. Seit CM-26 ist das **nicht** mehr
+        // gleichbedeutend mit „ungeprüft": Die Bus-Attrappe in `TrayTests`
+        // (`FakeSessionBus.swift`) ist ein echter `AF_UNIX`-Server im
+        // Testprozess, gegen den diese Schicht laufen kann — prüfbar ist
+        // davon, was nicht `private` ist.
         .executableTarget(
             name: "claude-monitor-tray",
             dependencies: [
@@ -63,6 +67,10 @@ let package = Package(
             dependencies: [
                 "DBusWire",
                 "TrayPresentation",
+                // CM-26: das Executable-Ziel selbst. Ohne diese Abhängigkeit
+                // bliebe `TrayProcess` aus dem Testkontext unerreichbar und die
+                // Bus-Attrappe hätte nichts, womit sie sprechen könnte.
+                "claude-monitor-tray",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")
             ]

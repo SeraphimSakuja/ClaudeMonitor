@@ -219,7 +219,7 @@ final class TrayProcess {
     }
 
     /// Reagiert auf Bus-Signale — im Kern auf das Kommen des Watchers.
-    private func handle(signal message: DBusMessage) {
+    func handle(signal message: DBusMessage) {
         guard message.type == .signal,
               message.member == "NameOwnerChanged"
         else { return }
@@ -238,7 +238,7 @@ final class TrayProcess {
     // MARK: Lesen und Senden
 
     /// Ein Lesevorgang samt Aktualisierung der Oberfläche.
-    private func refresh(now: Date) {
+    func refresh(now: Date) {
         nextRead = now.addingTimeInterval(Self.pollInterval)
         let result = reader.read(homeDirectory: homeDirectory, now: now)
         state = state.reduced(with: result)
