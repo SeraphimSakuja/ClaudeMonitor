@@ -13,9 +13,11 @@ import ClaudeMonitorShared
 /// Warum die Texte hier und nicht in `Shared/` stehen: `Shared/` bekommt in
 /// dieser Karte **null Diff**. Die drei Fehlzustands-Titel und -Erklärungen
 /// sind zudem ohnehin neu — aus ``IssuePresentation`` wird nur ``isSevere``
-/// übernommen, die `symbolName`-Seite liefert SF-Symbole
-/// (`questionmark.folder`, `IssuePresentation.swift:12-18`), die auf GNOME
-/// keine Bedeutung haben (Auflage 9, Fachentscheid 5.17).
+/// übernommen, die `symbolName`-Seite liefert SF-Symbol-Namen
+/// (`IssuePresentation.swift:12-18`), die auf GNOME keine Bedeutung haben
+/// (Auflage 9, Fachentscheid 5.17). Kein einziger dieser Namen kommt in
+/// `Linux/` vor — auch nicht zitiert, damit die Gegenprobe per `grep` sauber
+/// null ergibt.
 public enum TrayTexts {
 
     /// Produktname im Menükopf und als `Title` des Items.
