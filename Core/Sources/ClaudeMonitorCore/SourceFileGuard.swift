@@ -33,7 +33,7 @@ public enum SourceFileGuard {
     public static let maximumFileSize = 8 * 1024 * 1024
 
     /// Ergebnis der Vorprüfung.
-    public enum Verdict: Equatable, Sendable, Error {
+    public enum Verdict: Equatable, Sendable {
         /// Nicht vorhanden oder Eigenschaften nicht lesbar.
         case unavailable
         /// Keine gewöhnliche Datei: Verzeichnis, FIFO, Socket, Gerät.
