@@ -263,7 +263,10 @@ The Linux baseline is **three** numbers now:
 ```sh
 ( cd Core && swift test )     # 155 tests
 ( cd Shared && swift test )   # 125 tests
-( cd Linux && swift test )    # TrayTests — the CM-20 slot
+( cd Linux && swift test )    # 5 tests — TrayTests, the CM-20 slot
 ```
 
-The third suite is built from the real diff after the verify gate, not by the implementer.
+The third suite was built from the real diff after the verify gate, not by the implementer
+(Auflage 17, CM-20 Phase 4): `TrayPresentationContractTests.swift` (panel label, menu identifier
+stability, icon-never-empty, property dispatcher) and `DBusWireCodecTests.swift` (wire round-trip
+and 8-byte alignment).
