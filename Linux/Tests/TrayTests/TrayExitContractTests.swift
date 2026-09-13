@@ -303,4 +303,192 @@ struct TrayExitContractTests {
         #expect(Self.regulaerBeendet(status))
         #expect(Self.endeCode(status) == 6)
     }
+
+    // MARK: - Fall 3 bis 5: unlesbare und ausbleibende Bus-Antworten
+
+    /// Beobachtet ein Kind bis zur Frist und sammelt dabei laufend dessen
+    /// stderr.
+    ///
+    /// Anders als ``warteAufEnde(_:fristSekunden:)`` **tötet** dieser Helfer
+    /// bei Fristablauf nicht: Fall 5 sichert gerade zu, dass der Prozess am
+    /// Leben bleibt, und braucht danach noch dessen Protokoll.
+    ///
+    /// - Returns: der Endestatus (`nil`, wenn das Kind bei Fristablauf noch
+    ///   lief) und die bis dahin gelesene stderr-Ausgabe.
+    static func beobachten(
+        _ kind: pid_t,
+        leseEnde: Int32,
+        fristSekunden: Double
+    ) -> (status: Int32?, ausgabe: String) {
+        // Nicht-blockierend lesen: Ein blockierendes `read` hinge, solange
+        // das Kind lebt und niemand das Schreibende geschlossen hat — genau
+        // die Lage in Fall 5.
+        let flaggen = fcntl(leseEnde, F_GETFL, 0)
+        _ = fcntl(leseEnde, F_SETFL, flaggen | O_NONBLOCK)
+
+        let ende = Date().addingTimeInterval(fristSekunden)
+        var bytes: [UInt8] = []
+        var puffer = [UInt8](repeating: 0, count: 4096)
+        var status: Int32 = 0
+        var beendet: Int32?
+
+        func nachlesen() {
+            while true {
+                let anzahl = puffer.withUnsafeMutableBytes { read(leseEnde, $0.baseAddress, 4096) }
+                guard anzahl > 0 else { return }
+                bytes += puffer[0..<anzahl]
+            }
+        }
+
+        while Date() < ende {
+            nachlesen()
+            if waitpid(kind, &status, WNOHANG) == kind {
+                // Alles, was das Kind geschrieben hat, steht nach seinem Ende
+                // vollständig im Pipe-Puffer — eine letzte Nachlese genügt.
+                beendet = status
+                nachlesen()
+                break
+            }
+            usleep(20_000)
+        }
+        if beendet == nil { nachlesen() }
+        return (beendet, String(decoding: bytes, as: UTF8.self))
+    }
+
+    /// Startet den Tray gegen die Bus-Attrappe, mit stderr auf einer Pipe.
+    ///
+    /// Das Schließen des Leseendes IM KIND ist auch hier tragend (siehe Fall
+    /// 2): Ohne das `addclose` hielte das Kind selbst ein Leseende offen.
+    static func starteMitStderrPipe(
+        umgebung: [String: String]
+    ) throws -> (kind: pid_t, leseEnde: Int32, schreibEnde: Int32) {
+        var rohre: [Int32] = [-1, -1]
+        #expect(pipe(&rohre) == 0)
+        let leseEnde = rohre[0]
+        let schreibEnde = rohre[1]
+        let kind = try #require(
+            Self.starte(
+                binaer: Self.trayBinaer,
+                umgebung: umgebung,
+                stderrZiel: schreibEnde,
+                imKindSchliessen: [leseEnde]
+            )
+        )
+        return (kind, leseEnde, schreibEnde)
+    }
+
+    /// Umgebung für ein Tray-Kind an der Attrappe — eigenes Home, nie das echte.
+    static func umgebung(bus: FakeSessionBus, home: URL) -> [String: String] {
+        [
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=\(bus.socketPfad)",
+            "HOME": home.path
+        ]
+    }
+
+    // MARK: - Fall 3
+
+    /// Ist die Antwort auf `RequestName` unlesbar (leerer Rumpf), endet der
+    /// Tray mit `connectionFailed` (6) — und **nicht** als `alreadyRunning` (8).
+    ///
+    /// Der Unterschied ist der Kern von CM-27: Exit 8 sagt „eine zweite
+    /// Instanz läuft", und der systemd-Dienst aus CM-21 wertet das als
+    /// geordneten Rückzug. Eine unlesbare Busantwort ist aber kein Beleg für
+    /// eine zweite Instanz — nur ein ECHTES `RequestName`-Ergebnis ist das.
+    @Test("Unlesbarer RequestName-Rumpf endet mit Exit 6, nicht als alreadyRunning")
+    func CM27C_requestNameLeererRumpf_endetMitExit6_nichtAlreadyRunning() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        bus.leererRumpfFuer = ["RequestName"]
+        try bus.start()
+
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let kind = try Self.starteMitStderrPipe(umgebung: Self.umgebung(bus: bus, home: home))
+        // Das Schreibende im Testprozess schließen: Dann endet das Lesen mit
+        // EOF, sobald das Kind seinerseits endet.
+        _ = Glibc.close(kind.schreibEnde)
+        let beobachtung = Self.beobachten(kind.kind, leseEnde: kind.leseEnde, fristSekunden: 15)
+        _ = Glibc.close(kind.leseEnde)
+
+        let status = try #require(beobachtung.status, "Tray endete nicht binnen 15 s")
+        #expect(Self.regulaerBeendet(status))
+        #expect(Self.endeCode(status) == 6)
+        #expect(Self.perSignalGestorben(status) == false)
+        #expect(beobachtung.ausgabe.contains("step=requestName"))
+        #expect(beobachtung.ausgabe.contains("reason=malformedReply"))
+        #expect(beobachtung.ausgabe.contains("instance=alreadyRunning") == false)
+    }
+
+    // MARK: - Fall 4
+
+    /// Ist die Antwort auf `NameHasOwner` unlesbar, endet der Tray mit 6 —
+    /// und **nicht** als `watcherMissing` (9).
+    ///
+    /// Geprüft wird ausdrücklich der Normalbetrieb (ohne `--selftest`): Der
+    /// allgemeine `ConnectError`-Zweig gilt unabhängig von `isSelftest`, nur
+    /// der reine Zeitablauf wird dort unterschieden.
+    @Test("Unlesbarer NameHasOwner-Rumpf endet mit Exit 6, nicht als watcherMissing")
+    func CM27C_nameHasOwnerLeererRumpf_endetMitExit6_nichtWatcherMissing() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        // `RequestName` bleibt normal — sonst käme der Tray gar nicht bis
+        // `NameHasOwner`.
+        bus.leererRumpfFuer = ["NameHasOwner"]
+        try bus.start()
+
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let kind = try Self.starteMitStderrPipe(umgebung: Self.umgebung(bus: bus, home: home))
+        _ = Glibc.close(kind.schreibEnde)
+        let beobachtung = Self.beobachten(kind.kind, leseEnde: kind.leseEnde, fristSekunden: 15)
+        _ = Glibc.close(kind.leseEnde)
+
+        let status = try #require(beobachtung.status, "Tray endete nicht binnen 15 s")
+        #expect(Self.regulaerBeendet(status))
+        #expect(Self.endeCode(status) == 6)
+        #expect(Self.perSignalGestorben(status) == false)
+        #expect(beobachtung.ausgabe.contains("step=nameHasOwner"))
+        #expect(beobachtung.ausgabe.contains("reason=malformedReply"))
+        #expect(beobachtung.ausgabe.contains("watcher=absent name=") == false)
+    }
+
+    // MARK: - Fall 5
+
+    /// Bleibt `NameHasOwner` unbeantwortet, läuft der Tray im Normalbetrieb
+    /// WEITER und wartet auf den Watcher — er endet nicht.
+    ///
+    /// Ein bloßer Zeitablauf ist keine Antwort des Busses. Vor dem CM-27-Fix
+    /// beendete sich der Prozess hier; unter CM-21 hieße das: Der Tray stirbt
+    /// bei jedem langsamen Sitzungsstart, bevor der Watcher überhaupt da ist.
+    @Test("Unbeantwortetes NameHasOwner beendet den Tray im Normalbetrieb nicht")
+    func CM27B_nameHasOwnerUnbeantwortet_beendetTrayImNormalbetriebNicht() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        bus.antwortVerschweigenFuerNamen = ["org.kde.StatusNotifierWatcher"]
+        try bus.start()
+
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let kind = try Self.starteMitStderrPipe(umgebung: Self.umgebung(bus: bus, home: home))
+        // Das Schreibende bleibt hier im Testprozess OFFEN: Es gibt kein EOF,
+        // weil das Kind gerade nicht enden soll. Gelesen wird deshalb
+        // nicht-blockierend bis zur Frist.
+        // 6 s liegen über dem 5-s-Zeitlimit von `callBlocking` — vorher ist
+        // die Zusicherung nicht messbar.
+        let beobachtung = Self.beobachten(kind.kind, leseEnde: kind.leseEnde, fristSekunden: 6)
+
+        #expect(beobachtung.status == nil, "Tray endete, obwohl er hätte weiterlaufen müssen")
+        #expect(beobachtung.ausgabe.contains("watcher=absent — waiting for org.kde.StatusNotifierWatcher"))
+        #expect(beobachtung.ausgabe.contains("bus=") == false)
+        #expect(beobachtung.ausgabe.contains("watcher=absent name=") == false)
+
+        kill(kind.kind, SIGKILL)
+        var verworfen: Int32 = 0
+        _ = waitpid(kind.kind, &verworfen, 0)
+        _ = Glibc.close(kind.leseEnde)
+        _ = Glibc.close(kind.schreibEnde)
+    }
 }

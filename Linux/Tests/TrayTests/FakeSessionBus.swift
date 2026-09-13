@@ -75,6 +75,55 @@ final class FakeSessionBus: @unchecked Sendable {
     private var naechsteKennung = 0
     private var letzteAktivitaet = Date()
     private var wachhundSchlugIntern = false
+    /// Bus-Methoden, die statt der normalen Antwort einen LEEREN Rumpf
+    /// schicken. Siehe ``leererRumpfFuer``.
+    private var leererRumpfFuerIntern: Set<String> = []
+    /// Namen, deren `NameHasOwner`-Anfrage unbeantwortet bleibt. Siehe
+    /// ``antwortVerschweigenFuerNamen``.
+    private var antwortVerschweigenFuerNamenIntern: Set<String> = []
+
+    // MARK: - Störbilder
+
+    /// Bus-Methoden, die statt der normalen Antwort einen LEEREN Rumpf
+    /// schicken (Signatur `""`, Rumpf `[]`).
+    ///
+    /// Der Klient liest den Rumpf beider hier vorkommenden Methoden per
+    /// `readUInt32()` (`DBusConnection.requestName`/`nameHasOwner`); ein leerer
+    /// Rumpf löst dort `ConnectError.malformedReply` aus. Das ist der einzige
+    /// Weg, diesen Zweig ohne Busabriss zu erreichen — ein Abriss liefe über
+    /// `disconnected`.
+    ///
+    /// Die LESE-Seite läuft auf dem Verbindungsthread, deshalb steht der
+    /// Zugriff hier unter derselben Sperre wie `namen`.
+    var leererRumpfFuer: Set<String> {
+        get {
+            zustand.lock()
+            defer { zustand.unlock() }
+            return leererRumpfFuerIntern
+        }
+        set {
+            zustand.lock()
+            leererRumpfFuerIntern = newValue
+            zustand.unlock()
+        }
+    }
+
+    /// Well-Known-Namen, für die eine `NameHasOwner`-Anfrage NIE beantwortet
+    /// wird — der Klient läuft in das 5-s-Zeitlimit von `callBlocking`.
+    ///
+    /// Sperre wie bei ``leererRumpfFuer``.
+    var antwortVerschweigenFuerNamen: Set<String> {
+        get {
+            zustand.lock()
+            defer { zustand.unlock() }
+            return antwortVerschweigenFuerNamenIntern
+        }
+        set {
+            zustand.lock()
+            antwortVerschweigenFuerNamenIntern = newValue
+            zustand.unlock()
+        }
+    }
 
     // MARK: - Aufbau
 
@@ -508,6 +557,13 @@ final class FakeSessionBus: @unchecked Sendable {
         case "RequestName":
             let name = (try? leser.readString()) ?? ""
             let flaggen = (try? leser.readUInt32()) ?? 0
+            zustand.lock()
+            let rumpfLeeren = leererRumpfFuerIntern.contains("RequestName")
+            zustand.unlock()
+            if rumpfLeeren {
+                antworten(verbindung, auf: nachricht, signatur: "", rumpf: [])
+                return
+            }
             var schreiber = DBusWriter()
             schreiber.write(.uint32(namenAnfordern(name, flaggen: flaggen, fuer: verbindung)))
             antworten(verbindung, auf: nachricht, signatur: "u", rumpf: schreiber.bytes)
@@ -515,8 +571,17 @@ final class FakeSessionBus: @unchecked Sendable {
         case "NameHasOwner":
             let name = (try? leser.readString()) ?? ""
             zustand.lock()
+            let verschweigen = antwortVerschweigenFuerNamenIntern.contains(name)
+            let rumpfLeeren = leererRumpfFuerIntern.contains("NameHasOwner")
             let belegt = namen[name] != nil
             zustand.unlock()
+            // Reihenfolge ist bindend: Verschweigen schlägt leeren Rumpf,
+            // leerer Rumpf schlägt die normale Antwort.
+            if verschweigen { return }
+            if rumpfLeeren {
+                antworten(verbindung, auf: nachricht, signatur: "", rumpf: [])
+                return
+            }
             var schreiber = DBusWriter()
             schreiber.write(.bool(belegt))
             antworten(verbindung, auf: nachricht, signatur: "b", rumpf: schreiber.bytes)
