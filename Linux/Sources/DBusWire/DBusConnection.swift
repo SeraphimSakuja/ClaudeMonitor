@@ -280,8 +280,17 @@ public final class DBusConnection {
             arguments: [.string(name)]
         )
         var reader = reply.bodyReader()
-        guard let value = try? reader.readBool() else { throw ConnectError.malformedReply }
-        return value
+        // Fund N4 (CM-27, Rework R2): `readBool()` akzeptiert jeden Rohwert
+        // ≠ 0 als `true` und validiert die Domäne nicht — asymmetrisch zu
+        // `requestName`, das über `RequestNameResult(rawValue:)` bei
+        // unbekanntem Wert bereits scheitert. Deshalb hier den Rohwert
+        // selbst per `readUInt32()` lesen und explizit auf 0/1 einschränken.
+        guard let raw = try? reader.readUInt32() else { throw ConnectError.malformedReply }
+        switch raw {
+        case 0: return false
+        case 1: return true
+        default: throw ConnectError.malformedReply
+        }
     }
 
     /// Bestellt Signale ab. Ohne passende Regel schickt der Bus einer

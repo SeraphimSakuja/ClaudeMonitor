@@ -56,6 +56,23 @@ enum TrayExit: Int32 {
         case .malformedReply: return "malformedReply"
         }
     }
+
+    /// Der **feste** Bus-Zustand, der zum Fehler passt.
+    ///
+    /// Fund N1 (CM-27, Rework R2): Die `bus=`-Logzeilen bei `requestName` und
+    /// `nameHasOwner` waren hartkodiert auf `"disconnected"`, auch wenn
+    /// `reason(for:)` inzwischen `errorReply` oder `malformedReply` lieferte —
+    /// ein Widerspruch innerhalb derselben Logzeile. Feste Bezeichner, kein
+    /// Fremdtext — gleicher Druckvertrag wie `reason(for:)`.
+    static func busState(for error: DBusConnection.ConnectError) -> String {
+        switch error {
+        case .disconnected: return "disconnected"
+        case .errorReply: return "error"
+        case .malformedReply: return "malformed"
+        case .timedOut: return "timedOut"
+        case .addressUnavailable, .connectFailed, .authenticationFailed: return "disconnected"
+        }
+    }
 }
 
 // MARK: - Signale
@@ -401,7 +418,7 @@ func runTray(arguments: [String]) -> TrayExit {
     do {
         ownership = try connection.requestName(TrayProcess.wellKnownName)
     } catch let error as DBusConnection.ConnectError {
-        log.always("bus=disconnected step=requestName reason=\(TrayExit.reason(for: error))")
+        log.always("bus=\(TrayExit.busState(for: error)) step=requestName reason=\(TrayExit.reason(for: error))")
         connection.close()
         return .connectionFailed
     } catch {
@@ -437,12 +454,22 @@ func runTray(arguments: [String]) -> TrayExit {
         watcherPresent = try connection.nameHasOwner(TrayProcess.watcherName)
     } catch DBusConnection.ConnectError.timedOut {
         // Fund 1 (CM-27): Ein 5s-Bus-Haenger auf `NameHasOwner` ist kein
-        // Abriss, sondern eine langsame Antwort. Altes Verhalten (vor der
-        // Auflage-3-Umstellung auf do/catch) beibehalten: Watcher als
-        // "absent"/"waiting" behandeln statt den Prozess zu beenden.
+        // Abriss, sondern eine langsame Antwort — aber auch keine ECHTE
+        // Antwort des Busses (siehe Kommentar oben). Im Normalbetrieb bleibt
+        // das alte Verhalten (vor der Auflage-3-Umstellung auf do/catch)
+        // erhalten: Watcher als "absent"/"waiting" behandeln statt den
+        // Prozess zu beenden. Im Selbsttest darf ein bloßer Timeout aber NIE
+        // auf `.watcherMissing` (Exit 9) münden — das wäre eine ECHTE
+        // Antwort vortäuschen, wo keine da war. Stattdessen `.selftestIncomplete`
+        // (Exit 7), derselbe Exit-Code wie beim Fristablauf in `run(...)`.
+        if isSelftest {
+            log.always("watcher=unknown step=nameHasOwner reason=timedOut — selftest incomplete")
+            process.shutDown()
+            return .selftestIncomplete
+        }
         watcherPresent = false
     } catch let error as DBusConnection.ConnectError {
-        log.always("bus=disconnected step=nameHasOwner reason=\(TrayExit.reason(for: error))")
+        log.always("bus=\(TrayExit.busState(for: error)) step=nameHasOwner reason=\(TrayExit.reason(for: error))")
         process.shutDown()
         return .connectionFailed
     } catch {
