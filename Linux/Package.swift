@@ -18,6 +18,11 @@ let package = Package(
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")
             ]
-        )
+        ),
+
+        // CM-20 · Schicht 1: das D-Bus-Wire-Protokoll. Hängt an nichts außer
+        // Foundation und Glibc — kein GTK, kein libdbus, keine
+        // Fremdabhängigkeit im Paket.
+        .target(name: "DBusWire")
     ]
 )
