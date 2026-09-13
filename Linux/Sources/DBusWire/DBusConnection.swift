@@ -297,10 +297,20 @@ public final class DBusConnection {
         if ready > 0 {
             var buffer = [UInt8](repeating: 0, count: 65536)
             let count = readSome(into: &buffer)
-            // 0 heißt: Gegenstelle hat geschlossen. Ohne diese Prüfung liefe
-            // die Schleife danach mit 100 % CPU leer.
-            guard count != 0 else { throw ConnectError.disconnected }
-            if count > 0 { inbox += buffer[0..<count] }
+            // 0 heißt: Gegenstelle hat sauber geschlossen. Ohne diese Prüfung
+            // liefe die Schleife danach mit 100 % CPU leer.
+            //
+            // Negativ heißt: der Lesevorgang ist gescheitert — nach dem
+            // `EINTR`-Wiederholen in `readSome` bleibt praktisch nur
+            // `ECONNRESET`, also ebenfalls ein Abriss (CM-27). Früher fiel
+            // dieser Fall still durch (`count > 0` griff nicht, `[]` ging
+            // zurück): Bei einem Abriss MIT ungelesenen Daten in der Queue
+            // liefert der erste `read` `-1`, erst der zweite `0` — ein
+            // kompletter Zusatzdurchlauf der Ereignisschleife samt möglichem
+            // erneutem Schreibversuch lief, bevor Exit 6 kam. Jetzt wirft
+            // schon der erste Fehler.
+            guard count > 0 else { throw ConnectError.disconnected }
+            inbox += buffer[0..<count]
         }
 
         var rest: [DBusMessage] = []
