@@ -79,15 +79,20 @@ final class FakeSessionBus: @unchecked Sendable {
     // MARK: - Aufbau
 
     init(leerlauffrist: TimeInterval = FakeSessionBus.standardLeerlauffrist) throws {
-        // ⚠️ Testziel-only-Abweichung vom Auslieferzustand (Auflage 2 der
-        // Karte): `DBusConnection.writeAll` schreibt mit `write()` ohne
-        // `MSG_NOSIGNAL`, und `SIGPIPE` wird im Produktivcode nirgends
-        // behandelt. Ein Verbindungsabriss während eines Schreibversuchs würde
-        // damit den **gesamten** Testprozess beenden — nicht nur den einen
-        // Test. Dass der ausgelieferte Tray-Prozess an derselben Stelle
-        // stirbt, statt den zugesagten Exit 6 zu liefern, ist ein
-        // Produktivbefund mit eigener Backlog-Card und wird hier ausdrücklich
-        // **nicht** geheilt.
+        // ⚠️ Dieses `SIG_IGN` bleibt nötig — trotz CM-27.
+        //
+        // `DBusConnection.writeAll` schreibt mit `write()` ohne `MSG_NOSIGNAL`
+        // (den Flags-Parameter gibt es nur bei `send()`). Der Produktivfix
+        // liegt deshalb seit CM-27 als prozessweites `signal(SIGPIPE, SIG_IGN)`
+        // am Anfang von `runTray` — der ausgelieferte Tray-Prozess stirbt an
+        // einem Abriss während des Schreibens NICHT mehr, sondern endet mit
+        // dem zugesagten Exit 6.
+        //
+        // Für den Testprozess ändert das nichts: Die Tests bauen
+        // `DBusConnection` unmittelbar auf, an `runTray` vorbei, und erben
+        // dessen Schalter damit nicht. Ohne die Zeile hier beendete ein
+        // Verbindungsabriss während eines Schreibversuchs weiterhin den
+        // **gesamten** Testprozess — nicht nur den einen Test.
         _ = Self.sigpipeIgnoriert
 
         self.leerlauffrist = leerlauffrist
