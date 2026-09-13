@@ -19,13 +19,6 @@ public struct DBusWriter {
 
     public init() {}
 
-    /// Setzt einen Schreiber fort, der bereits an einer Nachrichtenposition
-    /// steht — nötig, damit die Ausrichtung des Rumpfs relativ zum
-    /// Nachrichtenanfang stimmt.
-    public init(continuing prefix: [UInt8]) {
-        bytes = prefix
-    }
-
     /// Füllt bis zum nächsten Vielfachen von `alignment`.
     public mutating func pad(to alignment: Int) {
         while bytes.count % alignment != 0 { bytes.append(0) }

@@ -43,9 +43,6 @@ public struct DBusReader {
         self.offset = offset
     }
 
-    /// Noch ungelesene Bytes vorhanden?
-    public var hasMore: Bool { offset < bytes.count }
-
     public mutating func align(to alignment: Int) throws {
         while offset % alignment != 0 {
             guard offset < bytes.count else { throw DBusWireError.truncated }
