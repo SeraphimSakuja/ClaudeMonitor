@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 
 /// Das Protokoll des Tray-Prozesses — der Ersatz für `OSLog`, das es auf Linux
 /// nicht gibt.
@@ -75,7 +78,38 @@ final class TrayLog {
         write(line)
     }
 
+    /// Schreibt eine Zeile auf stderr — **ohne** zu trappen (CM-27).
+    ///
+    /// `FileHandle.standardError.write(_:)` ist die alte ObjC-Brücke: Sie wirft
+    /// nicht, sondern beendet den Prozess mit einem Trap (Exit 132), sobald der
+    /// Schreibversuch scheitert. Unter systemd ist genau das erreichbar — reißt
+    /// die Journal-Pipe zusammen mit der Sitzung ab, träfe es ausgerechnet die
+    /// Zeile direkt vor `return .connectionFailed`, und der Prozess endete mit
+    /// dem falschen Code, den `CM-21` auswertet.
+    ///
+    /// Deshalb eine geprüfte `Glibc.write(2)`-Schleife im Stil von
+    /// `DBusConnection.writeAll`: `EINTR` wird wiederholt, alles andere
+    /// (insbesondere `EPIPE`) bricht still ab. Ein Protokollierer darf nie der
+    /// Grund sein, warum ein Prozess stirbt. `Glibc.write` ist qualifiziert,
+    /// sonst träfe der Name die Methode `TrayLog.write` selbst.
     private func write(_ line: String) {
-        FileHandle.standardError.write(Data((redact(line) + "\n").utf8))
+        let bytes = Array((redact(line) + "\n").utf8)
+        #if canImport(Glibc)
+        var offset = 0
+        bytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            while offset < bytes.count {
+                let written = Glibc.write(2, base + offset, bytes.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0 && errno == EINTR { continue }
+                return
+            }
+        }
+        #else
+        try? FileHandle.standardError.write(contentsOf: Data(bytes))
+        #endif
     }
 }
