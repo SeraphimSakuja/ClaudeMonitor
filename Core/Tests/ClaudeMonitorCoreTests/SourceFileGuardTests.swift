@@ -52,13 +52,6 @@ struct SourceFileGuardTests {
         let outcome = semaphore.wait(timeout: .now() + 2)
         #expect(outcome == .success, "readIfSafe(fifo) kehrte nicht innerhalb von 2s zurück — blockiert vermutlich beim Öffnen der FIFO")
         #expect(box.value == .rejected(.notRegularFile))
-
-        // Lebender Vertrag (hier mitgeprüft, keine eigene Testfunktion mehr):
-        // `UsageStoreReader` fällt bei `.unavailable` auf einen eigenen Text
-        // zurück (`verdict.reason ?? "..."`, s. UsageStoreReader.swift:103) —
-        // dieser Fall muss `nil` bleiben, sonst verdeckt die Wache die
-        // eigentliche Fallback-Meldung.
-        #expect(SourceFileGuard.Verdict.unavailable.reason == nil)
     }
 
     // MARK: - Die Leser befragen die Wache wirklich
@@ -82,6 +75,13 @@ struct SourceFileGuardTests {
         #expect(reason == SourceFileGuard.Verdict.notRegularFile.reason)
         // Und der Grund trägt weder Pfad noch Kontonamen.
         #expect(!reason.contains("/"))
+
+        // Lebender Vertrag derselben Aufrufkette: der Leser fällt bei
+        // `.unavailable` auf einen eigenen Text zurück
+        // (`verdict.reason ?? "..."`, s. UsageStoreReader.swift:103) — dieser
+        // Fall muss `nil` bleiben, sonst verdeckt die Wache die eigentliche
+        // Fallback-Meldung.
+        #expect(SourceFileGuard.Verdict.unavailable.reason == nil)
     }
 
     @Test("Der Sequence-Leser übernimmt aus einer übergroßen Datei nichts")
