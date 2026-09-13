@@ -93,6 +93,7 @@ host for the download itself.
 | `Shared/` | The layer shared by app and widget: snapshot transport plus all display rules — also SwiftPM, also testable without Xcode |
 | `App/` | The menu bar app (Xcode project) |
 | `scripts/` | `release.sh` builds the notarised DMG and the appcast, then verifies both |
+| `Linux/` | Headless smoke tool that runs `Core/` + `Shared/` on Linux — a development aid, not part of any release |
 
 Display rules deliberately live in `Shared/` rather than the app target: the widget extension needs
 exactly the same formatting, and two copies are guaranteed to drift. It also means the rules are
@@ -104,10 +105,17 @@ The WidgetKit extension is on hold; the menu bar covers the use case. The App Gr
 ## Building and testing
 
 ```sh
-cd Core   && swift test        # core logic
-cd Shared && swift test        # transport + display rules
+( cd Core   && swift test )    # core logic
+( cd Shared && swift test )    # transport + display rules
 xcodebuild -project App/ClaudeMonitor.xcodeproj -scheme ClaudeMonitor -destination 'platform=macOS' build
+( cd Linux  && swift build )         # Linux smoke tool
+( cd Linux  && swift run claude-monitor )
 ```
+
+Each command runs in its own subshell, so every line starts from the repository root again — the
+same form `scripts/release.sh` uses. `swift run claude-monitor` deliberately does **not** belong in
+a `&&` chain: it ends with a non-zero exit code whenever no store is present, and that is a valid
+outcome, not a failure. See `Linux/README.md` for the toolchain runbook and the exit codes.
 
 > `xcodebuild test` is **not** a valid proof of anything in this project: the scheme carries a test
 > action with an empty `<Testables>` list, so it reports `TEST SUCCEEDED` without running a single
