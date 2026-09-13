@@ -194,6 +194,7 @@ struct AccountSequenceReaderTests {
             "{\"activeAccountNumber\": null}",              // ausdrücklich leer
             "{\"activeAccountNumber\": \"2\"}",             // Text statt Zahl
             "{\"activeAccountNumber\": true}",              // Wahrheitswert (käme als 1 durch)
+            "{\"activeAccountNumber\": false}",             // Wahrheitswert (käme als 0 durch)
             "{\"activeAccountNumber\": 2.5}",               // keine Kennung
             // Ganzzahlig und endlich, aber weit außerhalb von `Int`:
             // `number.intValue` lieferte hier einen
