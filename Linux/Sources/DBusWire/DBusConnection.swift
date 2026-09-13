@@ -106,6 +106,13 @@ public final class DBusConnection {
 
         try authenticate()
         try hello()
+        // Ohne dieses Objekt antwortet der Wurzelpfad `/` auf
+        // `Introspectable.Introspect` mit `.empty` (kein Rumpf), wo der
+        // Aufrufer eine Zeichenkette erwartet — `busctl --user tree` bricht
+        // dann mit „No such device or address" ab, statt den Baum unter
+        // `/StatusNotifierItem` zu zeigen. Auflage 3 bleibt gewahrt: Das ist
+        // keine neue Fehlerantwort, nur eine vollständige statt einer leeren.
+        register(RootIntrospectableObject())
     }
 
     /// SASL EXTERNAL: führendes Nullbyte, die eigene UID als Hex, `BEGIN`.
@@ -367,4 +374,37 @@ public final class DBusConnection {
             return count
         }
     }
+}
+
+/// Beantwortet `Introspectable.Introspect` am Wurzelpfad `/`.
+///
+/// Der Standard-D-Bus-Introspektionspfad ist Werkzeug, kein Feature: `busctl
+/// --user tree <name>` und vergleichbare Werkzeuge laufen den Baum ab, indem
+/// sie zuerst `/` introspizieren und dann jedem gefundenen Kindknoten folgen.
+/// Ohne eine Antwort mit Kindknoten hier bleibt `/StatusNotifierItem` für
+/// solche Werkzeuge unsichtbar, obwohl es unter seinem eigenen Pfad ganz
+/// normal antwortet.
+private final class RootIntrospectableObject: DBusObject {
+
+    let objectPath = "/"
+
+    func handle(_ call: DBusMessage) -> DBusCallOutcome {
+        switch (call.interface, call.member) {
+        case ("org.freedesktop.DBus.Introspectable", "Introspect"):
+            return .value(.string(Self.xml))
+        default:
+            return .empty
+        }
+    }
+
+    private static let xml = """
+        <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" \
+        "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+        <node>
+          <interface name="org.freedesktop.DBus.Introspectable">
+            <method name="Introspect"><arg name="xml" type="s" direction="out"/></method>
+          </interface>
+          <node name="StatusNotifierItem"/>
+        </node>
+        """
 }

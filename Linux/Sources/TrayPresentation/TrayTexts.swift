@@ -57,12 +57,21 @@ public enum TrayTexts {
 
     // MARK: - Fehlzustände (Auflage 9)
 
-    /// Titel — Wortlaut wie `IssueBannerView.swift:45-48`.
+    /// Titel — Wortlaut wie `IssueBannerView.swift:45-48`, mit einem
+    /// vorangestellten Ausrufezeichen bei schweren Fällen (``isSevere``).
+    ///
+    /// Warum überhaupt eine Kennzeichnung (Auflage 9): Das Menü ist reiner
+    /// Text ohne Farbe — `IssueBannerView` unterscheidet schwer/leicht optisch
+    /// über die Bannerfarbe, das hat hier keine Entsprechung. Ohne ein
+    /// textliches Gegenstück sähen ein „Cache gerade nicht lesbar" (vergeht
+    /// von selbst) und ein „nicht unterstütztes Format" (bleibt, bis
+    /// aktualisiert wird) im Menü gleich dringend aus.
     public static func issueTitle(for issue: MonitorIssue) -> String {
+        let prefix = isSevere(issue) ? "! " : ""
         switch issue {
-        case .storeNotFound: return "claude-swap not found"
-        case .unsupportedSchema: return "Unsupported data format"
-        case .unreadable: return "Cache not readable right now"
+        case .storeNotFound: return prefix + "claude-swap not found"
+        case .unsupportedSchema: return prefix + "Unsupported data format"
+        case .unreadable: return prefix + "Cache not readable right now"
         }
     }
 
