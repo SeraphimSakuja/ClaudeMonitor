@@ -24,7 +24,8 @@ import DBusWire
 ///
 /// **Nebenläufigkeit:** ein Thread für `accept()`, ein Thread je Verbindung,
 /// ein Wachhund-Thread. Der gemeinsame Zustand liegt hinter `zustand`
-/// (`NSLock`); deshalb `@unchecked Sendable` und nicht `actor` — die
+/// (`NSLock`), die Halt-Flagge im separaten `Steuerwerk` (Begründung in
+/// `start()`); deshalb `@unchecked Sendable` und nicht `actor` — die
 /// Server-Threads hängen in blockierenden POSIX-Aufrufen, die sich in keine
 /// Ausführungsumgebung von Swift Concurrency einfügen lassen.
 final class FakeSessionBus: @unchecked Sendable {
@@ -60,6 +61,9 @@ final class FakeSessionBus: @unchecked Sendable {
 
     private let leerlauffrist: TimeInterval
     private let zustand = NSLock()
+    /// Die Halt-Flagge liegt **außerhalb** der Instanz, damit die Threads sie
+    /// lesen können, ohne den Bus am Leben zu halten. Siehe `start()`.
+    private let steuerwerk = Steuerwerk()
 
     private var lauscher: Int32 = -1
     private var verbindungen: [Verbindung] = []
@@ -67,7 +71,6 @@ final class FakeSessionBus: @unchecked Sendable {
     /// Besitz — genau darum geht es bei R-003).
     private var namen: [String: Verbindung] = [:]
     private var aufzeichnungen: [Aufzeichnung] = []
-    private var haltFlagge = false
     private var seriennummer: UInt32 = 0
     private var naechsteKennung = 0
     private var letzteAktivitaet = Date()
@@ -142,8 +145,42 @@ final class FakeSessionBus: @unchecked Sendable {
         letzteAktivitaet = Date()
         zustand.unlock()
 
-        Thread.detachNewThread { [self] in annehmen(lauschDeskriptor: deskriptor) }
-        Thread.detachNewThread { [self] in wachhundLauf() }
+        // ⚠️ Zwei Regeln, ohne die `deinit` nie läuft (gemessen):
+        //
+        // 1. `[weak self]` statt `[self]`. Ein `[self]`-Thread hält die
+        //    Instanz stark; `deinit` liefe erst nach Threadende — also nie,
+        //    solange die Schleife auf die Halt-Flagge wartet, die nur `stop()`
+        //    setzt. Genau der Fall, den `deinit` absichern soll (ein Test
+        //    vergisst `stop()`), bliebe unbehandelt.
+        // 2. **Kein blockierender Aufruf, während `self` stark erfasst ist.**
+        //    Das Warten (`poll`, `Thread.sleep`) läuft deshalb im Thread
+        //    selbst, mit `steuerung` und dem Deskriptor — beides ohne Bezug
+        //    zur Instanz. Hielte jeder Thread `self` über seine 250-ms-
+        //    Zeitscheibe, überlappten sich die Halte zweier Threads
+        //    (Accept + Verbindung) lückenlos: Der Zähler erreichte nie null,
+        //    und die Socketdatei überlebte das Testende trotz `[weak self]`.
+        //    Erfasst wird `self` nur für die eigentliche Arbeit — und bleibt
+        //    für deren Dauer stark, weshalb es keinen Zugriff nach der
+        //    Freigabe geben kann.
+        let steuerung = steuerwerk
+        Thread.detachNewThread { [weak self] in
+            while !steuerung.haelt {
+                switch Bereitschaft(deskriptor) {
+                case .zeitscheibe: continue
+                case .fehler: return
+                case .lesbar:
+                    guard let selbst = self else { return }
+                    guard selbst.annehmenSchritt(lauschDeskriptor: deskriptor) else { return }
+                }
+            }
+        }
+        Thread.detachNewThread { [weak self] in
+            while !steuerung.haelt {
+                Thread.sleep(forTimeInterval: 0.25)
+                guard let selbst = self else { return }
+                guard selbst.wachhundSchritt() else { return }
+            }
+        }
     }
 
     /// Beendet alles und räumt den Socketpfad ab.
@@ -151,9 +188,8 @@ final class FakeSessionBus: @unchecked Sendable {
     /// Mehrfachaufruf ist ausdrücklich erlaubt (`stop()` im Test **und** im
     /// `deinit`).
     func stop() {
+        guard steuerwerk.haltenErstmals() else { return }
         zustand.lock()
-        guard !haltFlagge else { zustand.unlock(); return }
-        haltFlagge = true
         let alterLauscher = lauscher
         lauscher = -1
         let offene = verbindungen
@@ -257,39 +293,76 @@ final class FakeSessionBus: @unchecked Sendable {
 
     // MARK: - Accept
 
-    private func annehmen(lauschDeskriptor: Int32) {
-        while !haeltAn {
-            var beobachtet = pollfd(fd: lauschDeskriptor, events: Int16(POLLIN), revents: 0)
-            // Nicht blockierend warten: Ohne Zeitlimit hinge dieser Thread in
-            // `accept()` und käme beim Abbau nur über einen harten Abbruch
-            // heraus. Mit `poll` prüft er die Halt-Flagge viermal je Sekunde.
+    /// Ein einzelner Durchlauf der Accept-Schleife: aufgerufen, wenn `poll`
+    /// den Lauschdeskriptor als lesbar gemeldet hat.
+    ///
+    /// - Returns: `true`, wenn der Accept-Thread weiterlaufen soll.
+    private func annehmenSchritt(lauschDeskriptor: Int32) -> Bool {
+        // ⚠️ Halt-Prüfung **vor** `accept()`, nicht erst danach: Zwischen der
+        // Rückkehr von `poll()` und dem `accept()` kann `stop()` gelaufen sein
+        // und den Lauschdeskriptor geschlossen haben. Linux vergibt denselben
+        // Deskriptor-Zahlwert sofort weiter — ein Accept dieser alten Instanz
+        // nähme dann die Verbindung einer **neuen** Instanz an und schlösse sie
+        // wegen der Halt-Flagge gleich wieder. Der Nachbartest flackerte.
+        guard !haeltAn else { return false }
+
+        let deskriptor = accept(lauschDeskriptor, nil, nil)
+        guard deskriptor >= 0 else {
+            if errno == EINTR || errno == EAGAIN { return true }
+            return false
+        }
+        guard !haeltAn else { schliesseDeskriptor(deskriptor); return false }
+
+        zustand.lock()
+        naechsteKennung += 1
+        let verbindung = Verbindung(
+            deskriptor: deskriptor,
+            eindeutigerName: ":1.\(naechsteKennung)"
+        )
+        verbindungen.append(verbindung)
+        zustand.unlock()
+
+        // Ein Thread je Verbindung: R-003 verlangt eine **zweite**
+        // Verbindung, während die erste den Namen hält. Eine Attrappe mit
+        // nur einem `accept()` blockiert dabei den gesamten Suite-Lauf.
+        // `[weak self]` und das Warten außerhalb der Erfassung aus denselben
+        // beiden Gründen wie in `start()`.
+        let steuerung = steuerwerk
+        Thread.detachNewThread { [weak self] in
+            var lese = Lesezustand()
+            schleife: while !steuerung.haelt {
+                switch Bereitschaft(verbindung.deskriptor) {
+                case .zeitscheibe: continue
+                case .fehler: break schleife
+                case .lesbar:
+                    guard let selbst = self else { return }
+                    guard selbst.bedienenSchritt(verbindung, lese: &lese) else { break schleife }
+                }
+            }
+            self?.beenden(verbindung)
+        }
+        return true
+    }
+
+    /// Das Ergebnis eines Wartens auf einen Deskriptor.
+    ///
+    /// Bewusst ohne jeden Bezug zum Bus: Das Warten läuft in den Threads,
+    /// **bevor** `self` erfasst wird (siehe `start()`, Regel 2).
+    private enum Bereitschaft {
+        case lesbar
+        case zeitscheibe
+        case fehler
+
+        /// Wartet höchstens 250 ms — vier Prüfungen der Halt-Flagge je
+        /// Sekunde. Ohne Zeitlimit hinge der Thread unkündbar in `accept()`
+        /// bzw. `recv()` und käme beim Abbau nur über einen harten Abbruch
+        /// heraus.
+        init(_ deskriptor: Int32) {
+            var beobachtet = pollfd(fd: deskriptor, events: Int16(POLLIN), revents: 0)
             let bereit = poll(&beobachtet, 1, 250)
-            if bereit < 0 {
-                if errno == EINTR { continue }
-                return
-            }
-            guard bereit > 0 else { continue }
-
-            let deskriptor = accept(lauschDeskriptor, nil, nil)
-            guard deskriptor >= 0 else {
-                if errno == EINTR || errno == EAGAIN { continue }
-                return
-            }
-            guard !haeltAn else { schliesseDeskriptor(deskriptor); return }
-
-            zustand.lock()
-            naechsteKennung += 1
-            let verbindung = Verbindung(
-                deskriptor: deskriptor,
-                eindeutigerName: ":1.\(naechsteKennung)"
-            )
-            verbindungen.append(verbindung)
-            zustand.unlock()
-
-            // Ein Thread je Verbindung: R-003 verlangt eine **zweite**
-            // Verbindung, während die erste den Namen hält. Eine Attrappe mit
-            // nur einem `accept()` blockiert dabei den gesamten Suite-Lauf.
-            Thread.detachNewThread { [self] in bedienen(verbindung) }
+            if bereit > 0 { self = .lesbar; return }
+            if bereit == 0 { self = .zeitscheibe; return }
+            self = errno == EINTR ? .zeitscheibe : .fehler
         }
     }
 
@@ -297,51 +370,59 @@ final class FakeSessionBus: @unchecked Sendable {
 
     private enum Phase { case sasl, nachrichten }
 
-    private func bedienen(_ verbindung: Verbindung) {
+    /// Der Lesezustand einer Verbindung. Er lebt im Verbindungsthread und
+    /// nicht mehr am Bus, weil die Schleife selbst dort liegen muss — nur so
+    /// lässt sich `self` je Durchlauf neu (und schwach) erfassen.
+    private struct Lesezustand {
         var puffer: [UInt8] = []
         var phase = Phase.sasl
         var nullbyteGesehen = false
         var lesepuffer = [UInt8](repeating: 0, count: 8192)
+    }
 
-        schleife: while !haeltAn {
-            let anzahl = recv(verbindung.deskriptor, &lesepuffer, lesepuffer.count, 0)
-            if anzahl < 0 && errno == EINTR { continue }
-            guard anzahl > 0 else { break }
-            puffer += lesepuffer[0..<anzahl]
-            merkeAktivitaet()
+    /// Ein einzelner Durchlauf der Verbindungs-Leseschleife: aufgerufen, wenn
+    /// `poll` die Verbindung als lesbar gemeldet hat.
+    ///
+    /// - Returns: `true`, wenn der Verbindungsthread weiterlaufen soll.
+    private func bedienenSchritt(_ verbindung: Verbindung, lese: inout Lesezustand) -> Bool {
+        guard !haeltAn else { return false }
 
-            if phase == .sasl {
-                switch saslSchritt(
-                    puffer: &puffer,
-                    nullbyteGesehen: &nullbyteGesehen,
-                    verbindung: verbindung
-                ) {
-                case .warten:
-                    continue
-                case .abgelehnt:
-                    break schleife
-                case .fertig:
-                    // Auflage 9: Nach `BEGIN\r\n` können die ersten
-                    // Nachrichtenbytes **im selben `read()`** liegen. Der
-                    // Puffer wird deshalb weitergereicht und nicht verworfen —
-                    // sonst fehlte `Hello` und der Klient liefe in sein
-                    // 5-s-Zeitlimit.
-                    phase = .nachrichten
-                }
-            }
+        let anzahl = recv(verbindung.deskriptor, &lese.lesepuffer, lese.lesepuffer.count, 0)
+        if anzahl < 0 && (errno == EINTR || errno == EAGAIN) { return true }
+        guard anzahl > 0 else { return false }
+        lese.puffer += lese.lesepuffer[0..<anzahl]
+        merkeAktivitaet()
 
-            do {
-                while let entschluesselt = try DBusMessage.decode(from: puffer) {
-                    puffer.removeFirst(entschluesselt.consumed)
-                    verarbeiten(entschluesselt.message, von: verbindung)
-                }
-            } catch {
-                notiz("Nachricht unlesbar (\(error)) — Verbindung \(verbindung.eindeutigerName) beendet")
-                break
+        if lese.phase == .sasl {
+            switch saslSchritt(
+                puffer: &lese.puffer,
+                nullbyteGesehen: &lese.nullbyteGesehen,
+                verbindung: verbindung
+            ) {
+            case .warten:
+                return true
+            case .abgelehnt:
+                return false
+            case .fertig:
+                // Auflage 9: Nach `BEGIN\r\n` können die ersten
+                // Nachrichtenbytes **im selben `read()`** liegen. Der
+                // Puffer wird deshalb weitergereicht und nicht verworfen —
+                // sonst fehlte `Hello` und der Klient liefe in sein
+                // 5-s-Zeitlimit.
+                lese.phase = .nachrichten
             }
         }
 
-        beenden(verbindung)
+        do {
+            while let entschluesselt = try DBusMessage.decode(from: lese.puffer) {
+                lese.puffer.removeFirst(entschluesselt.consumed)
+                verarbeiten(entschluesselt.message, von: verbindung)
+            }
+        } catch {
+            notiz("Nachricht unlesbar (\(error)) — Verbindung \(verbindung.eindeutigerName) beendet")
+            return false
+        }
+        return true
     }
 
     private enum SASLErgebnis { case warten, fertig, abgelehnt }
@@ -587,23 +668,21 @@ final class FakeSessionBus: @unchecked Sendable {
     /// der auf eine Antwort wartet, die nie kommt, soll nach
     /// `leerlauffrist` enden — mit sichtbarem Merker `wachhundSchlug`, sonst
     /// erscheint das Hängen später als beliebiger Folgefehler.
-    private func wachhundLauf() {
-        while !haeltAn {
-            Thread.sleep(forTimeInterval: 0.25)
-            zustand.lock()
-            let ruhe = Date().timeIntervalSince(letzteAktivitaet)
-            let laeuft = !haltFlagge
-            zustand.unlock()
-            guard laeuft else { return }
-            if ruhe > leerlauffrist {
-                zustand.lock()
-                wachhundSchlugIntern = true
-                zustand.unlock()
-                notiz("Wachhund: \(Int(ruhe)) s ohne Nachricht — Bus wird abgebaut")
-                stop()
-                return
-            }
-        }
+    ///
+    /// - Returns: `true`, wenn der Wachhund weiterlaufen soll.
+    private func wachhundSchritt() -> Bool {
+        zustand.lock()
+        let ruhe = Date().timeIntervalSince(letzteAktivitaet)
+        zustand.unlock()
+        guard !haeltAn else { return false }
+        guard ruhe > leerlauffrist else { return true }
+
+        zustand.lock()
+        wachhundSchlugIntern = true
+        zustand.unlock()
+        notiz("Wachhund: \(Int(ruhe)) s ohne Nachricht — Bus wird abgebaut")
+        stop()
+        return false
     }
 
     private func merkeAktivitaet() {
@@ -625,11 +704,7 @@ final class FakeSessionBus: @unchecked Sendable {
         verbindung.schliessen()
     }
 
-    private var haeltAn: Bool {
-        zustand.lock()
-        defer { zustand.unlock() }
-        return haltFlagge
-    }
+    private var haeltAn: Bool { steuerwerk.haelt }
 
     private func naechsteSeriennummer() -> UInt32 {
         zustand.lock()
@@ -664,6 +739,38 @@ final class FakeSessionBus: @unchecked Sendable {
 
     /// Die GUID, die der Bus im `OK` nennt. Fest, weil sie niemand prüft.
     private static let busKennung = "00112233445566778899aabbccddeeff"
+}
+
+// MARK: - Steuerwerk
+
+/// Die Halt-Flagge des Busses — bewusst ein **eigenes** Objekt.
+///
+/// Die Server-Threads halten das Steuerwerk stark und den Bus nur schwach.
+/// Läge die Flagge im Bus, müsste jeder Thread den Bus erfassen, um sie zu
+/// lesen; dann hinge die Lebensdauer der Instanz an den Threads, und `deinit`
+/// — die einzige Absicherung für einen Test, der `stop()` vergisst — liefe
+/// nie. Es ist winzig und hält nichts weiter am Leben.
+private final class Steuerwerk: @unchecked Sendable {
+
+    private let sperre = NSLock()
+    private var haltIntern = false
+
+    var haelt: Bool {
+        sperre.lock()
+        defer { sperre.unlock() }
+        return haltIntern
+    }
+
+    /// Setzt die Flagge und meldet, ob **dieser** Aufruf sie gesetzt hat.
+    /// Damit bleibt `stop()` mehrfach aufrufbar (Test **und** `deinit`), ohne
+    /// den Abbau zweimal zu fahren.
+    func haltenErstmals() -> Bool {
+        sperre.lock()
+        defer { sperre.unlock() }
+        guard !haltIntern else { return false }
+        haltIntern = true
+        return true
+    }
 }
 
 // MARK: - Verbindung
