@@ -71,6 +71,18 @@ func stateText(_ state: AccountState) -> String {
     }
 }
 
+/// Ziffern-Schranke für jede gedruckte Kennung (Fachentscheid 7).
+///
+/// `MonitoredAccount.id` stammt ungefiltert aus dem Slot-Schlüssel der
+/// Fremddatei (`usage.json`) — das kann alles sein, auch eine E-Mail-Adresse.
+/// Gedruckt wird die Kennung deshalb NUR, wenn sie aus reinen Ziffern besteht;
+/// sonst der feste Ersatztext `nonNumeric`. Damit ist die Invariante
+/// „nachgemessen reine Zahlen" mechanisch durchgesetzt und nicht bloß durch
+/// den fail-open-Vorfilter der Nebenquelle erhofft.
+func idText(_ identifier: String) -> String {
+    !identifier.isEmpty && identifier.allSatisfy(\.isNumber) ? identifier : "nonNumeric"
+}
+
 func percentText(_ percent: Double) -> String {
     percent.isFinite ? String(format: "%.1f", percent) : "n/a"
 }
@@ -95,7 +107,7 @@ case .success(let snapshot):
     emitOut("store=ok accounts=\(snapshot.accounts.count) schemaVersion=\(snapshot.sourceSchemaVersion)")
 
     for account in snapshot.accounts {
-        var parts: [String] = ["#\(account.id)"]
+        var parts: [String] = ["#\(idText(account.id))"]
         for window in account.windows {
             parts.append("\(kindText(window.kind))=\(percentText(window.percent))")
         }
@@ -121,7 +133,7 @@ case .success(let snapshot):
         // Wörtlich aus benannten Eigenschaften — `displayName` ist verboten.
         var parts: [String] = []
         if let marker = segment.markerText { parts.append(marker) }
-        parts.append("#\(segment.id)")
+        parts.append("#\(idText(segment.id))")
         parts.append(segment.numbersText)
         if let reset = segment.resetText { parts.append(reset) }
         emitOut(parts.joined(separator: " "))
