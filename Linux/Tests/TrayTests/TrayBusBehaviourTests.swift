@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import DBusWire
+import TrayPresentation
 @testable import claude_monitor_tray
 
 // CM-26 · R-002 — Verhalten des Tray-Prozesses am Bus.
@@ -28,7 +29,32 @@ struct TrayBusBehaviourTests {
         return home
     }
 
+    /// Überschreibt die Store-Ablage des temporären Homes mit **einem**
+    /// Account. Schema wie im echten Store (`schemaVersion 2`, `lastGood`,
+    /// `fetchedAt` als Unix-Zeit).
+    private func schreibeEinenAccount(in home: URL, fetchedAt: Date) throws {
+        let json = """
+        {
+          "schemaVersion": 2,
+          "accounts": {
+            "1": {
+              "email": "user1@example.com",
+              "lastGood": { "five_hour": { "pct": 10.0 } },
+              "fetchedAt": \(fetchedAt.timeIntervalSince1970)
+            }
+          }
+        }
+        """
+        try Data(json.utf8).write(
+            to: home.appending(path: ".claude-swap-backup")
+                .appending(path: "cache")
+                .appending(path: "usage.json")
+        )
+    }
+
     private static let registerRuf = "org.kde.StatusNotifierWatcher.RegisterStatusNotifierItem"
+    private static let layoutRuf = "com.canonical.dbusmenu.LayoutUpdated"
+    private static let eigenschaftenRuf = "com.canonical.dbusmenu.ItemsPropertiesUpdated"
 
     /// R-002 — der Watcher kommt zurück, der Tray meldet sich erneut an; und
     /// er tut es **nicht**, wenn der Watcher geht (Fachentscheid 4).
@@ -87,6 +113,72 @@ struct TrayBusBehaviourTests {
         #expect(
             bus.gesehen(ruf: Self.registerRuf).count == 1,
             "Abgang des Watchers löste eine weitere Anmeldung aus: \(bus.gesehen(ruf: Self.registerRuf).count)"
+        )
+        #expect(bus.wachhundSchlug == false)
+    }
+
+    /// R-001 — `LayoutUpdated` ist ein Signal über die **Struktur** des Menüs:
+    /// Es kommt genau dann, wenn sich die Menüstruktur ändert, und sonst nie.
+    /// Der Lesevorgang allein — gleiche Datei, gleicher Inhalt — ist keine
+    /// Änderung.
+    ///
+    /// Die Δ der `now`-Werte bleibt weit unter `AccountStatusLine.staleThreshold`
+    /// (300 s), damit keine Statuszeile über die Alterung selbst eine
+    /// Struktur-Änderung erzeugt.
+    @Test("Menü-Struktur unverändert ⇒ kein LayoutUpdated; ein Account kommt hinzu ⇒ genau eines")
+    func layoutUpdatedNurBeiStrukturAenderung() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+
+        let verbindung = try DBusConnection(socketPath: bus.socketPfad)
+        defer { verbindung.close() }
+
+        let home = try temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let t0 = Date()
+        let prozess = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: t0
+        )
+
+        // Erster Lesevorgang, Datei unverändert: derselbe leere Store.
+        prozess.refresh(now: t0.addingTimeInterval(1))
+
+        // `refresh` ruft `publish` synchron auf; asynchron ist nur das
+        // Schreiben auf den Socket. Deshalb zusätzlich zur Sofortprüfung eine
+        // faire Frist, wie bei der Watcher-Abgang-Gegenprobe in R-002.
+        _ = warteBis(1) { !bus.gesehen(ruf: Self.layoutRuf).isEmpty }
+        #expect(
+            bus.gesehen(ruf: Self.layoutRuf).isEmpty,
+            "LayoutUpdated ohne Struktur-Änderung: \(bus.gesehen(ruf: Self.layoutRuf).count)"
+        )
+
+        // Jetzt kommt ein Account hinzu — das ist eine Struktur-Änderung.
+        try schreibeEinenAccount(in: home, fetchedAt: t0)
+        prozess.refresh(now: t0.addingTimeInterval(2))
+
+        #expect(
+            warteBis { bus.gesehen(ruf: Self.layoutRuf).count == 1 },
+            "erwartet: genau ein LayoutUpdated, gezählt: \(bus.gesehen(ruf: Self.layoutRuf).count)"
+        )
+
+        let signale = bus.gesehen(ruf: Self.layoutRuf)
+        #expect(signale.count == 1)
+        if let signal = signale.first {
+            var leser = signal.bodyReader()
+            _ = try? leser.readUInt32()             // Revision
+            #expect((try? leser.readInt32()) == TrayMenuIdentifiers.root)
+        }
+
+        // Die beiden Zweige in `publish(_:)` schließen sich gegenseitig aus:
+        // zur Struktur-Änderung gehört KEIN ItemsPropertiesUpdated.
+        #expect(
+            bus.gesehen(ruf: Self.eigenschaftenRuf).isEmpty,
+            "ItemsPropertiesUpdated begleitete die Struktur-Änderung: \(bus.gesehen(ruf: Self.eigenschaftenRuf).count)"
         )
         #expect(bus.wachhundSchlug == false)
     }

@@ -26,6 +26,12 @@ func warteBis(_ frist: TimeInterval = 5, _ bedingung: () -> Bool) -> Bool {
     return bedingung()
 }
 
+/// Fehler der Testhilfen dieser Datei.
+enum FakeSessionBusTestsFehler: Error {
+    /// `/proc/self/status` enthielt keine lesbare `Threads:`-Zeile.
+    case threadZahlUnlesbar
+}
+
 @Suite("CM-26 · Selbstnachweis der Bus-Attrappe", .serialized)
 struct FakeSessionBusTests {
 
@@ -210,7 +216,67 @@ struct FakeSessionBusTests {
         )
     }
 
+    /// CM-26-B — die Attrappe darf sich über viele Läufe nicht anhäufen.
+    ///
+    /// Jede Instanz startet zwei Hintergrund-Threads (Accept-Schleife und
+    /// Wachhund). Bleibt auch nur einer je Instanz stehen, wächst der
+    /// Thread-Bestand mit der Zahl der Tests — und der Suite-Lauf wird über
+    /// die Zeit unzuverlässig, ohne dass ein einzelner Test rot wird.
+    @Test("50 Bus-Instanzen nacheinander gestartet und gestoppt hinterlassen nach Abklingen keine überzähligen Threads")
+    func vieleInstanzenHinterlassenKeineThreads() throws {
+        // Beide Messungen warten auf RUHE, nicht auf eine feste Frist: ein
+        // Nachbartest kann Threads hinterlassen, die noch abbauen — eine
+        // Sofort- oder Festfristmessung nähme diesen Überhang als
+        // Ausgangswert und verglich ihn mit dem abgeklungenen Endwert
+        // (gemessen: n0=14, n1=11 — rot ohne jedes Leck, nur
+        // reihenfolgeabhängig).
+        let n0 = try stabileThreadZahl()
+
+        for _ in 0..<50 {
+            let bus = try FakeSessionBus()
+            try bus.start()
+            bus.stop()
+        }
+
+        let n1 = try stabileThreadZahl()
+        #expect(n1 == n0, "Threads vorher: \(n0), nachher: \(n1)")
+    }
+
     // MARK: - Hilfen
+
+    /// Liest die Zahl der Threads dieses Prozesses aus `/proc/self/status`.
+    private func threadZahl() throws -> Int {
+        let status = try String(contentsOfFile: "/proc/self/status", encoding: .utf8)
+        for zeile in status.split(separator: "\n") where zeile.hasPrefix("Threads:") {
+            let wert = zeile.dropFirst("Threads:".count).trimmingCharacters(in: .whitespaces)
+            if let zahl = Int(wert) { return zahl }
+        }
+        throw FakeSessionBusTestsFehler.threadZahlUnlesbar
+    }
+
+    /// Liest die Threadzahl, bis sie **steht**: zwei aufeinanderfolgende
+    /// Messungen mit demselben Wert gelten als Ruhe, dieser Wert kommt zurück.
+    ///
+    /// Der Abstand liegt bewusst über der 250-ms-Zeitscheibe, mit der die
+    /// Server-Threads der Attrappe ihr Halt-Signal prüfen — sonst könnten zwei
+    /// Messungen innerhalb derselben Zeitscheibe zufällig gleich sein und
+    /// mitten im Abbau „Ruhe" melden. Läuft die Frist ab, zählt der letzte
+    /// Wert; der Test scheitert dann an seiner eigenen Zusicherung, nicht an
+    /// der Messung.
+    private func stabileThreadZahl(
+        frist: TimeInterval = 5,
+        abstand: TimeInterval = 0.3
+    ) throws -> Int {
+        let ende = Date().addingTimeInterval(frist)
+        var vorherige = try threadZahl()
+        while Date() < ende {
+            Thread.sleep(forTimeInterval: abstand)
+            let aktuelle = try threadZahl()
+            if aktuelle == vorherige { return aktuelle }
+            vorherige = aktuelle
+        }
+        return vorherige
+    }
 
     /// Pumpt die Verbindung und sammelt die eingegangenen **Signale**.
     private func eingehendeSignale(
