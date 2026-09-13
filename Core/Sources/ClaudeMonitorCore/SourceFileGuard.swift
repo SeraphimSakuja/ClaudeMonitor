@@ -19,9 +19,9 @@ import Glibc
 /// an einer anderen Datei — und deshalb genauso zu behandeln: prüfen, bevor
 /// zugegriffen wird.
 ///
-/// Die Prüfung arbeitet auf `stat`-Ebene und **öffnet die Datei nicht**; sie
-/// kann daher selbst nicht blockieren. Sie erwirbt kein Lock und schreibt
-/// nichts (L1).
+/// Sie öffnet mit `O_NONBLOCK` und prüft per `fstat` denselben Deskriptor,
+/// den sie liest — blockiert deshalb auch an einer FIFO nicht. Sie erwirbt
+/// kein Lock, schreibt nichts (L1).
 public enum SourceFileGuard {
 
     /// Obergrenze für die Größe einer Quelldatei.
@@ -34,8 +34,6 @@ public enum SourceFileGuard {
 
     /// Ergebnis der Vorprüfung.
     public enum Verdict: Equatable, Sendable, Error {
-        /// Gewöhnliche Datei innerhalb der Größengrenze — lesen ist sicher.
-        case ok
         /// Nicht vorhanden oder Eigenschaften nicht lesbar.
         case unavailable
         /// Keine gewöhnliche Datei: Verzeichnis, FIFO, Socket, Gerät.
@@ -47,32 +45,11 @@ public enum SourceFileGuard {
         /// Nutzernamen**, damit sie gefahrlos protokolliert werden kann.
         public var reason: String? {
             switch self {
-            case .ok, .unavailable: return nil
+            case .unavailable: return nil
             case .notRegularFile: return "Die Quelldatei ist keine gewöhnliche Datei."
             case .tooLarge: return "Die Quelldatei ist unerwartet groß."
             }
         }
-    }
-
-    /// Prüft, ob die Datei gefahrlos vollständig gelesen werden kann.
-    ///
-    /// ⚠️ **TOCTOU-Lücke:** diese Prüfung allein reicht nicht, wenn danach
-    /// getrennt gelesen wird (`Data(contentsOf:)`) — zwischen `stat` hier und
-    /// dem späteren Öffnen kann der Pfad ausgetauscht werden. Für den
-    /// eigentlichen Lesevorgang ``readIfSafe(_:)`` verwenden, das denselben
-    /// Datei-Deskriptor prüft, den es danach liest. Diese Funktion bleibt für
-    /// Stellen, die nur die Klassifikation brauchen (z. B. Anzeige/Log).
-    public static func inspect(_ url: URL) -> Verdict {
-        guard let values = try? url.resourceValues(forKeys: [.fileResourceTypeKey, .fileSizeKey]) else {
-            return .unavailable
-        }
-        // Bewusst gegen `.regular` geprüft und nicht gegen einzelne unerwünschte
-        // Typen: Was nicht ausdrücklich eine gewöhnliche Datei ist, wird nicht
-        // gelesen. Symlinks sind damit erlaubt, solange ihr Ziel eine
-        // gewöhnliche Datei ist — `resourceValues` folgt ihnen.
-        guard values.fileResourceType == .regular else { return .notRegularFile }
-        if let size = values.fileSize, size > maximumFileSize { return .tooLarge }
-        return .ok
     }
 
     /// Ergebnis von ``readIfSafe(_:)``.
@@ -91,11 +68,12 @@ public enum SourceFileGuard {
 
     /// Öffnet und liest eine fremdbestimmte Datei TOCTOU-sicher (CM-16).
     ///
-    /// `inspect(_:)` gefolgt von einem eigenen `Data(contentsOf:)` lässt ein
-    /// Rennfenster offen: gewinnt zwischen beiden Aufrufen ein anderer Prozess
-    /// das Rennen und schiebt eine FIFO unter, blockiert das spätere Öffnen
-    /// endlos — genau die Fehlerklasse, gegen die die Wache ursprünglich
-    /// gebaut wurde. Diese Funktion prüft stattdessen **denselben
+    /// Eine separate `stat`-Prüfung auf dem Pfad, gefolgt von einem eigenen
+    /// `Data(contentsOf:)`, ließe ein Rennfenster offen: gewinnt zwischen
+    /// beiden Aufrufen ein anderer Prozess das Rennen und schiebt eine FIFO
+    /// unter, blockiert das spätere Öffnen endlos — genau die Fehlerklasse,
+    /// gegen die die Wache ursprünglich gebaut wurde. Diese Funktion prüft
+    /// stattdessen **denselben
     /// Datei-Deskriptor**, den sie danach liest: `open` mit `O_NONBLOCK`
     /// (kehrt bei einer FIFO ohne Schreiber sofort zurück statt zu blockieren,
     /// für gewöhnliche Dateien wirkungslos), `fstat` auf dem Deskriptor (nicht

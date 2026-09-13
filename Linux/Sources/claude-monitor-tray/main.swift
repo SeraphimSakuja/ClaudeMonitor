@@ -71,7 +71,7 @@ func trayNoteStopSignal(_ number: Int32) {
 /// eine Antwort nie hinter einem Lesevorgang wartet; ein Modell mit einem Pfad
 /// muss nur zeigen, dass der Lesevorgang kurz ist — und das ist er, weil
 /// `SourceFileGuard.maximumFileSize` die Quelle auf 8 MiB deckelt
-/// (`SourceFileGuard.swift:33,118`).
+/// (`SourceFileGuard.swift:33,96`).
 final class TrayProcess {
 
     /// Takt des Lesevorgangs — identisch zu macOS

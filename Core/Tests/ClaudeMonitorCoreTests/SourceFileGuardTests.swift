@@ -12,15 +12,9 @@ import Glibc
 /// und kehrte nie zurück — dieselbe Fehlerklasse wie die App-Group-Blockade aus
 /// Leitplanke L7.
 ///
-/// **Warum `inspect(_:)` hier nur vorgelegt, nicht gelesen wird:** `inspect`
-/// öffnet die Datei nicht und kann darum nicht blockieren — ein Test, der ohne
-/// die Wache *blockiert* statt fehlzuschlagen, hängt sonst die ganze Suite auf.
-/// Dass die Leser die Wache auch wirklich befragen, ist über Verzeichnis und
-/// Übergröße geprüft — beides misslingt ohne die Wache sichtbar, statt zu
-/// hängen. `readIfSafe(_:)` (CM-16) öffnet die Datei zwar, aber mit
-/// `O_NONBLOCK` — genau deshalb wird die FIFO dort unten mit Zeitschranke
-/// tatsächlich vorgelegt, als Beweis, dass das Öffnen selbst nicht mehr
-/// blockiert.
+/// `readIfSafe(_:)` (CM-16) öffnet die Datei mit `O_NONBLOCK` — genau deshalb
+/// wird die FIFO unten mit Zeitschranke tatsächlich vorgelegt, als Beweis,
+/// dass das Öffnen selbst nicht mehr blockiert.
 @Suite("Wache vor dem Lesen fremder Dateien")
 struct SourceFileGuardTests {
 
@@ -28,41 +22,6 @@ struct SourceFileGuardTests {
         let url = directory.appending(path: "fifo.json")
         #expect(mkfifo(url.path, 0o600) == 0)
         return url
-    }
-
-    /// Datei knapp über der Grenze — als spärliche Datei, damit der Test keine
-    /// 8 MB tatsächlich schreibt.
-    private static func makeOversizedFile(in directory: URL) throws -> URL {
-        let url = directory.appending(path: "huge.json")
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.truncate(atOffset: UInt64(SourceFileGuard.maximumFileSize + 1))
-        return url
-    }
-
-#if os(macOS)
-    @Test("Eine gewöhnliche Datei darf gelesen werden")
-    func regularFileIsOK() throws {
-        let root = try TestSupport.temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = root.appending(path: "usage.json")
-        try Data("{}".utf8).write(to: url)
-
-        #expect(SourceFileGuard.inspect(url) == .ok)
-    }
-#endif
-
-    @Test("Eine FIFO wird abgelehnt, ohne sie zu öffnen")
-    func fifoIsRejected() throws {
-        let root = try TestSupport.temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let fifo = try Self.makeFIFO(in: root)
-
-        // Der eigentliche Beweis ist, dass dieser Aufruf überhaupt zurückkehrt:
-        // Ein Öffnen der FIFO bliebe hier stehen.
-        #expect(SourceFileGuard.inspect(fifo) == .notRegularFile)
-        #expect(SourceFileGuard.Verdict.notRegularFile.reason != nil)
     }
 
     /// Kleine `@unchecked Sendable`-Box, um das Ergebnis aus dem Hintergrund-
@@ -93,37 +52,12 @@ struct SourceFileGuardTests {
         let outcome = semaphore.wait(timeout: .now() + 2)
         #expect(outcome == .success, "readIfSafe(fifo) kehrte nicht innerhalb von 2s zurück — blockiert vermutlich beim Öffnen der FIFO")
         #expect(box.value == .rejected(.notRegularFile))
-    }
 
-#if os(macOS)
-    @Test("Ein Verzeichnis ist keine gewöhnliche Datei")
-    func directoryIsRejected() throws {
-        let root = try TestSupport.temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        #expect(SourceFileGuard.inspect(root) == .notRegularFile)
-    }
-#endif
-
-#if os(macOS)
-    @Test("Eine übergroße Datei wird abgelehnt")
-    func oversizedFileIsRejected() throws {
-        let root = try TestSupport.temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let huge = try Self.makeOversizedFile(in: root)
-
-        #expect(SourceFileGuard.inspect(huge) == .tooLarge)
-    }
-#endif
-
-    @Test("Was es nicht gibt, ist weder abgelehnt noch freigegeben")
-    func missingFileIsUnavailable() throws {
-        let root = try TestSupport.temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        // Ausdrücklich **kein** eigener Ablehnungsgrund: „verschwunden" ist der
-        // Zustand „nicht gefunden", den die Leser selbst behandeln.
-        #expect(SourceFileGuard.inspect(root.appending(path: "weg.json")) == .unavailable)
+        // Lebender Vertrag (hier mitgeprüft, keine eigene Testfunktion mehr):
+        // `UsageStoreReader` fällt bei `.unavailable` auf einen eigenen Text
+        // zurück (`verdict.reason ?? "..."`, s. UsageStoreReader.swift:103) —
+        // dieser Fall muss `nil` bleiben, sonst verdeckt die Wache die
+        // eigentliche Fallback-Meldung.
         #expect(SourceFileGuard.Verdict.unavailable.reason == nil)
     }
 
@@ -163,9 +97,6 @@ struct SourceFileGuardTests {
         let json = #"{"activeAccountNumber": 1, "accounts": {"1": {"alias": "kurz"}}, "padding": ""#
             + padding + #""}"#
         try Data(json.utf8).write(to: url)
-#if os(macOS)
-        #expect(SourceFileGuard.inspect(url) == .tooLarge)
-#endif
 
         // Ohne die Wache läse der Leser die Datei und übernähme Alias und
         // aktive Kennung — mit ihr bleibt nichts übrig.
