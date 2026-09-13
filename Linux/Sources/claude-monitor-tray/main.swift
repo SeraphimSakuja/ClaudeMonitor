@@ -52,6 +52,8 @@ enum TrayExit: Int32 {
         case .authenticationFailed: return "authenticationFailed"
         case .disconnected: return "disconnected"
         case .timedOut: return "timedOut"
+        case .errorReply: return "errorReply"
+        case .malformedReply: return "malformedReply"
         }
     }
 }
@@ -433,6 +435,12 @@ func runTray(arguments: [String]) -> TrayExit {
     let watcherPresent: Bool
     do {
         watcherPresent = try connection.nameHasOwner(TrayProcess.watcherName)
+    } catch DBusConnection.ConnectError.timedOut {
+        // Fund 1 (CM-27): Ein 5s-Bus-Haenger auf `NameHasOwner` ist kein
+        // Abriss, sondern eine langsame Antwort. Altes Verhalten (vor der
+        // Auflage-3-Umstellung auf do/catch) beibehalten: Watcher als
+        // "absent"/"waiting" behandeln statt den Prozess zu beenden.
+        watcherPresent = false
     } catch let error as DBusConnection.ConnectError {
         log.always("bus=disconnected step=nameHasOwner reason=\(TrayExit.reason(for: error))")
         process.shutDown()

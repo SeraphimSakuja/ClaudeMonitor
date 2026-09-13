@@ -33,6 +33,15 @@ public final class DBusConnection {
         case disconnected
         /// Der Bus hat auf eine Startanfrage nicht rechtzeitig geantwortet.
         case timedOut
+        /// Der Bus hat aktiv eine Fehlerantwort geschickt (z. B.
+        /// `org.freedesktop.DBus.Error.AccessDenied`) — kein Abriss, sondern
+        /// eine echte Antwort mit negativem Ausgang. Der Fremdtext der
+        /// Bus-Fehlermeldung wird bewusst NICHT übernommen (Druckvertrag).
+        case errorReply
+        /// Der Antwort-Rumpf war unlesbar oder trug einen unbekannten
+        /// Rohwert (z. B. leerer/falsch signierter Body). Kein gültiges
+        /// Ergebnis — darf nie stillschweigend defaulten.
+        case malformedReply
     }
 
     /// Ergebnis von `RequestName`.
@@ -234,7 +243,7 @@ public final class DBusConnection {
         while Date() < deadline {
             for message in try pump(timeoutMilliseconds: 100)
             where message.replySerial == serial {
-                if message.type == .error { throw ConnectError.disconnected }
+                if message.type == .error { throw ConnectError.errorReply }
                 return message
             }
         }
@@ -255,8 +264,9 @@ public final class DBusConnection {
             arguments: [.string(name), .uint32(4)]
         )
         var reader = reply.bodyReader()
-        let raw = (try? reader.readUInt32()) ?? 0
-        return RequestNameResult(rawValue: raw) ?? .exists
+        guard let raw = try? reader.readUInt32() else { throw ConnectError.malformedReply }
+        guard let result = RequestNameResult(rawValue: raw) else { throw ConnectError.malformedReply }
+        return result
     }
 
     /// Hat dieser Name gerade einen Eigentümer? (Auflage 13: Watcher da oder
@@ -270,7 +280,8 @@ public final class DBusConnection {
             arguments: [.string(name)]
         )
         var reader = reply.bodyReader()
-        return (try? reader.readBool()) ?? false
+        guard let value = try? reader.readBool() else { throw ConnectError.malformedReply }
+        return value
     }
 
     /// Bestellt Signale ab. Ohne passende Regel schickt der Bus einer

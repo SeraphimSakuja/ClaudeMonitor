@@ -143,7 +143,7 @@ struct FakeSessionBusTests {
         }
         let dauer = Date().timeIntervalSince(beginn)
 
-        #expect(fehler == .disconnected, "erwartet: Fehlerantwort des Busses, bekommen: \(String(describing: fehler))")
+        #expect(fehler == .errorReply, "erwartet: Fehlerantwort des Busses, bekommen: \(String(describing: fehler))")
         #expect(dauer < 2, "Antwort brauchte \(dauer) s — das ist die Zeitlimit-Frist, keine Fehlerantwort")
         #expect(bus.wachhundSchlug == false)
     }
