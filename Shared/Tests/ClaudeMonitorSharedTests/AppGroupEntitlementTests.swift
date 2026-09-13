@@ -20,12 +20,15 @@ struct AppGroupEntitlementTests {
         #expect(entitlement.isDeclared("group.example.missing") == false)
     }
 
+#if os(macOS)
     @Test("Ohne Deklaration gibt es kein Container-Verzeichnis")
     func undeclaredYieldsNoDirectory() {
         let store = SnapshotStore(groupIdentifier: group, entitlement: .none)
         #expect(store.containerDirectory == nil)
     }
+#endif
 
+#if os(macOS)
     @Test("Ohne Deklaration meldet der Schreibversuch containerUnavailable, statt den Container anzufassen")
     func writeIsBlockedWithoutEntitlement() {
         let store = SnapshotStore(groupIdentifier: group, entitlement: .none)
@@ -33,12 +36,15 @@ struct AppGroupEntitlementTests {
 
         #expect(store.write(snapshot) == .containerUnavailable(groupIdentifier: group))
     }
+#endif
 
+#if os(macOS)
     @Test("Ohne Deklaration liefert das Lesen einen Fehler, statt zu blockieren")
     func readIsBlockedWithoutEntitlement() {
         let store = SnapshotStore(groupIdentifier: group, entitlement: .none)
         #expect(throws: (any Error).self) { try store.read() }
     }
+#endif
 
     @Test("Die Wache sitzt im Store selbst und ist nicht am Aufrufer vorbei zu umgehen")
     func guardLivesInsideTheStore() throws {
@@ -66,6 +72,7 @@ struct AppGroupEntitlementTests {
         #expect(readBack == snapshot)
     }
 
+#if canImport(Security)
     @Test("Die echte Wache liest die Signatur — und der Testprozess trägt die Gruppe nicht")
     func codeSignatureGuardIsWiredUp() {
         // Gegenprobe zur Attrappe: `codeSignature` fragt wirklich die Signatur
@@ -75,4 +82,5 @@ struct AppGroupEntitlementTests {
         #expect(AppGroupEntitlement.codeSignature.isDeclared(AppGroup.identifier) == false)
         #expect(AppGroupEntitlement.groupsFromCodeSignature().contains(AppGroup.identifier) == false)
     }
+#endif
 }

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(ServiceManagement)
 import ServiceManagement
+#endif
 
 /// Der Zustand des Anmeldeobjekts, wie ihn die Oberfläche braucht.
 ///
@@ -64,6 +66,7 @@ public enum LoginItemState: Equatable, Sendable, CaseIterable {
     public var needsSystemSettings: Bool { self == .requiresApproval }
 }
 
+#if canImport(ServiceManagement)
 extension LoginItemState {
 
     /// Bildet den Systemzustand ab.
@@ -91,3 +94,4 @@ extension LoginItemState {
         }
     }
 }
+#endif

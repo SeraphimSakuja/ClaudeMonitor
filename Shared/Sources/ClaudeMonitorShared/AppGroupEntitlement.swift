@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Prüft, ob das laufende Programm das App-Group-Entitlement wirklich **trägt**.
 ///
@@ -60,9 +62,13 @@ public struct AppGroupEntitlement: Sendable {
     /// Jeder Fehlfall bedeutet „nicht deklariert" — die Wache irrt nur zur
     /// sicheren Seite.
     public static func groupsFromCodeSignature() -> [String] {
+        #if canImport(Security)
         guard let task = SecTaskCreateFromSelf(nil) else { return [] }
         let key = "com.apple.security.application-groups" as CFString
         guard let value = SecTaskCopyValueForEntitlement(task, key, nil) else { return [] }
         return value as? [String] ?? []
+        #else
+        return []
+        #endif
     }
 }

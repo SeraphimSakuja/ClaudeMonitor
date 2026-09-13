@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 
 /// Vorprüfung, bevor eine fremdbestimmte Datei vollständig gelesen wird.
 ///

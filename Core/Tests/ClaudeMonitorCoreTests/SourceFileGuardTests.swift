@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 @testable import ClaudeMonitorCore
+#if canImport(Glibc)
+import Glibc
+#endif
 
 /// Die Wache vor dem vollständigen Lesen fremdbestimmter Dateien.
 ///
@@ -38,6 +41,7 @@ struct SourceFileGuardTests {
         return url
     }
 
+#if os(macOS)
     @Test("Eine gewöhnliche Datei darf gelesen werden")
     func regularFileIsOK() throws {
         let root = try TestSupport.temporaryDirectory()
@@ -47,6 +51,7 @@ struct SourceFileGuardTests {
 
         #expect(SourceFileGuard.inspect(url) == .ok)
     }
+#endif
 
     @Test("Eine FIFO wird abgelehnt, ohne sie zu öffnen")
     func fifoIsRejected() throws {
@@ -90,6 +95,7 @@ struct SourceFileGuardTests {
         #expect(box.value == .rejected(.notRegularFile))
     }
 
+#if os(macOS)
     @Test("Ein Verzeichnis ist keine gewöhnliche Datei")
     func directoryIsRejected() throws {
         let root = try TestSupport.temporaryDirectory()
@@ -97,7 +103,9 @@ struct SourceFileGuardTests {
 
         #expect(SourceFileGuard.inspect(root) == .notRegularFile)
     }
+#endif
 
+#if os(macOS)
     @Test("Eine übergroße Datei wird abgelehnt")
     func oversizedFileIsRejected() throws {
         let root = try TestSupport.temporaryDirectory()
@@ -106,6 +114,7 @@ struct SourceFileGuardTests {
 
         #expect(SourceFileGuard.inspect(huge) == .tooLarge)
     }
+#endif
 
     @Test("Was es nicht gibt, ist weder abgelehnt noch freigegeben")
     func missingFileIsUnavailable() throws {
@@ -154,7 +163,9 @@ struct SourceFileGuardTests {
         let json = #"{"activeAccountNumber": 1, "accounts": {"1": {"alias": "kurz"}}, "padding": ""#
             + padding + #""}"#
         try Data(json.utf8).write(to: url)
+#if os(macOS)
         #expect(SourceFileGuard.inspect(url) == .tooLarge)
+#endif
 
         // Ohne die Wache läse der Leser die Datei und übernähme Alias und
         // aktive Kennung — mit ihr bleibt nichts übrig.

@@ -7,6 +7,11 @@ enum TestSupport {
 
     /// Lädt eine Fixture-Datei aus dem Test-Bundle.
     static func fixtureURL(_ name: String) throws -> URL {
+        let local = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "Fixtures")
+            .appending(path: "\(name).json")
+        if FileManager.default.fileExists(atPath: local.path) { return local }
         let url = Bundle.module.url(
             forResource: name,
             withExtension: "json",

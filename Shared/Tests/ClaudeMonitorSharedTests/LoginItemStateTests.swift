@@ -1,5 +1,7 @@
 import Testing
+#if canImport(ServiceManagement)
 import ServiceManagement
+#endif
 import ClaudeMonitorShared
 
 /// Die Abbildung `SMAppService.Status` → ``LoginItemState``.
@@ -20,6 +22,7 @@ import ClaudeMonitorShared
 @Suite("Anmeldeobjekt-Zustand")
 struct LoginItemStateTests {
 
+#if canImport(ServiceManagement)
     @Test func enabledMapsToOn() {
         let state = LoginItemState(status: .enabled)
         #expect(state == .enabled)
@@ -27,7 +30,9 @@ struct LoginItemStateTests {
         #expect(state.isToggleable)
         #expect(!state.needsSystemSettings)
     }
+#endif
 
+#if canImport(ServiceManagement)
     @Test func notRegisteredIsOffButToggleable() {
         let state = LoginItemState(status: .notRegistered)
         #expect(state == .disabled)
@@ -35,7 +40,9 @@ struct LoginItemStateTests {
         #expect(state.isToggleable)
         #expect(!state.needsSystemSettings)
     }
+#endif
 
+#if canImport(ServiceManagement)
     @Test func requiresApprovalIsNeitherOnNorToggleable() {
         let state = LoginItemState(status: .requiresApproval)
         #expect(state == .requiresApproval)
@@ -46,7 +53,9 @@ struct LoginItemStateTests {
         #expect(!state.isToggleable)
         #expect(state.needsSystemSettings)
     }
+#endif
 
+#if canImport(ServiceManagement)
     @Test func notFoundIsOffButToggleable() {
         let state = LoginItemState(status: .notFound)
         // „Noch nie registriert" — gemessen, nicht hergeleitet: `register()`
@@ -59,6 +68,7 @@ struct LoginItemStateTests {
         // nicht der Weg, der Schalter selbst ist es.
         #expect(!state.needsSystemSettings)
     }
+#endif
 
     @Test func onlyApprovalBlocksTheSwitch() {
         // Ein Schalter darf genau dann gesperrt sein, wenn das Umlegen
@@ -83,6 +93,7 @@ struct LoginItemStateTests {
         for state in LoginItemState.allCases where !state.isToggleable {
             #expect(state.needsSystemSettings)
         }
+#if canImport(ServiceManagement)
         // Und kein erreichbarer Systemstatus führt in einen gesperrten Zustand
         // ohne Ausweg.
         let statuses: [SMAppService.Status] = [.enabled, .notRegistered, .requiresApproval, .notFound]
@@ -90,8 +101,10 @@ struct LoginItemStateTests {
             let state = LoginItemState(status: status)
             #expect(state.isToggleable || state.needsSystemSettings)
         }
+#endif
     }
 
+#if canImport(ServiceManagement)
     @Test func unknownStatusStaysToggleable() {
         // Ein künftiger Systemzustand darf dem Nutzer nicht die einzige
         // Handlung verbieten. Scheitert `register()`, zeigt die Oberfläche den
@@ -101,4 +114,5 @@ struct LoginItemStateTests {
         #expect(state.isToggleable)
         #expect(!state.needsSystemSettings)
     }
+#endif
 }

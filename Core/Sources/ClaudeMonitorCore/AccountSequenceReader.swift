@@ -269,7 +269,18 @@ public enum AccountSequenceReader {
     private static func identifier(from raw: Any?) -> String? {
         guard let number = raw as? NSNumber else { return nil }
         // `true` käme als NSNumber 1 durch und markierte Account „1".
+        #if canImport(Glibc)
+        // Gemessen (Swift 6.3.3, Linux): `raw is Bool` trägt hier NICHT — die
+        // Brücke lässt auch die Zahl `1` als `Bool` durch und verwürfe damit
+        // jede echte Kennung. `JSONSerialization` legt Wahrheitswerte als
+        // `__NSCFBoolean` ab, Zahlen als `NSNumber`; der Typvergleich gegen
+        // einen bekannten Wahrheitswert ist die Entsprechung zu
+        // `CFBooleanGetTypeID()` auf der Apple-Seite und trifft `true` wie
+        // `false`.
+        guard type(of: number) != type(of: true as NSNumber) else { return nil }
+        #else
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        #endif
         // `Int(exactly:)` statt `number.intValue`: Letzteres liefert bei
         // `1e30` einen implementierungsdefinierten Wert — also eine
         // Fantasie-Kennung, die zufällig auf einen echten Account zeigen

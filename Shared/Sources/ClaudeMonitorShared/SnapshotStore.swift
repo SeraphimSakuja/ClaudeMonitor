@@ -75,7 +75,11 @@ public struct SnapshotStore: Sendable {
     /// Widget-Extension würde sie zuverlässig vergessen.
     public var containerDirectory: URL? {
         guard entitlement.isDeclared(groupIdentifier) else { return nil }
+        #if os(macOS)
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier)
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Schreiben (Menüleisten-App)

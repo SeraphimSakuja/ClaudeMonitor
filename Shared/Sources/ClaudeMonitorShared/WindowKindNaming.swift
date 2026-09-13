@@ -22,11 +22,23 @@ public enum WindowKindNaming {
     public static func name(for kind: LimitWindow.Kind) -> String {
         switch kind {
         case .fiveHour:
+            #if os(macOS)
             return String(localized: "5 hours", comment: "Name des rollierenden 5-Stunden-Limitfensters")
+            #else
+            return "5 hours"
+            #endif
         case .sevenDay:
+            #if os(macOS)
             return String(localized: "7 days", comment: "Name des Wochenlimit-Fensters")
+            #else
+            return "7 days"
+            #endif
         case .spend:
+            #if os(macOS)
             return String(localized: "Spend", comment: "Name des Ausgabenfensters")
+            #else
+            return "Spend"
+            #endif
         case .scoped(let name):
             return name
         case .other(let rawKey):
