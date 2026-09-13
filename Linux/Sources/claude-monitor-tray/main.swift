@@ -38,6 +38,22 @@ enum TrayExit: Int32 {
     /// (Auflage 13). Im Normalbetrieb ist das **kein** Abbruchgrund — dort
     /// wartet der Prozess auf den Watcher.
     case watcherMissing = 9
+
+    /// Ein **fester** Bezeichner je Verbindungsfehler.
+    ///
+    /// Bewusst eine Handabbildung und kein `String(describing:)`: Der
+    /// Druckvertrag in `TrayLog` verbietet Reflexionsausgabe, und
+    /// `connectFailed(errno:)` trägt einen Zahlenwert, der über die Abbildung
+    /// als benannter Skalar hinausgeht statt als Reflexionsrumpf.
+    static func reason(for error: DBusConnection.ConnectError) -> String {
+        switch error {
+        case .addressUnavailable: return "addressUnavailable"
+        case .connectFailed(let number): return "connectFailed errno=\(number)"
+        case .authenticationFailed: return "authenticationFailed"
+        case .disconnected: return "disconnected"
+        case .timedOut: return "timedOut"
+        }
+    }
 }
 
 // MARK: - Signale
@@ -329,6 +345,29 @@ final class TrayProcess {
 
 /// Baut alles auf und gibt den Beendigungscode zurück.
 func runTray(arguments: [String]) -> TrayExit {
+    // CM-27 — SIGPIPE prozessweit ignorieren, BEVOR die erste Verbindung steht.
+    //
+    // `DBusConnection.writeAll` schreibt mit `write(2)`; ein Flags-Parameter wie
+    // `MSG_NOSIGNAL` existiert nur bei `send(2)` und steht hier nicht zur
+    // Verfügung. Ohne diesen Schalter beendet die Standardaktion von SIGPIPE den
+    // Prozess per Signal (Exit 141), sobald der Bus während eines
+    // Schreibversuchs abreißt — und der Exit-Vertrag oben (`connectionFailed`
+    // = 6), an dem der systemd-Dienst aus `CM-21` „falsch eingerichtet" von
+    // „gescheitert" unterscheidet, wäre gebrochen. Mit `SIG_IGN` liefert
+    // `write` stattdessen `-1`/`EPIPE`, der Abriss fällt im nächsten `pump()`
+    // auf und die Schleife verlässt sich geordnet mit 6.
+    //
+    // Die Platzierung ist bewusst die allererste Anweisung: Schon der
+    // SASL-Handshake in `DBusConnection(socketPath:)` schreibt, also lange vor
+    // der SIGTERM/SIGINT-Registrierung weiter unten.
+    //
+    // ⚠️ Reichweite: Das schützt den Tray-PRODUKTIONSPROZESS. Wer
+    // `DBusConnection` außerhalb von `runTray` aufbaut — insbesondere die Tests
+    // — muss SIGPIPE selbst ignorieren (siehe `FakeSessionBus.sigpipeIgnoriert`).
+    // Die `claude-monitor`-CLI ist bewusst NICHT erfasst: Sie darf beim Piping
+    // weiter idiomatisch an SIGPIPE sterben.
+    _ = signal(SIGPIPE, SIG_IGN)
+
     let isSelftest = arguments.contains("--selftest")
     let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
     let log = TrayLog(homeDirectory: homeDirectory)
@@ -351,7 +390,23 @@ func runTray(arguments: [String]) -> TrayExit {
 
     // Einzelinstanz vor allem anderen: Eine zweite Instanz soll sich
     // verabschieden, bevor sie ein zweites Item anmeldet.
-    let ownership = (try? connection.requestName(TrayProcess.wellKnownName)) ?? .exists
+    //
+    // Der Fehlerfall wird ausdrücklich unterschieden (CM-27): Ein Busabriss
+    // WÄHREND `RequestName` ist kein „läuft schon" — er darf nicht auf Exit 8
+    // führen, sondern gehört zum Verbindungsausgang 6. Nur ein ECHTES
+    // `RequestName`-Ergebnis darf `.alreadyRunning` auslösen.
+    let ownership: DBusConnection.RequestNameResult
+    do {
+        ownership = try connection.requestName(TrayProcess.wellKnownName)
+    } catch let error as DBusConnection.ConnectError {
+        log.always("bus=disconnected step=requestName reason=\(TrayExit.reason(for: error))")
+        connection.close()
+        return .connectionFailed
+    } catch {
+        log.always("bus=disconnected step=requestName")
+        connection.close()
+        return .connectionFailed
+    }
     switch ownership {
     case .primaryOwner, .alreadyOwner:
         break
@@ -372,7 +427,21 @@ func runTray(arguments: [String]) -> TrayExit {
     )
     process.observeWatcher()
 
-    let watcherPresent = (try? connection.nameHasOwner(TrayProcess.watcherName)) ?? false
+    // Auch hier gilt CM-27: Ein Abriss während `NameHasOwner` ist kein
+    // „Watcher fehlt" (Exit 9), sondern ein Verbindungsausgang (Exit 6). Nur
+    // eine ECHTE Antwort des Busses darf auf `.watcherMissing` führen.
+    let watcherPresent: Bool
+    do {
+        watcherPresent = try connection.nameHasOwner(TrayProcess.watcherName)
+    } catch let error as DBusConnection.ConnectError {
+        log.always("bus=disconnected step=nameHasOwner reason=\(TrayExit.reason(for: error))")
+        process.shutDown()
+        return .connectionFailed
+    } catch {
+        log.always("bus=disconnected step=nameHasOwner")
+        process.shutDown()
+        return .connectionFailed
+    }
     if watcherPresent {
         process.registerWithWatcher()
     } else if isSelftest {

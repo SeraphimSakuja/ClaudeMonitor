@@ -165,6 +165,13 @@ The process runs in the **foreground**, does not fork and does not daemonise —
 systemd user service. `SIGTERM`/`SIGINT` tear it down cleanly; the watcher notices and drops the
 item from the panel. It re-registers by itself when `gnome-shell` restarts (`NameOwnerChanged`).
 
+`SIGPIPE` is ignored process-wide (`signal(SIGPIPE, SIG_IGN)`, first statement of `runTray`). The
+D-Bus socket is written with `write(2)`, which has no `MSG_NOSIGNAL` flag, so without that switch a
+bus teardown during a write would kill the process by signal (exit 141) instead of honouring the
+exit contract below. With it, `write` returns `EPIPE`, the teardown surfaces on the next `pump()`
+and the loop leaves with exit 6. The switch covers the tray process only — the `claude-monitor`
+smoke tool keeps dying on `SIGPIPE` when piped, as a CLI should.
+
 It is strictly read-only, like the smoke tool: it never writes, never locks and never calls
 `SnapshotStore.write` — the tray targets do not even link `SnapshotStore`, so the promise cannot be
 broken by accident. That holds for `--selftest` too.
