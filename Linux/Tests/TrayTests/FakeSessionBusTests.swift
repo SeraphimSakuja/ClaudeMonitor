@@ -242,7 +242,61 @@ struct FakeSessionBusTests {
         #expect(n1 == n0, "Threads vorher: \(n0), nachher: \(n1)")
     }
 
+    /// CM-26-A — ein transienter `accept()`-Fehler beendet den Accept-Thread
+    /// nicht.
+    ///
+    /// ⚠️ Der Verbindungsaufbau läuft auf einem HINTERGRUND-Thread, nicht auf
+    /// dem Testthread: `DBusConnection.init` → `authenticate()` → `readSome()`
+    /// ist ein blockierendes `read()` ohne jedes Zeitlimit. Bleibt der
+    /// Accept-Thread nach dem Fehler tot, hinge ein Aufbau auf dem Testthread
+    /// unbegrenzt — das Zeitlimit muss aus dem Test kommen, nicht aus dem
+    /// Prüfling.
+    ///
+    /// Ein zweiter Klient ist nicht nötig: Der EINE Klient, dessen ersten
+    /// (simulierten) Aufnahmeversuch der Haken scheitern lässt, ist selbst der
+    /// reguläre Klient, der danach durchkommen muss — sein echter
+    /// Verbindungswunsch bleibt im Kernel-Backlog liegen.
+    @Test("Ein transienter accept()-Fehler (ECONNABORTED) beendet den Accept-Thread nicht")
+    func acceptFehlerBeendetDenAcceptThreadNicht() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+
+        bus.naechsterAcceptFehler = ECONNABORTED
+
+        let ergebnis = Aufbauergebnis()
+        let pfad = bus.socketPfad
+        Thread.detachNewThread {
+            do {
+                ergebnis.verbindung = try DBusConnection(socketPath: pfad)
+            } catch {
+                ergebnis.fehler = error
+            }
+        }
+
+        let kamDurch = warteBis(5) { ergebnis.verbindung != nil }
+        defer { ergebnis.verbindung?.close() }
+
+        #expect(
+            kamDurch,
+            "Klient kam nach injiziertem accept()-Fehler nicht durch (Timeout nach 5 s), Fehler: \(String(describing: ergebnis.fehler))"
+        )
+        #expect(ergebnis.verbindung?.uniqueName == ":1.1")
+        #expect(bus.wachhundSchlug == false)
+    }
+
     // MARK: - Hilfen
+
+    /// Ablage für das Ergebnis eines Verbindungsaufbaus auf einem
+    /// Hintergrund-Thread.
+    ///
+    /// `@unchecked Sendable`: geschrieben wird genau einmal vom
+    /// Hintergrund-Thread, gelesen erst, nachdem `warteBis` den Schreibvorgang
+    /// über `verbindung != nil` beobachtet hat.
+    private final class Aufbauergebnis: @unchecked Sendable {
+        var verbindung: DBusConnection?
+        var fehler: Error?
+    }
 
     /// Liest die Zahl der Threads dieses Prozesses aus `/proc/self/status`.
     private func threadZahl() throws -> Int {

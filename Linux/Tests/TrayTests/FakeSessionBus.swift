@@ -81,6 +81,9 @@ final class FakeSessionBus: @unchecked Sendable {
     /// Namen, deren `NameHasOwner`-Anfrage unbeantwortet bleibt. Siehe
     /// ``antwortVerschweigenFuerNamen``.
     private var antwortVerschweigenFuerNamenIntern: Set<String> = []
+    /// Fehler, der den nächsten `accept()`-Aufruf ersetzt. Siehe
+    /// ``naechsterAcceptFehler``.
+    private var naechsterAcceptFehlerIntern: Int32? = nil
 
     // MARK: - Störbilder
 
@@ -121,6 +124,30 @@ final class FakeSessionBus: @unchecked Sendable {
         set {
             zustand.lock()
             antwortVerschweigenFuerNamenIntern = newValue
+            zustand.unlock()
+        }
+    }
+
+    /// Erzwingt beim NÄCHSTEN `accept()`-Aufruf einen bestimmten Fehler, ohne
+    /// dass ein echter Netzwerkfehler nötig ist (Testhaken für CM-26-A — eine
+    /// echte OS-Race wie ein `SO_LINGER(0)`-Abbruch war auf diesem Kernel nicht
+    /// reproduzierbar, s. TEST-BASE-R3, 0/500 Läufe).
+    ///
+    /// Wird EINMALIG konsumiert: der Accept-Thread liest den Wert, setzt ihn
+    /// beim Lesen selbst auf `nil` zurück und behandelt jeden folgenden ECHTEN
+    /// `accept()`-Aufruf normal. Die reale Verbindungsanfrage bleibt dabei
+    /// unangetastet im Kernel-Backlog liegen.
+    ///
+    /// Sperre wie bei ``leererRumpfFuer``.
+    var naechsterAcceptFehler: Int32? {
+        get {
+            zustand.lock()
+            defer { zustand.unlock() }
+            return naechsterAcceptFehlerIntern
+        }
+        set {
+            zustand.lock()
+            naechsterAcceptFehlerIntern = newValue
             zustand.unlock()
         }
     }
@@ -360,9 +387,30 @@ final class FakeSessionBus: @unchecked Sendable {
         // wegen der Halt-Flagge gleich wieder. Der Nachbartest flackerte.
         guard !haeltAn else { return false }
 
-        let deskriptor = accept(lauschDeskriptor, nil, nil)
+        // Ein über `naechsterAcceptFehler` gesetzter Fehler ERSETZT den echten
+        // `accept()`-Aufruf und wird dabei einmalig verbraucht; die reale
+        // Verbindungsanfrage bleibt im Kernel-Backlog liegen und wird beim
+        // nächsten Schleifendurchlauf regulär angenommen.
+        zustand.lock()
+        let erzwungenerFehler = naechsterAcceptFehlerIntern
+        naechsterAcceptFehlerIntern = nil
+        zustand.unlock()
+
+        let deskriptor: Int32
+        let fehler: Int32
+        if let erzwungenerFehler {
+            deskriptor = -1
+            fehler = erzwungenerFehler
+        } else {
+            deskriptor = accept(lauschDeskriptor, nil, nil)
+            fehler = errno
+        }
         guard deskriptor >= 0 else {
-            if errno == EINTR || errno == EAGAIN { return true }
+            // ECONNABORTED ist wie EINTR/EAGAIN ein transienter
+            // `accept()`-Fehler (POSIX/Linux: „a connection was aborted before
+            // accept() could complete") — kein Grund, den Accept-Thread zu
+            // beenden (CM-26-A).
+            if fehler == EINTR || fehler == EAGAIN || fehler == ECONNABORTED { return true }
             return false
         }
         guard !haeltAn else { schliesseDeskriptor(deskriptor); return false }
