@@ -491,4 +491,173 @@ struct TrayExitContractTests {
         _ = Glibc.close(kind.leseEnde)
         _ = Glibc.close(kind.schreibEnde)
     }
+
+    // MARK: - Fall 6 (R-003)
+
+    /// Wartet, bis eine Bedingung über `bus.gesehen` zutrifft, oder gibt nach
+    /// der Frist auf.
+    ///
+    /// Kein festes `sleep`: Fall 6 hängt an zwei asynchronen Vorgängen (dem
+    /// ersten Kind, das seine Namensvergabe abschließt, und der Attrappe, die
+    /// den injizierten `NameOwnerChanged`-Draht bedient) — ein fixer
+    /// Schlafwert wäre entweder zu knapp (flackernder Test) oder unnötig lang
+    /// (langsamer Test).
+    private static func wartenBis(
+        fristSekunden: Double = 5,
+        _ bedingung: () -> Bool
+    ) -> Bool {
+        let ende = Date().addingTimeInterval(fristSekunden)
+        while Date() < ende {
+            if bedingung() { return true }
+            usleep(20_000)
+        }
+        return bedingung()
+    }
+
+    /// R-003 — ein Zweitstart erzeugt kein zweites Panel-Item.
+    ///
+    /// Die Attrappe kennt keinen echten `org.kde.StatusNotifierWatcher` —
+    /// ohne ihn wartet das erste Kind im Normalbetrieb nur („watcher=absent —
+    /// waiting") und meldet sich nie an (siehe Fall 5). Damit die Zusicherung
+    /// „genau EINE Anmeldung, nur vom ersten Kind" überhaupt etwas zu zählen
+    /// hat, wird der Watcher hier — wie in `TrayBusBehaviourTests` (R-002) —
+    /// über `einspeisenNameOwnerChanged` als erschienen simuliert. Das ändert
+    /// am Orakel nichts: Es schafft nur die Vorbedingung, unter der die
+    /// Kernzusicherung dieses Falls (Zweitstart vs. Registrierungszählung)
+    /// beobachtbar wird.
+    @Test("R-003: Zweitstart endet mit alreadyRunning und genau einem registrierten Panel-Item")
+    func R003_zweitstart_endetMitAlreadyRunning_undGenauEinemRegistriertenItem() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let umgebung = Self.umgebung(bus: bus, home: home)
+
+        // Erstes Kind — Normalbetrieb, ohne `--selftest`.
+        let erstesKind = try #require(Self.starte(binaer: Self.trayBinaer, umgebung: umgebung))
+        var erstesLebt = true
+        defer {
+            if erstesLebt {
+                kill(erstesKind, SIGKILL)
+                var verworfen: Int32 = 0
+                _ = waitpid(erstesKind, &verworfen, 0)
+            }
+        }
+
+        // Synchronisation: Das erste Kind hat `RequestName` gestellt — die
+        // Namensvergabe für `org.claudemonitor.Tray` ist abgeschlossen, bevor
+        // das zweite Kind startet.
+        #expect(
+            Self.wartenBis { bus.gesehen.contains { $0.nachricht.member == "RequestName" } },
+            "Erstes Kind hat RequestName nicht binnen 5 s gestellt"
+        )
+        // Und es hat sich für `NameOwnerChanged` des Watchers eingetragen —
+        // sonst liefe der gleich folgende `einspeisenNameOwnerChanged`-Draht
+        // ins Leere.
+        #expect(
+            Self.wartenBis { bus.gesehen.contains { $0.nachricht.member == "AddMatch" } },
+            "Erstes Kind hat AddMatch nicht binnen 5 s gestellt"
+        )
+
+        bus.einspeisenNameOwnerChanged(
+            name: "org.kde.StatusNotifierWatcher",
+            alterEigentuemer: "",
+            neuerEigentuemer: ":1.99"
+        )
+        #expect(
+            Self.wartenBis {
+                bus.gesehen.contains { $0.nachricht.member == "RegisterStatusNotifierItem" }
+            },
+            "Erstes Kind hat sich nicht binnen 5 s beim Watcher angemeldet"
+        )
+
+        // Zweites Kind — dieselben Umgebungsvariablen, derselbe Bus-Socket.
+        var rohre: [Int32] = [-1, -1]
+        #expect(pipe(&rohre) == 0)
+        let leseEnde = rohre[0]
+        let schreibEnde = rohre[1]
+        let zweitesKind = try #require(
+            Self.starte(
+                binaer: Self.trayBinaer,
+                umgebung: umgebung,
+                stderrZiel: schreibEnde,
+                imKindSchliessen: [leseEnde]
+            )
+        )
+        _ = Glibc.close(schreibEnde)
+
+        let beobachtung = Self.beobachten(zweitesKind, leseEnde: leseEnde, fristSekunden: 15)
+        _ = Glibc.close(leseEnde)
+
+        let status = try #require(beobachtung.status, "Zweites Kind endete nicht binnen 15 s")
+        #expect(Self.regulaerBeendet(status))
+        #expect(Self.endeCode(status) == 8)
+        #expect(beobachtung.ausgabe.contains("instance=alreadyRunning name=org.claudemonitor.Tray"))
+
+        let anmeldungen = bus.gesehen.filter { $0.nachricht.member == "RegisterStatusNotifierItem" }
+        #expect(
+            anmeldungen.count == 1,
+            "erwartet: genau eine Anmeldung (nur vom ersten Kind), gezählt: \(anmeldungen.count)"
+        )
+
+        kill(erstesKind, SIGKILL)
+        var verworfen: Int32 = 0
+        _ = waitpid(erstesKind, &verworfen, 0)
+        erstesLebt = false
+    }
+
+    // MARK: - Fall 7 (CM-27-D)
+
+    /// CM-27-D — hängt `NameHasOwner` im Selbsttest, endet der Prozess mit
+    /// `selftestIncomplete` (7), nicht mit `watcherMissing` (9).
+    ///
+    /// Der Unterschied ist der Kern von CM-27-D: Ein bloßer Zeitablauf beim
+    /// `NameHasOwner`-Aufruf ist keine ECHTE Antwort des Busses — anders als
+    /// bei Fall 4 (unlesbarer Rumpf) ist hier noch nicht einmal ein Rumpf da,
+    /// nur Stille. Exit 9 würde vortäuschen, der Bus habe „kein Watcher"
+    /// geantwortet; das hat er nie getan.
+    @Test("CM-27-D: hängender NameHasOwner im Selbsttest endet mit Exit 7, nicht Exit 9")
+    func CM27D_selftestHaengenderNameHasOwner_endetMitExit7_nichtExit9() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        bus.antwortVerschweigenFuerNamen = ["org.kde.StatusNotifierWatcher"]
+        try bus.start()
+
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let umgebung = Self.umgebung(bus: bus, home: home)
+
+        var rohre: [Int32] = [-1, -1]
+        #expect(pipe(&rohre) == 0)
+        let leseEnde = rohre[0]
+        let schreibEnde = rohre[1]
+        let kind = try #require(
+            Self.starte(
+                binaer: Self.trayBinaer,
+                argumente: ["--selftest"],
+                umgebung: umgebung,
+                stderrZiel: schreibEnde,
+                imKindSchliessen: [leseEnde]
+            )
+        )
+        _ = Glibc.close(schreibEnde)
+
+        // 8 s liegen über dem 5-s-Zeitlimit von `callBlocking`, das den
+        // Zeitablauf bei `NameHasOwner` überhaupt erst auslöst.
+        let beobachtung = Self.beobachten(kind, leseEnde: leseEnde, fristSekunden: 8)
+        _ = Glibc.close(leseEnde)
+
+        let status = try #require(beobachtung.status, "Selbsttest-Kind endete nicht binnen 8 s")
+        #expect(Self.regulaerBeendet(status))
+        #expect(Self.endeCode(status) == 7)
+        #expect(Self.endeCode(status) != 9)
+        #expect(
+            beobachtung.ausgabe.contains(
+                "watcher=unknown step=nameHasOwner reason=timedOut — selftest incomplete"
+            )
+        )
+        #expect(beobachtung.ausgabe.contains("watcher=absent name=") == false)
+    }
 }
