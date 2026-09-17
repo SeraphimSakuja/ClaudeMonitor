@@ -138,8 +138,30 @@ plain Swift (Foundation + Glibc sockets). No GTK, no libayatana-appindicator, no
 GObject introspection, no pkg-config, no `-dev` headers, no SwiftPM dependency.
 
 The reason for that route is not purity, it is the **self-contained single binary** that `CM-22`
-builds on. A release binary links against `libm`, `libstdc++`, `libgcc_s`, `libc` and `ld-linux`
-and nothing else; any foreign runtime in the shipped artefact would be a step back from that goal.
+packages. A release binary links against `libm`, `libstdc++`, `libgcc_s`, `libc`, `ld-linux` and the
+kernel's vDSO — **six entries in `ldd`, counting `linux-vdso.so.1`** — and nothing else; any foreign
+runtime in the shipped artefact would be a step back from that goal.
+
+The vDSO is easy to miss when counting: it is not a file on disk but an object the kernel maps into
+every process, and it still shows up as a full line in `ldd` output. `scripts/release-linux.sh`
+compares the set of **sonames** (a raw `ldd` diff is never stable — the load addresses move with
+every run because of ASLR) against exactly those six.
+
+## Packaging (CM-22)
+
+`scripts/release-linux.sh` turns this binary into a downloadable tarball with a checksum and the
+manifest `docs/linux-latest.json`. It is the twin of `scripts/release.sh` and, like it, uploads
+nothing.
+
+The compatibility floor it promises is **`glibc ≥ 2.38`** and **`GLIBCXX ≥ 3.4.32`** — the highest
+symbol versions the release binary actually requires, measured, not estimated. That floor is a
+property of the build environment rather than of the source, so the script refuses to run outside
+the pinned image (`swift:6.3.3`, Ubuntu 24.04): building on a newer host would silently raise the
+floor and the run would still be green. The floor is held as a single constant in the script, which
+checks this file, `README.md` and `Linux/INSTALL.md` against it.
+
+`Linux/INSTALL.md` is the document that ships **inside** the tarball; it is written for the person
+who downloaded it, not for this repository.
 
 ## Targets
 
@@ -268,10 +290,13 @@ placeholder.
 The Linux baseline is **three** numbers now:
 
 ```sh
-( cd Core && swift test )     # 155 tests
+( cd Core && swift test )     # 153 tests
 ( cd Shared && swift test )   # 125 tests
-( cd Linux && swift test )    # 5 tests — TrayTests, the CM-20 slot
+( cd Linux && swift test )    # 23 tests — TrayTests, the CM-20/CM-26/CM-27 slot
 ```
+
+`scripts/release-linux.sh` runs all three and treats these numbers as a **lower bound**: a green run
+with fewer tests than last time is a finding, not a pass.
 
 The third suite was built from the real diff after the verify gate, not by the implementer
 (Auflage 17, CM-20 Phase 4): `TrayPresentationContractTests.swift` (panel label, menu identifier

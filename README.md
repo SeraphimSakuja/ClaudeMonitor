@@ -56,10 +56,32 @@ than frozen at its last percentage.
 
 ## Installing
 
+### macOS
+
 Download the notarised `.dmg` from [Releases](../../releases) and drag the app into
 `/Applications`. That's a recommendation, not a requirement — everything, including "Start at
 login", works from any location. It's just that an app left in `~/Downloads` tends to disappear
 during the next tidy-up.
+
+### Linux
+
+`claude-monitor-tray` is a single self-contained binary for the GNOME/KDE panel. It **will be
+released as a downloadable tarball** (`.tar.gz`) with a `sha256` file next to it — no package
+repository and no `.deb`. Not for want of tooling, but because a package wants a repository behind
+it, and that means a foreign account, a maintenance duty and a promise that is hard to take back.
+
+```sh
+sha256sum -c claude-monitor-tray-<version>-linux-x86_64.tar.gz.sha256
+tar -xzf claude-monitor-tray-<version>-linux-x86_64.tar.gz
+install -m 755 claude-monitor-tray-<version>/claude-monitor-tray ~/.local/bin/
+~/.local/bin/claude-monitor-tray
+```
+
+Requirements are two checkable numbers rather than distribution names — `glibc ≥ 2.38` and
+`GLIBCXX ≥ 3.4.32`, plus a panel that shows `org.kde.StatusNotifierItem` items. Distribution names
+would be the wrong unit here: two releases of the same distribution can sit on either side of that
+line. The full walkthrough, including the self-tests and the exit codes, is in
+[`Linux/INSTALL.md`](Linux/INSTALL.md).
 
 ## Updates
 
@@ -92,8 +114,8 @@ host for the download itself.
 | `Core/` | Framework-free core logic (parsing, ranking, status, remaining time) as a SwiftPM package — testable with `swift test`, no Xcode needed |
 | `Shared/` | The layer shared by app and widget: snapshot transport plus all display rules — also SwiftPM, also testable without Xcode |
 | `App/` | The menu bar app (Xcode project) |
-| `scripts/` | `release.sh` builds the notarised DMG and the appcast, then verifies both |
-| `Linux/` | Headless smoke tool that runs `Core/` + `Shared/` on Linux — a development aid, not part of any release |
+| `scripts/` | `release.sh` builds the notarised DMG and the appcast, then verifies both; `release-linux.sh` is its twin for the Linux tarball |
+| `Linux/` | The Linux side: a headless smoke tool (a development aid) and `claude-monitor-tray`, the resident panel process, which **will be released as a downloadable tarball** |
 
 Display rules deliberately live in `Shared/` rather than the app target: the widget extension needs
 exactly the same formatting, and two copies are guaranteed to drift. It also means the rules are
@@ -128,8 +150,15 @@ back to widgets, is commented in `App/Signing.xcconfig`.
 ## Releasing
 
 ```sh
-./scripts/release.sh          # tests → archive → export → guards → notarise → DMG → appcast
+./scripts/release.sh          # macOS: tests → archive → export → guards → notarise → DMG → appcast
+./scripts/release-linux.sh    # Linux: tests → static build → guards → tarball → checksum → manifest
 ```
+
+`release-linux.sh` runs **inside the pinned build image** (`swift:6.3.3`, Ubuntu 24.04) and refuses
+to run anywhere else: the compatibility floor it promises is a property of the build environment,
+so a build on a newer host would raise it silently and still come out green. It writes the tarball
+and its checksum to `build/linux/` and the manifest to `docs/linux-latest.json`, and — like its
+macOS twin — uploads nothing.
 
 The script builds locally into `build/` and **uploads nothing**. Publishing to GitHub Releases is a
 deliberate, separate step. One-time setup — notarisation credentials in the keychain and a Sparkle
@@ -142,6 +171,10 @@ you want to change it.
 ## Status
 
 **v1.0** — macOS 14+. Verified against claude-swap 0.22.0 (cache `schemaVersion` 2).
+
+The Linux panel process `claude-monitor-tray` builds and passes its tests, and its packaging is in
+place (`scripts/release-linux.sh`); it needs `glibc ≥ 2.38` and `GLIBCXX ≥ 3.4.32`. No Linux release
+has been published yet — until one is, the tarball exists only as a local build result.
 
 ## License
 
