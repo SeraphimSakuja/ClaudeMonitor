@@ -204,7 +204,7 @@ version_gt() {
 check_binary() {
   local bin="$1" label="$2" glibc glibcxx sonames size
 
-  glibc="$(max_symbol_version "$bin" GLIBC)"
+  glibc="$(max_symbol_version "$bin" GLIBC)" || true
   [ -n "$glibc" ] \
     || fail "$label: aus dem Binary ließ sich keine einzige GLIBC_-Symbolversion lesen.
   Entweder ist readelf stumm geblieben oder die Datei ist kein dynamisch gebundenes ELF.
@@ -217,7 +217,7 @@ check_binary() {
   erhöhen UND die drei Dokumente sind nachzuziehen — Schritt 0 erzwingt das."
   fi
 
-  glibcxx="$(max_symbol_version "$bin" GLIBCXX)"
+  glibcxx="$(max_symbol_version "$bin" GLIBCXX)" || true
   [ -n "$glibcxx" ] \
     || fail "$label: keine einzige GLIBCXX_-Symbolversion gefunden.
   Das Binary bindet libstdc++ (siehe ldd-Sollmenge), also MUSS es welche geben.
@@ -245,8 +245,8 @@ check_binary() {
   #
   # Ausgewiesen werden beide trotzdem: Wer später einen Boden dafür braucht,
   # findet die gemessene Zahl im Manifest und muss nicht raten.
-  CXXABI_MAX="$(max_symbol_version "$bin" CXXABI)"
-  GCC_MAX="$(max_symbol_version "$bin" GCC)"
+  CXXABI_MAX="$(max_symbol_version "$bin" CXXABI)" || true
+  GCC_MAX="$(max_symbol_version "$bin" GCC)" || true
 
   sonames="$(ldd "$bin" | awk '{print $1}' | sort)"
   [ "$sonames" = "$EXPECTED_SONAMES" ] \
