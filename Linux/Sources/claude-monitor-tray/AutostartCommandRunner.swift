@@ -14,10 +14,22 @@ struct CommandOutcome: Equatable {
     let exitStatus: Int32
     let standardOutput: String
     let standardError: String
+    /// Ob der Fremdprozess tatsächlich gestartet wurde. `false` bei
+    /// ``notRun(reason:)`` — dann ist `standardError` der echte Ausfallgrund
+    /// (z. B. „spawn failed errno=2") und darf nicht als Antwort von
+    /// `systemctl` selbst gelesen werden.
+    let didRun: Bool
+
+    init(exitStatus: Int32, standardOutput: String, standardError: String, didRun: Bool = true) {
+        self.exitStatus = exitStatus
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.didRun = didRun
+    }
 
     /// Ein Ergebnis, das gar nicht erst zustande kam (Spawn/Pipe gescheitert).
     static func notRun(reason: String) -> CommandOutcome {
-        CommandOutcome(exitStatus: -1, standardOutput: "", standardError: reason)
+        CommandOutcome(exitStatus: -1, standardOutput: "", standardError: reason, didRun: false)
     }
 }
 

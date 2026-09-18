@@ -11,11 +11,16 @@ public struct AutostartTargetProbe: Equatable, Sendable {
     public let isSymlink: Bool
     /// Ob die vorgefundene Datei den Marker dieser Einrichtung trägt.
     public let carriesMarker: Bool
+    /// Gesetzt, wenn das Lesen der vorgefundenen Datei fehlschlug (EACCES,
+    /// kaputtes UTF-8, ...) — dann ist `carriesMarker == false` KEINE Aussage
+    /// über den Inhalt, sondern nur „konnte nicht gelesen werden".
+    public let unreadableReason: String?
 
-    public init(exists: Bool, isSymlink: Bool, carriesMarker: Bool) {
+    public init(exists: Bool, isSymlink: Bool, carriesMarker: Bool, unreadableReason: String? = nil) {
         self.exists = exists
         self.isSymlink = isSymlink
         self.carriesMarker = carriesMarker
+        self.unreadableReason = unreadableReason
     }
 }
 
@@ -27,6 +32,9 @@ public enum AutostartPlan: Equatable, Sendable {
     /// Am Zielpfad liegt eine Datei, die diese Einrichtung nicht geschrieben
     /// hat. Sie wird nicht angefasst.
     case refuseForeignFile
+    /// Die vorgefundene Datei ließ sich nicht lesen (EACCES, kaputtes UTF-8,
+    /// ...) — ob sie den Marker trägt, ist unbekannt, nicht „nein".
+    case refuseUnreadable(reason: String)
     /// Der Zielpfad ist ein **Symlink**.
     ///
     /// ⚠️ Das ist ausdrücklich **nicht** dasselbe wie ``alreadyMaskedInform``
@@ -51,6 +59,7 @@ public enum AutostartPlan: Equatable, Sendable {
     public static func plan(target: AutostartTargetProbe, status: AutostartStatus.Reading) -> AutostartPlan {
         if target.isSymlink { return .refuseSymlink }
         if status == .known(.requiresApproval) { return .alreadyMaskedInform }
+        if let reason = target.unreadableReason { return .refuseUnreadable(reason: reason) }
         if target.exists && !target.carriesMarker { return .refuseForeignFile }
         return .install
     }

@@ -7,9 +7,9 @@ public enum AutostartStatus {
 
     /// Was sich aus einem `is-enabled`-Aufruf ablesen lässt.
     ///
-    /// ⚠️ Es gibt **vier** Ausgänge und nicht drei. „Kein Nutzermanager
-    /// erreichbar" und „unerwartetes Wort" dürfen nicht in ``LoginItemState``
-    /// hineingefaltet werden:
+    /// ⚠️ Es gibt **fünf** Ausgänge und nicht drei. „Kein Nutzermanager
+    /// erreichbar", „unerwartetes Wort" und „gar nicht erst gestartet" dürfen
+    /// nicht in ``LoginItemState`` hineingefaltet werden:
     ///
     /// * Ohne Nutzermanager (Cronjob, SSH ohne Sitzung) antwortet `systemctl`
     ///   mit leerem stdout, „Failed to connect to user scope bus" auf stderr
@@ -32,6 +32,11 @@ public enum AutostartStatus {
         /// Der Nutzermanager war nicht erreichbar; es wurde **nichts**
         /// gemessen.
         case managerUnavailable
+        /// `systemctl` wurde gar nicht erst gestartet (Spawn/Pipe gescheitert).
+        /// Anders als ``managerUnavailable``: Das sagt nichts über
+        /// `XDG_RUNTIME_DIR`/den Sitzungsbus — der Grund liegt beim Aufruf
+        /// selbst und wird roh mitgeführt.
+        case didNotRun(reason: String)
     }
 
     /// Die Wörter, die `systemctl is-enabled` kennt, ohne dass sie einen
@@ -57,8 +62,10 @@ public enum AutostartStatus {
     public static func reading(
         isEnabledOutput: String,
         exitStatus: Int32,
-        standardError: String
+        standardError: String,
+        didRun: Bool = true
     ) -> Reading {
+        guard didRun else { return .didNotRun(reason: standardError) }
         let word = firstWordOfOutput(isEnabledOutput)
         if isManagerUnavailable(word: word, exitStatus: exitStatus, standardError: standardError) {
             return .managerUnavailable

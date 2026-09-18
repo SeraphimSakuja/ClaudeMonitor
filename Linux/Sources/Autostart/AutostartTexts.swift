@@ -88,6 +88,16 @@ public enum AutostartTexts {
             + "It was left untouched. Move it aside and run --install-autostart again."
     }
 
+    /// Am Zielpfad liegt eine Datei, die sich nicht lesen ließ.
+    ///
+    /// Bewusst ein anderer Text als ``foreignFile(unitPath:)``: Ob die Datei
+    /// von dieser Einrichtung stammt, ist unbekannt, nicht widerlegt — die
+    /// Ursache ist der Lesefehler, nicht ein fehlender Marker.
+    public static func foreignFileUnreadable(unitPath: String, reason: String) -> String {
+        "There is already a file at \(unitPath), but it could not be read (\(reason)).\n"
+            + "It was left untouched. Fix the permissions and run --install-autostart again."
+    }
+
     /// Der Zielpfad ist ein Symlink.
     ///
     /// Bewusst ein **anderer** Text als ``masked(unitName:)`` (Auflage 8):
@@ -104,6 +114,16 @@ public enum AutostartTexts {
     public static let managerUnavailable =
         "No systemd user manager is reachable (no XDG_RUNTIME_DIR / session bus).\n"
         + "Autostart was neither read nor changed. Run this from a logged-in graphical session."
+
+    /// `systemctl` wurde gar nicht erst gestartet (Spawn/Pipe gescheitert).
+    ///
+    /// Bewusst ein anderer Text als ``managerUnavailable`` (Auflage 1): Der
+    /// Grund liegt beim Aufruf selbst, nicht bei `XDG_RUNTIME_DIR`/dem
+    /// Sitzungsbus — die beiden können in Wahrheit gesetzt sein.
+    public static func systemctlUnavailable(reason: String) -> String {
+        "Could not run systemctl (\(reason)).\n"
+            + "Autostart was neither read nor changed."
+    }
 
     /// Kein Home-Verzeichnis ableitbar.
     public static let noHomeDirectory =

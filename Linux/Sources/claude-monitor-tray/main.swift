@@ -536,7 +536,18 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
     let home = AutostartPaths.homeDirectory(environment: environment)
     let log = TrayLog(homeDirectory: URL(fileURLWithPath: home ?? "/"))
 
-    let options = arguments.dropFirst().filter { $0.hasPrefix("--") }
+    // `--help`/`-h` zuerst und mit Exit 0: Vor CM-21-Fund 3 endete `--help`
+    // als „Unknown option" (Exit 10) und `-h` fiel durch zu `runTray` (Exit 5,
+    // startet den residenten Tray) — beides bricht ein bloßes Nachschauen der
+    // Hilfe in jedem Skript. `-h` trägt keinen `--`-Präfix und muss deshalb
+    // VOR dem `--`-Filter geprüft werden.
+    let rawArguments = arguments.dropFirst()
+    if rawArguments.contains("--help") || rawArguments.contains("-h") {
+        log.always(AutostartTexts.usage)
+        return .ok
+    }
+
+    let options = rawArguments.filter { $0.hasPrefix("--") }
     let autostartOptions = options.filter { $0 != "--selftest" }
     let known: Set<String> = ["--install-autostart", "--uninstall-autostart", "--autostart-status"]
 

@@ -48,6 +48,9 @@ struct AutostartInstaller {
         case .refuseForeignFile:
             emit(AutostartTexts.foreignFile(unitPath: layout.unitPath))
             return .autostartBlocked
+        case .refuseUnreadable(let reason):
+            emit(AutostartTexts.foreignFileUnreadable(unitPath: layout.unitPath, reason: reason))
+            return .autostartBlocked
         case .alreadyMaskedInform:
             emit(AutostartTexts.masked(unitName: AutostartPaths.unitName))
             return .autostartBlocked
@@ -214,7 +217,8 @@ struct AutostartInstaller {
         return AutostartStatus.reading(
             isEnabledOutput: outcome.standardOutput,
             exitStatus: outcome.exitStatus,
-            standardError: outcome.standardError
+            standardError: outcome.standardError,
+            didRun: outcome.didRun
         )
     }
 
@@ -232,6 +236,9 @@ struct AutostartInstaller {
             return nil
         case .managerUnavailable:
             emit(AutostartTexts.managerUnavailable)
+            return nil
+        case .didNotRun(let reason):
+            emit(AutostartTexts.systemctlUnavailable(reason: reason))
             return nil
         }
     }
@@ -252,12 +259,25 @@ struct AutostartInstaller {
         if (info.st_mode & S_IFMT) == S_IFLNK {
             return AutostartTargetProbe(exists: true, isSymlink: true, carriesMarker: false)
         }
-        let contents = (try? String(contentsOfFile: unitPath, encoding: .utf8)) ?? ""
-        return AutostartTargetProbe(
-            exists: true,
-            isSymlink: false,
-            carriesMarker: AutostartUnit.carriesMarker(contents)
-        )
+        do {
+            let contents = try String(contentsOfFile: unitPath, encoding: .utf8)
+            return AutostartTargetProbe(
+                exists: true,
+                isSymlink: false,
+                carriesMarker: AutostartUnit.carriesMarker(contents)
+            )
+        } catch {
+            // Ein Lesefehler (EACCES, kaputtes UTF-8, ...) einer vorhandenen
+            // Datei ist KEIN „ohne Marker": Ohne Inhalt lässt sich über den
+            // Marker nichts aussagen — die Meldung muss den Lesefehler
+            // benennen, statt „not written by this program" zu behaupten.
+            return AutostartTargetProbe(
+                exists: true,
+                isSymlink: false,
+                carriesMarker: false,
+                unreadableReason: errnoName(errno)
+            )
+        }
     }
 
     /// Ob am Pfad etwas liegt — auch ein toter Symlink zählt.
