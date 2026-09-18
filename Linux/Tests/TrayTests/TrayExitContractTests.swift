@@ -660,4 +660,256 @@ struct TrayExitContractTests {
         )
         #expect(beobachtung.ausgabe.contains("watcher=absent name=") == false)
     }
+
+    // MARK: - Fälle 8 bis 12 (CM-21 · Autostart-Unterbefehle)
+    //
+    // Dieselbe Kette wie oben: das ECHTE Binary als Kind, injizierte Umgebung,
+    // Beendigungscode über `waitpid`, stderr über eine Pipe. Neu ist nur, dass
+    // der `systemctl`-Aufruf des Kindes auf die Attrappe
+    // `AutostartSystemctlStub` trifft (Prozessgrenze, über `PATH`).
+
+    /// Startet das Tray-Binary mit Autostart-Argumenten und liefert
+    /// Beendigungscode und gesammeltes stderr.
+    ///
+    /// - Parameter ueberPfad: startet über `sh -c 'exec claude-monitor-tray …'`
+    ///   statt über den absoluten Pfad. Dann steht in `argv[0]` nur der bloße
+    ///   Name — der Normalweg aus `Linux/INSTALL.md`.
+    static func autostartLauf(
+        _ argumente: [String],
+        umgebung: [String: String],
+        ueberPfad: Bool = false
+    ) throws -> (code: Int32, ausgabe: String) {
+        var rohre: [Int32] = [-1, -1]
+        #expect(pipe(&rohre) == 0)
+        let leseEnde = rohre[0]
+        let schreibEnde = rohre[1]
+        let kind = try #require(
+            Self.starte(
+                binaer: ueberPfad ? "/bin/sh" : Self.trayBinaer,
+                argumente: ueberPfad
+                    ? ["-c", "exec claude-monitor-tray " + argumente.joined(separator: " ")]
+                    : argumente,
+                umgebung: umgebung,
+                stderrZiel: schreibEnde,
+                imKindSchliessen: [leseEnde]
+            )
+        )
+        _ = Glibc.close(schreibEnde)
+        let beobachtung = Self.beobachten(kind, leseEnde: leseEnde, fristSekunden: 15)
+        _ = Glibc.close(leseEnde)
+        let status = try #require(beobachtung.status, "Autostart-Lauf endete nicht binnen 15 s")
+        #expect(Self.regulaerBeendet(status))
+        return (Self.endeCode(status), beobachtung.ausgabe)
+    }
+
+    /// Ob am Pfad etwas liegt — `lstat`, damit ein Symlink auch dann zählt,
+    /// wenn sein Ziel fehlt (`FileManager.fileExists` folgt dem Link).
+    static func pfadVorhanden(_ pfad: String) -> Bool {
+        var info = stat()
+        return lstat(pfad, &info) == 0
+    }
+
+    // MARK: - Fall 8 (CM-21 · Auflage 1)
+
+    /// Ist kein Nutzermanager erreichbar, endet `--autostart-status` mit 11 —
+    /// und sagt insbesondere NIE „not set up".
+    ///
+    /// `XDG_RUNTIME_DIR` ist gesetzt: Geprüft wird die AUSWERTUNG der Antwort,
+    /// nicht die Vorbedingung. „Nicht eingerichtet" wäre hier eine Aussage über
+    /// eine Messung, die gar nicht stattgefunden hat.
+    @Test("CM-21: kein Nutzermanager ⇒ Exit 11, niemals „not set up“")
+    func CM21_keinNutzermanager_endetMitExit11_nieNichtEingerichtet() throws {
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let attrappe = try AutostartSystemctlStub(home: home)
+
+        let lauf = try Self.autostartLauf(
+            ["--autostart-status"],
+            umgebung: attrappe.umgebung(
+                isEnabled: "",
+                isEnabledRC: 1,
+                isEnabledStderr:
+                    "Failed to connect to user scope bus via local transport: No such file or directory"
+            )
+        )
+
+        #expect(lauf.code == 11)
+        #expect(lauf.ausgabe.contains("not set up") == false)
+    }
+
+    // MARK: - Fall 9 (CM-21 · Auflage 2)
+
+    /// Bekannte, aber hier bedeutungslose `systemctl`-Wörter fallen NICHT auf
+    /// „nicht eingerichtet" zurück: Exit 11 und das Rohwort in der Meldung.
+    ///
+    /// `bad` heißt „die Unit-Datei ist defekt" — als „not set up" gemeldet wäre
+    /// das eine Falschauskunft über einen Fehler, den der Nutzer sehen muss.
+    @Test("CM-21: bekannte, bedeutungslose Wörter ⇒ Exit 11 mit Rohwort, nie „not set up“")
+    func CM21_bekannteBedeutungsloseWoerter_endenMitExit11_undNennenDasRohwort() throws {
+        for wort in ["bad", "linked", "static", "alias", "indirect", "generated", "transient", "linked-runtime"] {
+            let home = try Self.temporaeresHome()
+            defer { try? FileManager.default.removeItem(at: home) }
+            let attrappe = try AutostartSystemctlStub(home: home)
+
+            let lauf = try Self.autostartLauf(
+                ["--autostart-status"],
+                umgebung: attrappe.umgebung(isEnabled: wort, isEnabledRC: 1)
+            )
+
+            #expect(lauf.code == 11, "Wort \(wort)")
+            #expect(lauf.ausgabe.contains(wort), "Wort \(wort) fehlt in: \(lauf.ausgabe)")
+            #expect(lauf.ausgabe.contains("not set up") == false, "Wort \(wort)")
+        }
+    }
+
+    // MARK: - Fall 10 (CM-21 · Auflage 3)
+
+    /// Bei einer maskierten Unit entfernt `--uninstall-autostart` den
+    /// `.wants`-Verweis selbst — ohne `disable` — und lässt die Maske stehen.
+    ///
+    /// `systemctl --user disable` antwortet bei einer Maske mit „is masked,
+    /// ignoring" und rc=0, entfernt den Verweis aber NICHT. Nach dem Löschen
+    /// der Unit-Datei bliebe ein toter Link liegen, und „entfernt" wäre eine
+    /// Falschauskunft. Die Maske selbst ist eine Entscheidung des Nutzers über
+    /// systemd und bleibt unangetastet.
+    @Test("CM-21: Deinstallation bei Maske ⇒ kein disable, Verweis weg, Maske bleibt")
+    func CM21_deinstallationBeiMaske_ohneDisable_verweisWeg_maskeBleibt() throws {
+        let dateien = FileManager.default
+        let home = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: home) }
+
+        let unitVerzeichnis = home.appendingPathComponent(".local/share/systemd/user", isDirectory: true)
+        let konfigVerzeichnis = home.appendingPathComponent(".config/systemd/user", isDirectory: true)
+        let wantsVerzeichnis = konfigVerzeichnis
+            .appendingPathComponent("graphical-session.target.wants", isDirectory: true)
+        try dateien.createDirectory(at: unitVerzeichnis, withIntermediateDirectories: true)
+        try dateien.createDirectory(at: wantsVerzeichnis, withIntermediateDirectories: true)
+
+        // Der Marker steht hier wörtlich und nicht über `AutostartUnit`: Eine
+        // Vorlage, die sich aus dem Produktivcode holt, was sie später prüfen
+        // soll, prüft am Ende nur sich selbst.
+        let unitPfad = unitVerzeichnis.appendingPathComponent("claude-monitor-tray.service")
+        try """
+            # generated by claude-monitor-tray --install-autostart
+            [Unit]
+            Description=ClaudeMonitor tray icon
+
+            [Service]
+            ExecStart=/usr/local/bin/claude-monitor-tray
+
+            [Install]
+            WantedBy=graphical-session.target
+
+            """.write(to: unitPfad, atomically: true, encoding: .utf8)
+
+        let wantsVerweis = wantsVerzeichnis.appendingPathComponent("claude-monitor-tray.service")
+        try dateien.createSymbolicLink(at: wantsVerweis, withDestinationURL: unitPfad)
+        let maske = konfigVerzeichnis.appendingPathComponent("claude-monitor-tray.service")
+        try dateien.createSymbolicLink(at: maske, withDestinationURL: URL(fileURLWithPath: "/dev/null"))
+
+        let attrappe = try AutostartSystemctlStub(home: home)
+        let lauf = try Self.autostartLauf(
+            ["--uninstall-autostart"],
+            umgebung: attrappe.umgebung(isEnabled: "masked")
+        )
+
+        let aufrufe = attrappe.aufrufe()
+        #expect(lauf.code == 0)
+        #expect(aufrufe.contains { $0.contains("disable") } == false, "Aufrufe: \(aufrufe)")
+        #expect(Self.pfadVorhanden(wantsVerweis.path) == false)
+        #expect(Self.pfadVorhanden(maske.path))
+    }
+
+    // MARK: - Fall 11 (CM-21 · Auflage 8)
+
+    /// Ein Symlink am Zielpfad und eine systemd-Maske sind zwei verschiedene
+    /// Ursachen — beide blockieren (Exit 10), aber mit eigener Meldung.
+    ///
+    /// Eine Maske ist ein bewusster Symlink nach `/dev/null` im KONFIG-Baum.
+    /// Ein Symlink am Zielpfad im DATEN-Baum ist eine fremde oder kaputte Datei
+    /// am Zielort; „Autostart ist maskiert" wäre dort eine Falschauskunft mit
+    /// einem Ausweg, der nichts ändert.
+    @Test("CM-21: Symlink am Ziel und Maske melden verschiedene Ursachen — beide Exit 10")
+    func CM21_symlinkAmZiel_undMaske_sindVerschiedeneUrsachen() throws {
+        let dateien = FileManager.default
+
+        // (a) Zielpfad ist ein Symlink auf eine andere Datei.
+        let homeA = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: homeA) }
+        let unitVerzeichnisA = homeA.appendingPathComponent(".local/share/systemd/user", isDirectory: true)
+        try dateien.createDirectory(at: unitVerzeichnisA, withIntermediateDirectories: true)
+        let unitPfadA = unitVerzeichnisA.appendingPathComponent("claude-monitor-tray.service")
+        let fremdesZiel = homeA.appendingPathComponent("anderswo.conf")
+        try dateien.createSymbolicLink(at: unitPfadA, withDestinationURL: fremdesZiel)
+
+        let attrappeA = try AutostartSystemctlStub(home: homeA)
+        let laufA = try Self.autostartLauf(
+            ["--install-autostart"],
+            umgebung: attrappeA.umgebung(isEnabled: "disabled", isEnabledRC: 1)
+        )
+
+        #expect(laufA.code == 10)
+        #expect(laufA.ausgabe.contains("symbolic link"))
+        #expect(laufA.ausgabe.contains("masked") == false, "Meldung: \(laufA.ausgabe)")
+        #expect(try dateien.destinationOfSymbolicLink(atPath: unitPfadA.path) == fremdesZiel.path)
+        #expect(Self.pfadVorhanden(fremdesZiel.path) == false)
+
+        // (b) kein Symlink, dafür maskiert.
+        let homeB = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: homeB) }
+        let attrappeB = try AutostartSystemctlStub(home: homeB)
+        let laufB = try Self.autostartLauf(
+            ["--install-autostart"],
+            umgebung: attrappeB.umgebung(isEnabled: "masked")
+        )
+
+        #expect(laufB.code == 10)
+        #expect(laufB.ausgabe.contains("masked"))
+        #expect(laufB.ausgabe.contains("systemctl --user unmask claude-monitor-tray.service"))
+        #expect(laufB.ausgabe.contains("symbolic link") == false, "Meldung: \(laufB.ausgabe)")
+    }
+
+    // MARK: - Fall 12 (CM-21 · Auflagen 6 und 15a)
+
+    /// Die geschriebene Unit trägt einen ABSOLUTEN `ExecStart` und die
+    /// vereinbarte Form.
+    ///
+    /// Gestartet wird ausdrücklich über `PATH` — dann steht in `argv[0]` nur
+    /// `claude-monitor-tray`. Ein daraus gebauter `ExecStart` ließe systemd
+    /// erst beim nächsten Anmelden mit `203/EXEC` scheitern, also lange
+    /// nachdem „eingerichtet" gemeldet wurde.
+    @Test("CM-21: die geschriebene Unit trägt absoluten ExecStart und die vereinbarte Form")
+    func CM21_geschriebeneUnit_traegtAbsolutenExecStart_undDieVereinbarteForm() throws {
+        let home = try Self.temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let attrappe = try AutostartSystemctlStub(home: home)
+
+        var umgebung = attrappe.umgebung(isEnabled: "enabled", isEnabledRC: 0, isActive: "active")
+        let trayVerzeichnis = URL(fileURLWithPath: Self.trayBinaer).deletingLastPathComponent().path
+        umgebung["PATH"] = trayVerzeichnis + ":" + (umgebung["PATH"] ?? "")
+
+        let lauf = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, ueberPfad: true)
+        #expect(lauf.code == 0, "Meldung: \(lauf.ausgabe)")
+
+        let unitPfad = home.appendingPathComponent(".local/share/systemd/user/claude-monitor-tray.service").path
+        let text = try String(contentsOfFile: unitPfad, encoding: .utf8)
+        let zeilen = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        let execStart = try #require(zeilen.first { $0.hasPrefix("ExecStart=") }, "Unit:\n\(text)")
+        let execStartWert = String(execStart.dropFirst("ExecStart=".count))
+        #expect(execStartWert.hasPrefix("/"), "ExecStart-Wert: \(execStartWert)")
+        #expect(execStartWert != "claude-monitor-tray")
+
+        #expect(zeilen.contains("RestartPreventExitStatus=5 8 9"), "Unit:\n\(text)")
+        #expect(zeilen.contains("WantedBy=graphical-session.target"), "Unit:\n\(text)")
+        #expect(zeilen.contains("Restart=on-failure"))
+        #expect(zeilen.contains("RestartSec=5"))
+        #expect(zeilen.contains("Type=simple"))
+        #expect(zeilen.contains { $0.hasPrefix("Environment=") } == false, "Unit:\n\(text)")
+
+        let rechte = try #require(
+            FileManager.default.attributesOfItem(atPath: unitPfad)[.posixPermissions] as? NSNumber
+        )
+        #expect(rechte.uint16Value == 0o644)
+    }
 }
