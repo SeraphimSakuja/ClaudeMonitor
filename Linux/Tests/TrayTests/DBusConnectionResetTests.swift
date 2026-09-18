@@ -57,7 +57,22 @@ struct DBusConnectionResetTests {
 
         enum Fehler: Error { case socket, bind }
 
+        /// Einmalig je Prozess (Muster wie `FakeSessionBus.sigpipeIgnoriert`):
+        /// Das deterministische `MSG_PEEK`-Warten schließt den Socket, sobald
+        /// der erste Byte auftaucht — je nach Zeitpunkt kann der Klient dann
+        /// noch mitten in `BEGIN`/`Hello` weiterschreiben und dabei auf die
+        /// bereits abgerissene Verbindung treffen. Ohne prozessweites
+        /// `SIG_IGN` würde das den ganzen Testprozess per SIGPIPE beenden,
+        /// statt den erwarteten `ECONNRESET` an `read()` zurückzugeben. Ein
+        /// `--filter`-Lauf dieser Datei allein zieht `FakeSessionBus`s
+        /// eigenes `SIG_IGN` nicht automatisch nach — deshalb hier separat.
+        private static let sigpipeIgnoriert: Bool = {
+            _ = Glibc.signal(SIGPIPE, SIG_IGN)
+            return true
+        }()
+
         func starten() {
+            _ = Self.sigpipeIgnoriert
             let faden = Thread { [horcher] in
                 let klient = accept(horcher, nil, nil)
                 guard klient >= 0 else { return }
@@ -79,10 +94,18 @@ struct DBusConnectionResetTests {
                     send(klient, $0.baseAddress, antwort.count, Int32(MSG_NOSIGNAL))
                 }
                 // NICHT mehr lesen — `BEGIN` und der `Hello`-Aufruf des
-                // Klienten bleiben ungelesen in der Kernel-Queue liegen,
-                // solange der Klient sie schickt, während dieser Faden hier
-                // wartet.
-                usleep(250_000)
+                // Klienten bleiben ungelesen in der Kernel-Queue liegen.
+                // Statt eine feste Zeit zu schlafen (Rennbedingung unter
+                // Systemlast), blockierend per `MSG_PEEK` auf mindestens 1
+                // Byte warten — das Byte wird dabei NICHT aus der Queue
+                // entfernt, es bleibt für den späteren RST-Effekt weiter
+                // ungelesen liegen. Erst wenn der Klient nachweislich
+                // angefangen hat, `BEGIN`/`Hello` zu schreiben, wird
+                // geschlossen.
+                var spaehPuffer: UInt8 = 0
+                _ = withUnsafeMutableBytes(of: &spaehPuffer) {
+                    recv(klient, $0.baseAddress, 1, Int32(MSG_PEEK))
+                }
                 _ = Glibc.close(klient)
             }
             faden.start()
