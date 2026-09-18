@@ -68,7 +68,47 @@ claude-monitor-tray
 
 The process stays in the **foreground**, does not fork and does not daemonise. `Ctrl-C` ends it
 cleanly and the panel drops the entry. Running it from a terminal is the intended way to try it out;
-a systemd user service that starts it with the session is a separate, later step.
+starting it with every session is one command away — see the next section.
+
+## Start it with your session
+
+```sh
+~/.local/bin/claude-monitor-tray --install-autostart
+```
+
+That writes a systemd **user** service to
+`~/.local/share/systemd/user/claude-monitor-tray.service` and enables it for
+`graphical-session.target`. The unit points at the binary you ran the command with, so install the
+binary where it should stay **before** you run it. Nothing is started right away: it takes effect at
+your next login.
+
+Check it:
+
+```sh
+systemctl --user is-enabled claude-monitor-tray.service     # "enabled"
+claude-monitor-tray --autostart-status                      # the same answer in plain words
+```
+
+If the answer is `masked`, systemd is blocking the unit — `enable` cannot undo that, only you can:
+
+```sh
+systemctl --user unmask claude-monitor-tray.service
+claude-monitor-tray --install-autostart
+```
+
+Remove it again:
+
+```sh
+claude-monitor-tray --uninstall-autostart
+```
+
+That removes the unit file and the `.wants` link. A mask stays as it is: it is your systemd
+setting, not the program's. A tray process that is running right now keeps running until you log
+out.
+
+Two things the command refuses to do, by design: it never follows a symbolic link at the target
+path, and it never overwrites a unit file it did not write itself. In both cases it says so, leaves
+the file alone and exits with 10.
 
 ## Exit codes
 
@@ -79,10 +119,14 @@ The process is judged by its exit code, not by "it printed nothing".
 | 0 | ended normally |
 | 5 | `DBUS_SESSION_BUS_ADDRESS` is not set — you are not in a graphical session |
 | 6 | connection or authentication failed, or the bus disappeared while running |
+| 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
+| 10 | autostart only: the request could not be carried out — unknown option, or something at the target path stands in the way (foreign file, symbolic link, mask). Nothing was overwritten |
+| 11 | autostart only: **nothing could be measured** — no systemd user manager reachable, no home directory, or an unusable answer from `systemctl`. Explicitly not "not set up" |
 
-Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to.
+Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to. So is
+exit 11 for the autostart commands there — without a session there is no user manager to ask.
 
 ## If it does not start
 

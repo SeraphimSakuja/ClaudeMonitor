@@ -110,7 +110,7 @@ public enum TrayPresentation {
     /// | Globale Fußzeile „Checked … ago" (`:284-288`) | drin | Einordnung des Datenalters |
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
     /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
-    /// | „Beim Anmelden starten" (`:170-200`) | **draußen** | gehört zu `CM-21` (§3.2) |
+    /// | „Beim Anmelden starten" (`:170-200`) | **draußen** | gehört zu `CM-30`; `CM-21` baut nur den Mechanismus (`--install-autostart`), nicht den Menüeintrag |
     /// | Update-Block (`:208-278`) | **draußen** | Sparkle ist macOS-only; die Linux-Auslieferung entscheidet `CM-22` |
     static func menu(for state: MonitorViewState, now: Date) -> [TrayMenuItem] {
         var items: [TrayMenuItem] = [
