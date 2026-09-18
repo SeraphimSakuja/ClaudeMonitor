@@ -2,6 +2,7 @@ import Foundation
 #if canImport(Glibc)
 import Glibc
 #endif
+import Autostart
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 import DBusWire
@@ -38,6 +39,17 @@ enum TrayExit: Int32 {
     /// (Auflage 13). Im Normalbetrieb ist das **kein** Abbruchgrund — dort
     /// wartet der Prozess auf den Watcher.
     case watcherMissing = 9
+    /// Nur die Autostart-Unterbefehle: Die Bitte ließ sich nicht ausführen —
+    /// etwas am Zielort steht dagegen (fremde Datei, Symlink, Maske) oder der
+    /// Aufruf war nicht auswertbar (unbekanntes Argument). Der Zustand bleibt,
+    /// wie er war; es wurde nichts überschrieben.
+    case autostartBlocked = 10
+    /// Nur die Autostart-Unterbefehle: Es konnte **gar nichts gemessen** werden
+    /// — kein Nutzermanager erreichbar, kein Home ableitbar, oder `systemctl`
+    /// antwortet mit einem Zustand, der keine Auskunft ist. Ausdrücklich NICHT
+    /// „nicht eingerichtet": Das wäre eine Aussage über eine Messung, die nicht
+    /// stattgefunden hat.
+    case autostartUnavailable = 11
 
     /// Ein **fester** Bezeichner je Verbindungsfehler.
     ///
@@ -502,4 +514,57 @@ func runTray(arguments: [String]) -> TrayExit {
     return exitCode
 }
 
-exit(runTray(arguments: CommandLine.arguments).rawValue)
+// MARK: - Vordertür (CM-21)
+
+/// Wertet die Argumente aus, **bevor** irgendetwas mit dem Bus passiert.
+///
+/// Warum vor `runTray`: Die Verbindung zum Sitzungsbus beginnt dort, und ohne
+/// Sitzung endet sie mit Exit 5. Die Autostart-Unterbefehle brauchen keinen
+/// Bus — sie dürfen an diesem Ausgang nicht scheitern.
+///
+/// ⚠️ **Unbekannte `--`-Argumente brechen ab** (Auflage 13). Bis CM-21 war
+/// `--selftest` das einzige ausgewertete Argument, alles andere fiel durch und
+/// startete den residenten Tray. Mit drei Unterbefehlen mehr würde ein
+/// Tippfehler (`--instal-autostart`) genau das tun, während der Nutzer glaubt,
+/// er habe eingerichtet. Der argumentlose Start und `--selftest` bleiben
+/// unverändert; freie Argumente ohne `--` werden weiterhin ignoriert.
+func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayExit {
+    // Auflage 5: derselbe Home-Wert, aus dem auch `AutostartPaths` den
+    // Unit-Pfad ableitet — sonst redigiert der Filter ein Präfix, das in den
+    // gedruckten Pfaden nicht vorkommt. Ziel ist wie überall stderr; einen
+    // zweiten Ausgabeweg bekommt dieser Prozess nicht.
+    let home = AutostartPaths.homeDirectory(environment: environment)
+    let log = TrayLog(homeDirectory: URL(fileURLWithPath: home ?? "/"))
+
+    let options = arguments.dropFirst().filter { $0.hasPrefix("--") }
+    let autostartOptions = options.filter { $0 != "--selftest" }
+    let known: Set<String> = ["--install-autostart", "--uninstall-autostart", "--autostart-status"]
+
+    if let unknown = autostartOptions.first(where: { !known.contains($0) }) {
+        log.always(AutostartTexts.unknownOption(unknown))
+        return .autostartBlocked
+    }
+    guard let subcommand = autostartOptions.first else {
+        return runTray(arguments: arguments)
+    }
+    guard autostartOptions.count == 1, !options.contains("--selftest") else {
+        log.always(AutostartTexts.conflictingOptions)
+        return .autostartBlocked
+    }
+
+    let installer = AutostartInstaller(
+        environment: environment,
+        runner: PosixCommandRunner(environment: environment),
+        emit: { log.always($0) }
+    )
+    switch subcommand {
+    case "--install-autostart": return installer.install()
+    case "--uninstall-autostart": return installer.uninstall()
+    default: return installer.status()
+    }
+}
+
+exit(trayFrontDoor(
+    arguments: CommandLine.arguments,
+    environment: ProcessInfo.processInfo.environment
+).rawValue)
