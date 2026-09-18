@@ -43,6 +43,18 @@ let package = Package(
             ]
         ),
 
+        // CM-21 · dieselbe Schicht wie `TrayPresentation`: die REGELN des
+        // systemd-Nutzerdienstes — Pfadauflösung aus einem injizierten
+        // Environment, Unit-Text, Auswertung von `systemctl is-enabled`,
+        // Entscheidungstabelle und alle kundensichtbaren Texte. Kein
+        // Dateizugriff, kein Prozessstart; beides liegt im Programm-Ziel.
+        .target(
+            name: "Autostart",
+            dependencies: [
+                .product(name: "ClaudeMonitorShared", package: "Shared")
+            ]
+        ),
+
         // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife des
         // residenten Tray-Prozesses. Seit CM-26 ist das **nicht** mehr
         // gleichbedeutend mit „ungeprüft": Die Bus-Attrappe in `TrayTests`
@@ -52,6 +64,7 @@ let package = Package(
         .executableTarget(
             name: "claude-monitor-tray",
             dependencies: [
+                "Autostart",
                 "DBusWire",
                 "TrayPresentation",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
@@ -65,6 +78,7 @@ let package = Package(
         .testTarget(
             name: "TrayTests",
             dependencies: [
+                "Autostart",
                 "DBusWire",
                 "TrayPresentation",
                 // CM-26: das Executable-Ziel selbst. Ohne diese Abhängigkeit
