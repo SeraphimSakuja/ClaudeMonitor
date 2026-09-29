@@ -1,4 +1,5 @@
 import Foundation
+import Autostart
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 
@@ -42,6 +43,24 @@ public enum TrayTexts {
 
     public static let refresh = "Refresh now"
     public static let quit = "Quit"
+
+    /// CM-30 · F9: Quellschlüssel der macOS-Fassung
+    /// (`MonitorPopoverView.swift:176`); „Beim Anmelden starten" ist nur
+    /// dessen deutsche Übersetzung.
+    public static let startAtLogin = "Start at login"
+
+    /// Hinweiszeilen unter „Start at login" (F10). Keine Pfade im Menü —
+    /// die Details liefert der genannte Befehl.
+    public static var startAtLoginMasked: String {
+        "Masked in systemd — undo with: "
+            + AutostartTexts.unmaskCommand(unitName: AutostartPaths.unitName)
+    }
+    public static let startAtLoginUnavailable =
+        "Autostart state unknown — run claude-monitor-tray --autostart-status for details"
+    public static let startAtLoginInstallFailed =
+        "Could not set up autostart — run claude-monitor-tray --install-autostart for details"
+    public static let startAtLoginUninstallFailed =
+        "Could not remove autostart — run claude-monitor-tray --uninstall-autostart for details"
 
     // MARK: - Inhaltsfälle des Detailfensters
 

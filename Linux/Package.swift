@@ -37,6 +37,11 @@ let package = Package(
         .target(
             name: "TrayPresentation",
             dependencies: [
+                // CM-30: der Menüeintrag „Start at login" braucht die
+                // Zustandsabbildung (`AutostartStatus.Reading`) und den
+                // Unit-Namen für den Masken-Hinweis — aus EINER Quelle.
+                // Kein Zyklus: `Autostart` hängt nur an `ClaudeMonitorShared`.
+                "Autostart",
                 "DBusWire",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")

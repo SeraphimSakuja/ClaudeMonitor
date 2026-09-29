@@ -24,7 +24,11 @@ final class DBusMenuObject: DBusObject {
     /// Streng monoton. Die Gegenstelle verwirft ein `LayoutUpdated` mit einer
     /// Revision, die sie schon kennt.
     private(set) var revision: UInt32 = 1
-    private var pending: [TrayMenuItem.Role] = []
+    /// Angeklickte Einträge im Stand **beim Klick** — der Eintrag trägt so
+    /// das angezeigte Häkchen mit (CM-30, F4).
+    private var pending: [TrayMenuItem] = []
+    /// Die Gegenstelle hat das Menü geöffnet (`opened` auf der Wurzel).
+    private var menuOpened = false
 
     init(objectPath: String, items: [TrayMenuItem]) {
         self.objectPath = objectPath
@@ -45,9 +49,22 @@ final class DBusMenuObject: DBusObject {
     }
 
     /// Holt die angeklickten Aktionen ab und leert die Liste.
-    func takePendingActions() -> [TrayMenuItem.Role] {
+    func takePendingActions() -> [TrayMenuItem] {
         defer { pending = [] }
         return pending
+    }
+
+    /// Verwirft aufgezeichnete Klicks einer Rolle (CM-30, 2b-Auflage 8): Ein
+    /// Klick, der während eines laufenden Autostart-Versuchs einging, sah
+    /// noch den alten Stand und darf den Versuch nicht umkehren.
+    func discardPendingActions(role: TrayMenuItem.Role) {
+        pending.removeAll { $0.role == role }
+    }
+
+    /// Ob das Menü seit der letzten Abfrage geöffnet wurde; setzt zurück.
+    func takeMenuOpened() -> Bool {
+        defer { menuOpened = false }
+        return menuOpened
     }
 
     func handle(_ call: DBusMessage) -> DBusCallOutcome {
@@ -108,10 +125,11 @@ final class DBusMenuObject: DBusObject {
             return .value(.array(elementSignature: "i", elements: []))
 
         case ("com.canonical.dbusmenu", "AboutToShow"):
-            // `false`: Das Menü ist beim Öffnen bereits aktuell — der
-            // Poller hält es nach. Ein `true` verlangte von der Gegenstelle
-            // ein sofortiges Nachladen des Layouts, ohne dass sich etwas
-            // geändert hätte.
+            // `false`: Der Poller hält die Zahlen nach; den Autostart-Block
+            // fragt der Prozess beim `opened` der Wurzel neu ab und meldet
+            // eine Änderung über `ItemsPropertiesUpdated`/`LayoutUpdated`
+            // nach (CM-30). Ein `true` verlangte von der Gegenstelle ein
+            // sofortiges Nachladen des Layouts, bevor diese Abfrage lief.
             return .value(.bool(false))
 
         case ("com.canonical.dbusmenu", "AboutToShowGroup"):
@@ -149,14 +167,22 @@ final class DBusMenuObject: DBusObject {
         record(identifier: id, kind: kind)
     }
 
-    /// Merkt sich einen Klick. Andere Ereignisse (`hovered`, `opened`,
-    /// `closed`) werden beantwortet, lösen aber nichts aus.
+    /// Merkt sich einen Klick und das Öffnen des Menüs. Andere Ereignisse
+    /// (`hovered`, `closed`, `opened` eines Untereintrags) werden
+    /// beantwortet, lösen aber nichts aus.
+    ///
+    /// `opened` auf der Wurzel sendet gnome-shell bei jedem Öffnen
+    /// (`dbusMenu.js:970`, Wurzel-ID 0 `:247`).
     private func record(identifier: Int32, kind: String) {
+        if kind == "opened" && identifier == TrayMenuIdentifiers.root {
+            menuOpened = true
+            return
+        }
         guard kind == "clicked",
               let key = identifiers.key(for: identifier),
               let item = items.first(where: { $0.key == key }),
               item.isEnabled
         else { return }
-        pending.append(item.role)
+        pending.append(item)
     }
 }

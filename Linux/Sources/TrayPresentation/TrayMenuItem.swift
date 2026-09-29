@@ -26,6 +26,27 @@ public struct TrayMenuItem: Equatable, Sendable {
         /// Prozess ohne Programmmenü der einzige Weg hinaus — deshalb Pflicht
         /// und nicht Kür (Auflage 8).
         case quit
+        /// „Start at login" — ankreuzbar (CM-30, macOS-Vorbild
+        /// `MonitorPopoverView.swift:170-180`). Stellung und Bedienbarkeit
+        /// trägt ``TrayMenuItem/checkmark``; erzeugt wird der Fall nur über
+        /// ``TrayMenuItem/startAtLogin(key:label:checkmark:)``.
+        case startAtLogin
+    }
+
+    /// Stellung und Bedienbarkeit eines ankreuzbaren Eintrags.
+    ///
+    /// Ein eigenes Feld neben ``Role`` statt eines assoziierten Werts, weil
+    /// `Role` rohwertig ist.
+    public struct Checkmark: Equatable, Sendable {
+        /// Häkchen gesetzt.
+        public let isOn: Bool
+        /// Umlegen wirkt. `false` ⇒ Eintrag gesperrt.
+        public let isToggleable: Bool
+
+        public init(isOn: Bool, isToggleable: Bool) {
+            self.isOn = isOn
+            self.isToggleable = isToggleable
+        }
     }
 
     /// Stabiler Schlüssel für die Kennungsvergabe.
@@ -38,11 +59,25 @@ public struct TrayMenuItem: Equatable, Sendable {
     public let role: Role
     /// Der angezeigte Text. Bei ``Role/separator`` leer.
     public let label: String
+    /// Setzbar ausschließlich über ``startAtLogin(key:label:checkmark:)``;
+    /// der öffentliche Init lässt es `nil`. Fehlt es, gilt der Eintrag als
+    /// „aus" und gesperrt.
+    public let checkmark: Checkmark?
 
     public init(key: String, role: Role, label: String) {
+        self.init(key: key, role: role, label: label, checkmark: nil)
+    }
+
+    private init(key: String, role: Role, label: String, checkmark: Checkmark?) {
         self.key = key
         self.role = role
         self.label = label
+        self.checkmark = checkmark
+    }
+
+    /// Der ankreuzbare Eintrag „Start at login" (CM-30).
+    public static func startAtLogin(key: String, label: String, checkmark: Checkmark) -> TrayMenuItem {
+        TrayMenuItem(key: key, role: .startAtLogin, label: label, checkmark: checkmark)
     }
 
     /// Eine Auskunftszeile.
@@ -63,6 +98,8 @@ public struct TrayMenuItem: Equatable, Sendable {
         switch role {
         case .refresh, .quit: return true
         case .information, .separator: return false
+        // Gesperrt, wenn Umlegen nichts bewirken kann (Maske, nicht messbar).
+        case .startAtLogin: return checkmark?.isToggleable ?? false
         }
     }
 }

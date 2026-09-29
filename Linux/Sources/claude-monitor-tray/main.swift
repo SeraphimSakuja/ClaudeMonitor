@@ -150,11 +150,29 @@ final class TrayProcess {
     private let item: StatusNotifierItemObject
     private let menu: DBusMenuObject
 
+    /// Der Autostart für den Menüeintrag „Start at login" (CM-30).
+    private let installer: AutostartInstaller
+
     private var state: MonitorViewState
+    private var autostart: TrayAutostartDisplay
     private var nextRead: Date
     private var registeredWithWatcher = false
 
-    init(connection: DBusConnection, homeDirectory: URL, log: TrayLog, now: Date) {
+    /// - Parameters:
+    ///   - environment: Quelle der Unit-Pfade und Umgebung von `systemctl`.
+    ///   - runner: Zugang zu `systemctl`; `nil` ⇒ ``PosixCommandRunner``.
+    ///     Die Naht ist nötig, weil `posix_spawnp` über den PATH des
+    ///     **aufrufenden** Prozesses sucht, nicht über das übergebene
+    ///     Environment — eine PATH-Attrappe wirkt in-process nicht
+    ///     (2b-Auflage 4).
+    init(
+        connection: DBusConnection,
+        homeDirectory: URL,
+        log: TrayLog,
+        now: Date,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runner: CommandRunner? = nil
+    ) {
         self.connection = connection
         self.homeDirectory = homeDirectory
         self.log = log
@@ -163,7 +181,23 @@ final class TrayProcess {
         state = MonitorViewState().reduced(with: result)
         nextRead = now.addingTimeInterval(Self.pollInterval)
 
-        let view = TrayPresentation.make(for: state, now: now)
+        // Die Installer-Meldungen tragen Unit-Pfade aus `$HOME`
+        // (`AutostartPaths.swift:74-76`) — der Redaktionspräfix muss derselbe
+        // sein, nicht der aus der Passwortdatenbank (Muster wie
+        // `trayFrontDoor`).
+        let autostartLog = TrayLog(homeDirectory: URL(
+            fileURLWithPath: AutostartPaths.homeDirectory(environment: environment) ?? "/"
+        ))
+        let installer = AutostartInstaller(
+            environment: environment,
+            runner: runner ?? PosixCommandRunner(environment: environment),
+            emit: { autostartLog.always($0) }
+        )
+        self.installer = installer
+        let autostart = TrayAutostartDisplay(reading: installer.reading())
+        self.autostart = autostart
+
+        let view = Self.makeView(state: state, autostart: autostart, now: now)
         item = StatusNotifierItemObject(
             objectPath: Self.itemPath,
             menuPath: Self.menuPath,
@@ -232,24 +266,96 @@ final class TrayProcess {
 
             for message in incoming { handle(signal: message) }
 
-            for action in menu.takePendingActions() {
-                switch action {
-                case .quit:
-                    log.always("menu=quit requested")
-                    return .ok
-                case .refresh:
-                    // „Jetzt aktualisieren": sofort lesen statt bis zu 30 s
-                    // zu warten.
-                    nextRead = Date()
-                case .information, .separator:
-                    break
-                }
-            }
+            if let exit = handleMenuEvents() { return exit }
 
             if Date() >= nextRead { refresh(now: Date()) }
         }
         log.always("signal=stop — shutting down")
         return .ok
+    }
+
+    /// Verarbeitet, was seit dem letzten Durchlauf im Menü geschah: Öffnen
+    /// und Klicks. Aus der Schleife gezogen, damit der Klickpfad ohne
+    /// `run(selftestDeadline:)` fahrbar ist (2b-Auflage 4).
+    ///
+    /// - Returns: ein Beendigungscode, wenn „Quit" angeklickt wurde.
+    func handleMenuEvents() -> TrayExit? {
+        // CM-30 · F5: Beim Öffnen neu erfragen, damit eine Änderung im
+        // Terminal sichtbar wird. Gewollte Nebenwirkung: Auch alle
+        // zeitabhängigen Zeilen („Checked … ago", Restzeiten) werden dabei
+        // neu berechnet.
+        if menu.takeMenuOpened() {
+            autostart = autostart.afterRequery(reading: installer.reading())
+            publish(makeView(now: Date()))
+        }
+
+        // Mehrere Klicks auf „Start at login" in einem Durchlauf trugen alle
+        // denselben angezeigten Stand — ein Versuch genügt.
+        var autostartAttempted = false
+        for item in menu.takePendingActions() {
+            switch item.role {
+            case .quit:
+                log.always("menu=quit requested")
+                return .ok
+            case .refresh:
+                // „Jetzt aktualisieren": sofort lesen statt bis zu 30 s
+                // zu warten.
+                nextRead = Date()
+            case .startAtLogin:
+                guard !autostartAttempted else { continue }
+                autostartAttempted = true
+                attemptAutostart(showing: item.checkmark)
+            case .information, .separator:
+                break
+            }
+        }
+        return nil
+    }
+
+    /// Ein Klick auf „Start at login": Umkehr des beim Klick angezeigten
+    /// Häkchens (F4), danach **immer** neu erfragen (F5).
+    ///
+    /// Synchron aus der einen Schleife — `daemon-reload` braucht gemessen
+    /// ≈ 0,3 s, weit unter der 10-s-Frist der Gegenstelle.
+    private func attemptAutostart(showing checkmark: TrayMenuItem.Checkmark?) {
+        let attempt: TrayAutostartDisplay.Attempt = (checkmark?.isOn ?? false) ? .uninstall : .install
+        let word = attempt == .install ? "install" : "uninstall"
+        // Vor dem Versuch, damit ein hängender Nutzermanager im Journal
+        // zuordenbar ist.
+        log.always("autostart=\(word) started")
+        let exit = attempt == .install ? installer.install() : installer.uninstall()
+        autostart = autostart.afterAttempt(
+            attempt,
+            succeeded: exit == .ok,
+            reading: installer.reading()
+        )
+        log.always("autostart=\(word) exit=\(exit.rawValue)")
+
+        // 2b-Auflage 8: Während des Versuchs stand die Schleife; ein
+        // erneuter Klick in dieser Zeit sah noch den alten Stand. Er wird
+        // jetzt abgeholt und verworfen, statt den Versuch umzukehren.
+        if let late = try? connection.pump(timeoutMilliseconds: 0) {
+            for message in late { handle(signal: message) }
+        }
+        menu.discardPendingActions(role: .startAtLogin)
+
+        publish(makeView(now: Date()))
+    }
+
+    /// Die Oberfläche aus dem aktuellen Zustand — der EINE Weg, auf dem der
+    /// Prozess eine Ansicht baut, damit der Autostart-Block nie fehlt.
+    private func makeView(now: Date) -> TrayView {
+        Self.makeView(state: state, autostart: autostart, now: now)
+    }
+
+    /// Statisch, weil `init` die Ansicht braucht, bevor alle gespeicherten
+    /// Eigenschaften belegt sind (2b-Auflage 1).
+    private static func makeView(
+        state: MonitorViewState,
+        autostart: TrayAutostartDisplay,
+        now: Date
+    ) -> TrayView {
+        TrayPresentation.make(for: state, now: now, autostart: autostart)
     }
 
     /// Ist die Abnahmefolge des Selbsttests durchlaufen?
@@ -290,7 +396,7 @@ final class TrayProcess {
         let result = reader.read(homeDirectory: homeDirectory, now: now)
         state = state.reduced(with: result)
         report(result)
-        publish(TrayPresentation.make(for: state, now: now))
+        publish(makeView(now: now))
     }
 
     /// Schickt, was sich geändert hat — und nur das (Fachentscheid 5.12).
@@ -375,7 +481,7 @@ final class TrayProcess {
 // MARK: - Start
 
 /// Baut alles auf und gibt den Beendigungscode zurück.
-func runTray(arguments: [String]) -> TrayExit {
+func runTray(arguments: [String], environment: [String: String]) -> TrayExit {
     // CM-27 — SIGPIPE prozessweit ignorieren, BEVOR die erste Verbindung steht.
     //
     // `DBusConnection.writeAll` schreibt mit `write(2)`; ein Flags-Parameter wie
@@ -454,7 +560,8 @@ func runTray(arguments: [String]) -> TrayExit {
         connection: connection,
         homeDirectory: homeDirectory,
         log: log,
-        now: Date()
+        now: Date(),
+        environment: environment
     )
     process.observeWatcher()
 
@@ -556,7 +663,7 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
         return .autostartBlocked
     }
     guard let subcommand = autostartOptions.first else {
-        return runTray(arguments: arguments)
+        return runTray(arguments: arguments, environment: environment)
     }
     guard autostartOptions.count == 1, !options.contains("--selftest") else {
         log.always(AutostartTexts.conflictingOptions)

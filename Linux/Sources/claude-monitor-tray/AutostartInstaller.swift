@@ -205,6 +205,17 @@ struct AutostartInstaller {
         return .ok
     }
 
+    /// Stille Messung für den Menüeintrag (CM-30) — **ohne** `emit`.
+    ///
+    /// ``status()`` druckt bei jedem Aufruf; der Tray fragt bei jedem Öffnen
+    /// des Menüs, und das gehört nicht ins Journal.
+    func reading() -> AutostartStatus.Reading {
+        guard AutostartPaths.managerCanBeReachable(environment: environment) else {
+            return .managerUnavailable
+        }
+        return currentReading()
+    }
+
     // MARK: - Gemeinsame Schritte
 
     private func resolvedLayout() -> AutostartPaths.Layout? {

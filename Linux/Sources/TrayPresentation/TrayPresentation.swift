@@ -51,12 +51,20 @@ public enum TrayPresentation {
     static let indent = "   "
 
     /// Bildet die gesamte Oberfläche aus dem Zustand.
-    public static func make(for state: MonitorViewState, now: Date = Date()) -> TrayView {
+    ///
+    /// `autostart == nil` heißt „kein Autostart-Block" — nur für Aufrufer
+    /// ohne Autostart-Quelle (Tests). Der Tray-Prozess übergibt immer einen
+    /// Wert (`TrayProcess.makeView`).
+    public static func make(
+        for state: MonitorViewState,
+        now: Date = Date(),
+        autostart: TrayAutostartDisplay? = nil
+    ) -> TrayView {
         let display = MenuBarDisplay.make(for: state, mode: mode, now: now)
         return TrayView(
             labelText: labelText(for: display),
             icon: TrayIconAggregation.provisionalIcon(for: display),
-            menu: menu(for: state, now: now)
+            menu: menu(for: state, now: now, autostart: autostart)
         )
     }
 
@@ -110,9 +118,13 @@ public enum TrayPresentation {
     /// | Globale Fußzeile „Checked … ago" (`:284-288`) | drin | Einordnung des Datenalters |
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
     /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
-    /// | „Beim Anmelden starten" (`:170-200`) | **draußen** | gehört zu `CM-30`; `CM-21` baut nur den Mechanismus (`--install-autostart`), nicht den Menüeintrag |
+    /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
     /// | Update-Block (`:208-278`) | **draußen** | Sparkle ist macOS-only; die Linux-Auslieferung entscheidet `CM-22` |
-    static func menu(for state: MonitorViewState, now: Date) -> [TrayMenuItem] {
+    static func menu(
+        for state: MonitorViewState,
+        now: Date,
+        autostart: TrayAutostartDisplay? = nil
+    ) -> [TrayMenuItem] {
         var items: [TrayMenuItem] = [
             .information(key: "header", label: TrayTexts.header),
             .separator(key: "header.separator")
@@ -147,6 +159,18 @@ public enum TrayPresentation {
         }
 
         items.append(.separator(key: "footer.separator"))
+        // CM-30 · F8: Einstellungszeile zwischen Inhalt und Fußzeile, wie
+        // auf macOS (`MonitorPopoverView.swift:40-47`).
+        if let autostart {
+            items.append(.startAtLogin(
+                key: "action.startAtLogin",
+                label: TrayTexts.startAtLogin,
+                checkmark: autostart.checkmark
+            ))
+            if let hint = autostart.hint {
+                items.append(.information(key: "startAtLogin.hint", label: hint))
+            }
+        }
         if let capturedAt = state.snapshot?.capturedAt,
            let age = TrayAgeFormat.text(for: now.timeIntervalSince(capturedAt)) {
             items.append(.information(key: "footer.checked", label: TrayTexts.checked(ago: age)))
