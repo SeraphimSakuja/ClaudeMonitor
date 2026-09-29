@@ -46,6 +46,14 @@ struct AutostartSystemctlStub {
                 printf '%s\\n' "$CM_STUB_IS_ACTIVE_OUT"
                 exit 0
                 ;;
+              show)
+                printf '%s\\n' "$CM_STUB_SHOW_OUT"
+                if [ -n "$CM_STUB_SHOW_ERR" ]; then printf '%s\\n' "$CM_STUB_SHOW_ERR" >&2; fi
+                exit "$CM_STUB_SHOW_RC"
+                ;;
+              daemon-reload)
+                exit "$CM_STUB_RELOAD_RC"
+                ;;
             esac
             exit 0
 
@@ -66,9 +74,14 @@ struct AutostartSystemctlStub {
         isEnabled: String,
         isEnabledRC: Int32 = 0,
         isEnabledStderr: String = "",
-        isActive: String = "active"
+        isActive: String = "active",
+        show: String = "",
+        showRC: Int32 = 0,
+        showStderr: String = "",
+        reloadRC: Int32 = 0,
+        zusaetzlich: [String: String] = [:]
     ) -> [String: String] {
-        [
+        var umgebung: [String: String] = [
             "HOME": home.path,
             "XDG_RUNTIME_DIR": "/run/user/1000",
             "PATH": "\(binVerzeichnis.path):/usr/bin:/bin",
@@ -76,8 +89,14 @@ struct AutostartSystemctlStub {
             "CM_STUB_IS_ENABLED_OUT": isEnabled,
             "CM_STUB_IS_ENABLED_ERR": isEnabledStderr,
             "CM_STUB_IS_ENABLED_RC": "\(isEnabledRC)",
-            "CM_STUB_IS_ACTIVE_OUT": isActive
+            "CM_STUB_IS_ACTIVE_OUT": isActive,
+            "CM_STUB_SHOW_OUT": show,
+            "CM_STUB_SHOW_RC": "\(showRC)",
+            "CM_STUB_SHOW_ERR": showStderr,
+            "CM_STUB_RELOAD_RC": "\(reloadRC)"
         ]
+        umgebung.merge(zusaetzlich) { _, neu in neu }
+        return umgebung
     }
 
     /// Alle bisherigen Aufrufe, je einer pro Zeile (`--user is-enabled …`).
