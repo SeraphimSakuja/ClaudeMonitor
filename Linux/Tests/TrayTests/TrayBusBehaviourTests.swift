@@ -70,11 +70,14 @@ struct TrayBusBehaviourTests {
         let home = try temporaeresHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
         let prozess = TrayProcess(
             connection: verbindung,
             homeDirectory: home,
             log: TrayLog(homeDirectory: home),
-            now: Date()
+            now: Date(),
+            environment: attrappe.umgebung(home: home),
+            runner: attrappe
         )
         prozess.observeWatcher()
         #expect(warteBis { bus.abgelegteRegeln.count == 1 })
@@ -138,11 +141,14 @@ struct TrayBusBehaviourTests {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let t0 = Date()
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
         let prozess = TrayProcess(
             connection: verbindung,
             homeDirectory: home,
             log: TrayLog(homeDirectory: home),
-            now: t0
+            now: t0,
+            environment: attrappe.umgebung(home: home),
+            runner: attrappe
         )
 
         // Erster Lesevorgang, Datei unverändert: derselbe leere Store.
@@ -183,6 +189,171 @@ struct TrayBusBehaviourTests {
         #expect(bus.wachhundSchlug == false)
     }
 
+    // MARK: - CM-30 · „Start at login" im Menü
+
+    /// T1 — Terminal-Änderung wird beim Öffnen sichtbar, Abwählen entfernt.
+    @Test("CM-30: Start at login — Terminal-Änderung beim Öffnen sichtbar, Abwählen entfernt")
+    func startAtLogin_oeffnenZeigtTerminalAenderung_abwaehlenEntfernt() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+        let verbindung = try DBusConnection(socketPath: bus.socketPfad)
+        defer { verbindung.close() }
+        let home = try temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try schreibeEinenAccount(in: home, fetchedAt: Date())
+
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
+        let prozess = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: Date(),
+            environment: attrappe.umgebung(home: home),
+            runner: attrappe
+        )
+
+        // (a) direkt nach dem Start
+        var menue = try layoutLesen(bus, verbindung, prozess)
+        var index = try #require(menue.firstIndex { $0.label == "Start at login" }, "Menü: \(menue)")
+        let eintrag = menue[index]
+        #expect(eintrag.eigenschaften["toggle-type"] == .string("checkmark"))
+        #expect(eintrag.eigenschaften["toggle-state"] == .int32(0))
+        #expect(eintrag.eigenschaften["enabled"] == .bool(true))
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.hasPrefix("Checked ") == true,
+                "nach „Start at login“ folgt nicht die Fußzeile: \(menue)")
+
+        // (b) im Terminal eingerichtet, Menü geöffnet
+        attrappe.isEnabled = "enabled"
+        try ereignis(bus, verbindung, prozess, id: TrayMenuIdentifiers.root, art: "opened")
+        _ = prozess.handleMenuEvents()
+        menue = try layoutLesen(bus, verbindung, prozess)
+        index = try #require(menue.firstIndex { $0.label == "Start at login" })
+        #expect(menue[index].eigenschaften["toggle-state"] == .int32(1), "nach „opened“: \(menue[index])")
+
+        // (c) Abwählen
+        try ereignis(bus, verbindung, prozess, id: eintrag.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        #expect(attrappe.aufrufe.contains("--user disable claude-monitor-tray.service"), "Aufrufe: \(attrappe.aufrufe)")
+        #expect(!attrappe.aufrufe.contains { $0.hasPrefix("--user enable") }, "Aufrufe: \(attrappe.aufrufe)")
+        menue = try layoutLesen(bus, verbindung, prozess)
+        index = try #require(menue.firstIndex { $0.label == "Start at login" })
+        #expect(menue[index].eigenschaften["toggle-state"] == .int32(0), "nach dem Klick: \(menue[index])")
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.hasPrefix("Checked ") == true,
+                "Hinweiszeile nach dem Abwählen: \(menue)")
+    }
+
+    /// T2 — maskiert: gesperrt, mit unmask-Hinweis, Klick ohne Wirkung.
+    @Test("CM-30: Start at login maskiert — gesperrt mit unmask-Hinweis, Klick wirkungslos")
+    func startAtLogin_maskiert_gesperrtMitHinweis_klickWirkungslos() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+        let verbindung = try DBusConnection(socketPath: bus.socketPfad)
+        defer { verbindung.close() }
+        let home = try temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let attrappe = SystemctlAttrappe(isEnabled: "masked")
+        let prozess = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: Date(),
+            environment: attrappe.umgebung(home: home),
+            runner: attrappe
+        )
+
+        let menue = try layoutLesen(bus, verbindung, prozess)
+        let index = try #require(menue.firstIndex { $0.label == "Start at login" }, "Menü: \(menue)")
+        let eintrag = menue[index]
+        #expect(eintrag.eigenschaften["enabled"] == .bool(false))
+        #expect(eintrag.eigenschaften["toggle-state"] == .int32(0))
+        #expect(
+            menue.indices.contains(index + 1) && menue[index + 1].label
+                == "Masked in systemd — undo with: systemctl --user unmask claude-monitor-tray.service",
+            "Zeile unter „Start at login“: \(menue)"
+        )
+
+        try ereignis(bus, verbindung, prozess, id: eintrag.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        let wirkend = attrappe.aufrufe.filter { aufruf in
+            ["enable", "disable", "daemon-reload"].contains(aufruf.split(separator: " ").dropFirst().first.map(String.init))
+        }
+        #expect(wirkend.isEmpty, "Klick auf gesperrten Eintrag rief: \(wirkend)")
+    }
+
+    /// Ein Menüeintrag, wie ihn die Gegenstelle aus `GetLayout` liest.
+    private struct Eintrag: CustomStringConvertible {
+        let id: Int32
+        let eigenschaften: [String: DBusValue]
+        var label: String? {
+            if case .string(let text)? = eigenschaften["label"] { return text }
+            return nil
+        }
+        var description: String { "\(id) \(label ?? "-") \(eigenschaften)" }
+    }
+
+    /// `GetLayout(0, -1, [])` über den Draht; liefert die Kinder der Wurzel.
+    private func layoutLesen(
+        _ bus: FakeSessionBus,
+        _ verbindung: DBusConnection,
+        _ prozess: TrayProcess
+    ) throws -> [Eintrag] {
+        let seriennummer = bus.aufrufen(
+            pfad: TrayProcess.menuPath,
+            interface: "com.canonical.dbusmenu",
+            member: "GetLayout",
+            argumente: [.int32(TrayMenuIdentifiers.root), .int32(-1), .array(elementSignature: "s", elements: [])]
+        )
+        try pumpen(verbindung, prozess, durchgaenge: 30, bis: { bus.antwort(auf: seriennummer) != nil })
+        let antwort = try #require(bus.antwort(auf: seriennummer), "keine Antwort auf GetLayout")
+
+        var leser = antwort.bodyReader()
+        _ = try leser.readUInt32()          // Revision
+        try leser.align(to: 8)
+        _ = try leser.readInt32()           // Wurzel
+        try leser.skipValue("a{sv}")
+        return try leser.readArray(elementSignature: "v") { kind in
+            _ = try kind.readSignature()
+            try kind.align(to: 8)
+            let id = try kind.readInt32()
+            let paare = try kind.readArray(elementSignature: "{sv}") { paar -> (String, DBusValue) in
+                try paar.align(to: 8)
+                let name = try paar.readString()
+                let signatur = try paar.readSignature()
+                switch signatur {
+                case "s": return (name, .string(try paar.readString()))
+                case "b": return (name, .bool(try paar.readBool()))
+                case "i": return (name, .int32(try paar.readInt32()))
+                default:
+                    try paar.skipValue(signatur)
+                    return (name, .signature(signatur))
+                }
+            }
+            try kind.skipValue("av")
+            return Eintrag(id: id, eigenschaften: Dictionary(paare, uniquingKeysWith: { $1 }))
+        }
+    }
+
+    /// `com.canonical.dbusmenu.Event` über den Draht, wie gnome-shell es schickt.
+    private func ereignis(
+        _ bus: FakeSessionBus,
+        _ verbindung: DBusConnection,
+        _ prozess: TrayProcess,
+        id: Int32,
+        art: String
+    ) throws {
+        let seriennummer = bus.aufrufen(
+            pfad: TrayProcess.menuPath,
+            interface: "com.canonical.dbusmenu",
+            member: "Event",
+            argumente: [.int32(id), .string(art), .variant(.int32(0)), .uint32(0)]
+        )
+        try pumpen(verbindung, prozess, durchgaenge: 30, bis: { bus.antwort(auf: seriennummer) != nil })
+        #expect(bus.antwort(auf: seriennummer) != nil, "keine Antwort auf Event \(art)")
+    }
+
     /// Fährt die Pump-Schleife des Produktivpfads
     /// (`run(selftestDeadline:)` ist dafür ungeeignet — sie blockiert über ein
     /// globales Abbruchflag).
@@ -197,6 +368,40 @@ struct TrayBusBehaviourTests {
                 prozess.handle(signal: nachricht)
             }
             if fertig() { return }
+        }
+    }
+}
+
+/// `systemctl`-Attrappe im Prozess: protokolliert jeden Aufruf, antwortet auf
+/// `is-enabled` mit ``isEnabled`` und stellt nach `disable` auf `disabled` um.
+final class SystemctlAttrappe: CommandRunner {
+    var isEnabled: String
+    private(set) var aufrufe: [String] = []
+
+    init(isEnabled: String) {
+        self.isEnabled = isEnabled
+    }
+
+    func umgebung(home: URL) -> [String: String] {
+        ["HOME": home.path, "XDG_RUNTIME_DIR": "/run/user/1000"]
+    }
+
+    func run(executable: String, arguments: [String]) -> CommandOutcome {
+        aufrufe.append(arguments.joined(separator: " "))
+        switch arguments.dropFirst().first {
+        case "is-enabled":
+            return CommandOutcome(
+                exitStatus: isEnabled == "enabled" ? 0 : 1,
+                standardOutput: isEnabled + "\n",
+                standardError: ""
+            )
+        case "disable":
+            isEnabled = "disabled"
+            return CommandOutcome(exitStatus: 0, standardOutput: "", standardError: "")
+        case "is-active":
+            return CommandOutcome(exitStatus: 0, standardOutput: "active\n", standardError: "")
+        default:
+            return CommandOutcome(exitStatus: 0, standardOutput: "", standardError: "")
         }
     }
 }

@@ -867,6 +867,26 @@ struct TrayExitContractTests {
         #expect(laufB.ausgabe.contains("masked"))
         #expect(laufB.ausgabe.contains("systemctl --user unmask claude-monitor-tray.service"))
         #expect(laufB.ausgabe.contains("symbolic link") == false, "Meldung: \(laufB.ausgabe)")
+
+        // (c) CM-30: fremde Unit ohne Marker am Zielpfad bleibt beim Entfernen.
+        let homeC = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: homeC) }
+        let unitVerzeichnisC = homeC.appendingPathComponent(".local/share/systemd/user", isDirectory: true)
+        try dateien.createDirectory(at: unitVerzeichnisC, withIntermediateDirectories: true)
+        let unitPfadC = unitVerzeichnisC.appendingPathComponent("claude-monitor-tray.service")
+        let fremderInhalt = Data("[Service]\nExecStart=/bin/true\n".utf8)
+        try fremderInhalt.write(to: unitPfadC)
+
+        let attrappeC = try AutostartSystemctlStub(home: homeC)
+        let laufC = try Self.autostartLauf(
+            ["--uninstall-autostart"],
+            umgebung: attrappeC.umgebung(isEnabled: "enabled")
+        )
+
+        #expect(laufC.code == 10, "Meldung: \(laufC.ausgabe)")
+        #expect(try Data(contentsOf: unitPfadC) == fremderInhalt)
+        #expect(!attrappeC.aufrufe().contains { $0.contains("disable") }, "Aufrufe: \(attrappeC.aufrufe())")
+        #expect(laufC.ausgabe.contains("was not written by this program"), "Meldung: \(laufC.ausgabe)")
     }
 
     // MARK: - Fall 12 (CM-21 · Auflagen 6 und 15a)

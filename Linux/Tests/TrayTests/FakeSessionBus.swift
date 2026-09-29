@@ -372,6 +372,46 @@ final class FakeSessionBus: @unchecked Sendable {
         ))
     }
 
+    // MARK: - Methodenaufruf an den Klienten (CM-30)
+
+    /// Schickt einen Methodenaufruf an alle offenen Verbindungen — so, wie
+    /// die Panel-Erweiterung `GetLayout` oder `Event` an den Tray schickt.
+    /// Die Antwort des Klienten landet in ``gesehen`` und ist über
+    /// ``antwort(auf:)`` abrufbar.
+    ///
+    /// - Returns: die Seriennummer des Aufrufs.
+    @discardableResult
+    func aufrufen(
+        pfad: String,
+        interface: String,
+        member: String,
+        argumente: [DBusValue]
+    ) -> UInt32 {
+        var schreiber = DBusWriter()
+        for argument in argumente { schreiber.write(argument) }
+        var aufruf = DBusMessage(
+            type: .methodCall,
+            path: pfad,
+            interface: interface,
+            member: member,
+            bodySignature: argumente.map(\.signature).joined(),
+            body: schreiber.bytes
+        )
+        aufruf.serial = naechsteSeriennummer()
+        zustand.lock()
+        let empfaenger = verbindungen
+        zustand.unlock()
+        for verbindung in empfaenger { verbindung.schreiben(aufruf.encoded()) }
+        return aufruf.serial
+    }
+
+    /// Die Antwort des Klienten auf den Aufruf mit dieser Seriennummer.
+    func antwort(auf seriennummer: UInt32) -> DBusMessage? {
+        gesehen.map(\.nachricht).first {
+            $0.type == .methodReturn && $0.replySerial == seriennummer
+        }
+    }
+
     // MARK: - Accept
 
     /// Ein einzelner Durchlauf der Accept-Schleife: aufgerufen, wenn `poll`
