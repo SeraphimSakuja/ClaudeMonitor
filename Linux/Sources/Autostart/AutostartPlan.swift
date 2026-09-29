@@ -64,3 +64,34 @@ public enum AutostartPlan: Equatable, Sendable {
         return .install
     }
 }
+
+/// Die Entscheidung vor dem Entfernen — Gegenstück zu ``AutostartPlan``
+/// (CM-30, 2b-Auflage 3).
+///
+/// Entfernt wird nur, was diese Einrichtung selbst geschrieben hat. Ohne
+/// diese Prüfung löschte `--uninstall-autostart` — und seit CM-30 ein
+/// Menüklick — eine von Hand geschriebene Unit am selben Pfad, die das
+/// Einrichten ausdrücklich unangetastet lässt.
+public enum AutostartRemovalPlan: Equatable, Sendable {
+
+    /// Abschalten und löschen. Auch, wenn am Zielpfad gar nichts liegt: Dann
+    /// werden nur noch verbliebene `.wants`-Verweise aufgeräumt.
+    case remove
+    /// Am Zielpfad liegt eine Datei ohne Marker.
+    case refuseForeignFile
+    /// Die vorgefundene Datei ließ sich nicht lesen — ob sie den Marker
+    /// trägt, ist unbekannt.
+    case refuseUnreadable(reason: String)
+    /// Der Zielpfad ist ein Symlink; diese Einrichtung legt dort nie einen an.
+    case refuseSymlink
+
+    /// Dieselbe Reihenfolge wie ``AutostartPlan/plan(target:status:)``, ohne
+    /// die Masken-Stufe: Beim Entfernen ist die Maske kein Hindernis, sie
+    /// bleibt nur stehen.
+    public static func plan(target: AutostartTargetProbe) -> AutostartRemovalPlan {
+        if target.isSymlink { return .refuseSymlink }
+        if let reason = target.unreadableReason { return .refuseUnreadable(reason: reason) }
+        if target.exists && !target.carriesMarker { return .refuseForeignFile }
+        return .remove
+    }
+}

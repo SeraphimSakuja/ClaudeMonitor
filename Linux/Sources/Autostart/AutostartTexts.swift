@@ -108,6 +108,26 @@ public enum AutostartTexts {
             + "Remove the link and run --install-autostart again."
     }
 
+    // MARK: - Blockiertes Entfernen (CM-30, 2b-Auflage 3)
+
+    /// Am Zielpfad liegt eine fremde Datei — sie wird nicht entfernt.
+    public static func foreignFileNotRemoved(unitPath: String) -> String {
+        "The unit file at \(unitPath) was not written by this program.\n"
+            + "It was left untouched and autostart was not removed. Remove or disable it by hand."
+    }
+
+    /// Am Zielpfad liegt eine unlesbare Datei — sie wird nicht entfernt.
+    public static func unreadableFileNotRemoved(unitPath: String, reason: String) -> String {
+        "There is a file at \(unitPath), but it could not be read (\(reason)).\n"
+            + "It was left untouched and autostart was not removed. Fix the permissions and run --uninstall-autostart again."
+    }
+
+    /// Der Zielpfad ist ein Symlink — er wird nicht entfernt.
+    public static func symlinkNotRemoved(unitPath: String) -> String {
+        "The target path \(unitPath) is a symbolic link, which this program never creates.\n"
+            + "It was left untouched and autostart was not removed. Remove the link by hand."
+    }
+
     // MARK: - Nicht messbare Fälle
 
     /// Kein Nutzermanager erreichbar.

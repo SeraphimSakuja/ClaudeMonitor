@@ -129,7 +129,25 @@ struct AutostartInstaller {
         let before = currentReading()
         guard let stateBefore = usableState(before) else { return .autostartUnavailable }
 
-        let existedBefore = probe(unitPath: layout.unitPath).exists
+        // CM-30 · 2b-Auflage 3: Entfernt wird nur die eigene Unit. Geprüft
+        // VOR `disable` und `unlink` — eine fremde, aktivierte Unit am selben
+        // Pfad bleibt samt Aktivierung, wie sie ist.
+        let target = probe(unitPath: layout.unitPath)
+        switch AutostartRemovalPlan.plan(target: target) {
+        case .refuseSymlink:
+            emit(AutostartTexts.symlinkNotRemoved(unitPath: layout.unitPath))
+            return .autostartBlocked
+        case .refuseForeignFile:
+            emit(AutostartTexts.foreignFileNotRemoved(unitPath: layout.unitPath))
+            return .autostartBlocked
+        case .refuseUnreadable(let reason):
+            emit(AutostartTexts.unreadableFileNotRemoved(unitPath: layout.unitPath, reason: reason))
+            return .autostartBlocked
+        case .remove:
+            break
+        }
+
+        let existedBefore = target.exists
             || layout.wantsLinkPaths.contains { pathExists($0) }
 
         if stateBefore == .requiresApproval {
