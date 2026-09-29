@@ -168,7 +168,8 @@ who downloaded it, not for this repository.
 | Target | Kind | Contains |
 |---|---|---|
 | `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
-| `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping and the `ItemsPropertiesUpdated` diff |
+| `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the "Start at login" transitions (`TrayAutostartDisplay`) |
+| `Autostart` | library | the rules of the systemd user service: paths from an injected environment, unit text, `is-enabled` mapping, set-up/removal decision tables, texts |
 | `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
 | `TrayTests` | test | the proof slot for the two libraries |
 
@@ -208,7 +209,7 @@ broken by accident. That holds for `--selftest` too.
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit). Nothing was overwritten |
+| 10 | autostart only: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit). Nothing was overwritten or removed |
 | 11 | autostart only: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer |
 
 Exit 8 is the single-instance guard. Without it, an autostart instance plus a hand start — the
@@ -266,7 +267,38 @@ answer is reported — never derived from the return code of `enable`.
 Removal checks the state **before** `disable`: for a masked unit `systemctl --user disable` returns
 0, says "is masked, ignoring" and leaves the `.wants` link behind. The link is therefore removed
 directly, and "removed" is only printed once no link points at the deleted unit any more. A mask is
-never lifted by this program — that is your systemd setting.
+never lifted by this program — that is your systemd setting. Removal also runs the same target
+check as setting up, **before** `disable` and `unlink`: a symbolic link, a unit file without the
+marker or an unreadable file at the target path is left alone together with its activation (exit
+10) — otherwise unticking the menu entry below would delete a hand-written unit.
+
+### Menu entry "Start at login" (CM-30)
+
+The tray menu carries a checkable entry right after the content and before "Checked … ago" — the
+macOS order. It calls the same `AutostartInstaller` logic as the front door, synchronously from the
+one event loop (`daemon-reload` measured at ≈ 0.3 s, far below the 10 s deadline of the shell); the
+installer's messages go through a `TrayLog` whose redaction prefix is `$HOME`, like the front door.
+
+* **Properties:** `toggle-type` = `"checkmark"` (`s`), `toggle-state` = `1`/`0` as **`int32`**, not
+  `bool` — `ubuntu-appindicators` drops a mistyped value with "type mismatch" and shows no checkmark
+  (`dbusMenu.js:52-55,82-83`). Both are always present, as `visible` is.
+* **State:** the checkmark mirrors `systemctl --user is-enabled` (`enabled` → ticked, `disabled`/
+  `not-found` → unticked). `masked` greys the entry out with the `unmask` command below it; an
+  answer that is no measurement (no user manager, `systemctl` not runnable, unexpected word) greys
+  it out as unticked with "Autostart state unknown" — never as a switchable "off".
+* **When it is asked:** once at start, after **every** attempt, and whenever the shell sends
+  `opened` for the root (id 0) — so a change made in a terminal shows up on the next open. The
+  30 s store tick does not ask. Side effect of the refresh on open, intended: all time-dependent
+  lines ("Checked … ago", countdowns) are recomputed as well, so opening usually sends one
+  `ItemsPropertiesUpdated`.
+* **Click:** the direction is the reverse of the checkmark **shown at the click**. An attempt counts
+  as failed when the installer does not return 0 **or** the state asked afterwards is not the target
+  (`enabled` resp. `disabled`); then a line names the front-door command that prints the details.
+  After a masked outcome only the mask line shows. The failure line survives opening the menu — the
+  click closes it (gnome-shell `popupMenu.js:746-750,785-787`), so clearing on open would hide it —
+  and goes away with the next attempt or a different state. A second click that arrived while an
+  attempt was blocking the loop saw the old state; it is picked up right after the attempt and
+  discarded instead of reversing it.
 
 Exit 9 is only an abort in `--selftest`. In normal operation a missing watcher is not a reason to
 stop: the process says so once and registers as soon as the watcher appears.

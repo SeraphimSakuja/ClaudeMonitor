@@ -19,6 +19,10 @@ nothing: two releases of the same distribution can sit on either side of the lin
 | glibc ≥ 2.38 | `ldd --version \| head -1` |
 | GLIBCXX ≥ 3.4.32 | `strings -a $(ldconfig -p \| awk '/libstdc\+\+\.so\.6/ {print $NF; exit}') \| grep -oE 'GLIBCXX_[0-9.]+' \| sort -uV \| tail -1` |
 
+Starting it with your session (see below) additionally needs a **systemd user session** — without
+`systemctl --user` the tray still runs, but "Start at login" stays greyed out with "Autostart state
+unknown".
+
 Plus a desktop that shows `org.kde.StatusNotifierItem` items. On GNOME that means the
 `ubuntu-appindicators` (or `appindicatorsupport`) extension; KDE Plasma shows them out of the box.
 
@@ -96,6 +100,15 @@ systemctl --user unmask claude-monitor-tray.service
 claude-monitor-tray --install-autostart
 ```
 
+The same is one click away in the tray menu: **Start at login** carries a checkmark that mirrors
+`systemctl --user is-enabled`. Ticking it sets the service up, unticking it removes it; the state is
+read again after every attempt and whenever you open the menu, so a change made in a terminal shows
+up there too. Ticking it sets the unit up for the binary of the tray that is **running right now** —
+put the binary where it should stay first, then tick. Ticking starts nothing right away, and
+unticking does not end the tray that is running. If the unit is masked, the entry is greyed out and
+the line below it names the `systemctl --user unmask` command; if an attempt fails, the line below
+names the command that prints the details.
+
 Remove it again:
 
 ```sh
@@ -106,9 +119,10 @@ That removes the unit file and the `.wants` link. A mask stays as it is: it is y
 setting, not the program's. A tray process that is running right now keeps running until you log
 out.
 
-Two things the command refuses to do, by design: it never follows a symbolic link at the target
-path, and it never overwrites a unit file it did not write itself. In both cases it says so, leaves
-the file alone and exits with 10.
+Two things these commands refuse to do, by design: they never follow a symbolic link at the target
+path, and they never overwrite **or remove** a unit file this program did not write itself — the
+same holds for unticking "Start at login". In both cases they say so, leave the file alone and exit
+with 10.
 
 ## Exit codes
 
@@ -122,7 +136,7 @@ The process is judged by its exit code, not by "it printed nothing".
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out — unknown option, or something at the target path stands in the way (foreign file, symbolic link, mask). Nothing was overwritten |
+| 10 | autostart only: the request could not be carried out — unknown option, or something at the target path stands in the way (foreign file, symbolic link, mask). Nothing was overwritten or removed |
 | 11 | autostart only: **nothing could be measured** — no systemd user manager reachable, no home directory, or an unusable answer from `systemctl`. Explicitly not "not set up" |
 
 Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to. So is
@@ -141,9 +155,18 @@ stays one file with nothing to install alongside it.
 
 ## Removing it
 
+First remove the autostart — untick **Start at login** in the tray menu, or run:
+
+```sh
+~/.local/bin/claude-monitor-tray --uninstall-autostart
+```
+
+Then delete the binary:
+
 ```sh
 rm ~/.local/bin/claude-monitor-tray
 ```
 
-Nothing else is left behind: no configuration file, no cache, no service unit, no log file. The
-process writes to stderr and nowhere else.
+Deleting the binary alone would leave an enabled service behind that points at a missing file and
+fails at every login. Apart from that service unit nothing is left behind: no configuration file,
+no cache, no log file. The process writes to stderr and nowhere else.
