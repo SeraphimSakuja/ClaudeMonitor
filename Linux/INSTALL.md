@@ -122,7 +122,10 @@ out.
 Two things these commands refuse to do, by design: they never follow a symbolic link at the target
 path, and they never overwrite **or remove** a unit file this program did not write itself — the
 same holds for unticking "Start at login". In both cases they say so, leave the file alone and exit
-with 10.
+with 10. The same applies when systemd uses another unit file for `claude-monitor-tray.service`
+than the one at the target path, in whatever directory it lies (for example a hand-written one under
+`~/.config/systemd/user/`): nothing is written, enabled, disabled or removed, and the message names
+that file.
 
 ## Exit codes
 
@@ -136,8 +139,8 @@ The process is judged by its exit code, not by "it printed nothing".
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out — unknown option, or something at the target path stands in the way (foreign file, symbolic link, mask). Nothing was overwritten or removed |
-| 11 | autostart only: **nothing could be measured** — no systemd user manager reachable, no home directory, or an unusable answer from `systemctl`. Explicitly not "not set up" |
+| 10 | autostart only: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), or systemd uses another unit file of the same name. Nothing was overwritten or removed |
+| 11 | autostart only: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, or which unit file systemd uses could not be determined. Explicitly not "not set up" |
 
 Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to. So is
 exit 11 for the autostart commands there — without a session there is no user manager to ask.

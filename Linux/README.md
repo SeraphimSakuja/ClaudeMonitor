@@ -209,8 +209,8 @@ broken by accident. That holds for `--selftest` too.
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit). Nothing was overwritten or removed |
-| 11 | autostart only: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer |
+| 10 | autostart only: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit, systemd uses another unit file of the same name). Nothing was overwritten or removed |
+| 11 | autostart only: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer, the unit file systemd uses could not be determined |
 
 Exit 8 is the single-instance guard. Without it, an autostart instance plus a hand start — the
 normal case once autostart is set up — would put **two** entries in the panel, because the watcher
@@ -276,11 +276,25 @@ check as setting up, **before** `disable` and `unlink`: a symbolic link, a unit 
 marker or an unreadable file at the target path is left alone together with its activation (exit
 10) — otherwise unticking the menu entry below would delete a hand-written unit.
 
+Both commands also check **which unit file systemd actually uses** for the name (CM-32):
+`daemon-reload` first — without it a running service still reports the path from before the
+change —, then `systemctl --user show -p FragmentPath --value`. The value is read raw (only the
+line end is dropped; no trimming, no case folding). An empty value means systemd knows no file of
+that name. Any other file than the target path — same path or same device + inode counts as the
+same file —, in whatever directory, ends setting up and removal with exit 10 before anything is
+written, enabled, disabled or unlinked; `enable`/`disable`/`is-enabled` act on the name, so they
+would switch that other unit. If the file cannot be determined (`daemon-reload` or `show` failing,
+a value that is not absolute) the commands exit with 11 and change nothing. A masked unit is not
+checked this way — its FragmentPath is the mask link itself; instead removal refuses (exit 10) when
+a `.wants` link points at an existing file other than the own unit file. `--autostart-status` and
+the menu checkmark do not run this check.
+
 ### Menu entry "Start at login" (CM-30)
 
 The tray menu carries a checkable entry right after the content and before "Checked … ago" — the
 macOS order. It calls the same `AutostartInstaller` logic as the front door, synchronously from the
-one event loop (`daemon-reload` measured at ≈ 0.3 s, far below the 10 s deadline of the shell); the
+one event loop (`daemon-reload` measured at ≈ 0.3 s — setting up and removal run it twice since
+CM-32, still far below the 10 s deadline of the shell); the
 installer's messages go through a `TrayLog` whose redaction prefix is `$HOME`, like the front door.
 
 * **Properties:** `toggle-type` = `"checkmark"` (`s`), `toggle-state` = `1`/`0` as **`int32`**, not
