@@ -15,6 +15,14 @@ public enum AutostartUnit {
     /// * `5` — keine Sitzung (`DBUS_SESSION_BUS_ADDRESS` fehlt).
     /// * `8` — es läuft bereits eine Instanz.
     /// * `9` — kein `org.kde.StatusNotifierWatcher` auf dem Bus.
+    /// * `127` — der dynamische Lader fand eine Bibliothek nicht. Kein Code der
+    ///   App und keiner von systemd; trifft nur Builds ohne
+    ///   `--static-swift-stdlib`, deren RUNPATH in eine entfernte oder
+    ///   gewechselte Toolchain zeigt. Ein Neustart findet dieselbe Lücke.
+    /// * `203` — systemd konnte das Binary nicht ausführen (`203/EXEC`:
+    ///   gelöscht, verschoben, nicht ausführbar). Das ist kein Code der App,
+    ///   sondern ein Code von systemd; ein Neustart findet dieselbe Datei nicht
+    ///   wieder.
     ///
     /// **`7` steht bewusst NICHT hier** (Auflage 15a): Exit 7 kann nur
     /// `--selftest` erzeugen, und der Dienst startet das Binary ohne diesen
@@ -25,7 +33,7 @@ public enum AutostartUnit {
     /// Fehler, der von selbst vergeht (GNOME-Shell-Neustart, kurzer
     /// Bus-Hänger). Genau dort ist ein Neustart sinnvoll, und genau dafür ist
     /// `Restart=on-failure` da.
-    public static let restartPreventExitStatus = "5 8 9"
+    public static let restartPreventExitStatus = "5 8 9 127 203"
 
     /// Rendert die Unit für einen **absoluten** Binärpfad.
     ///

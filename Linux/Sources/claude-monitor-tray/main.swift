@@ -24,6 +24,12 @@ import TrayPresentation
 /// Sie sind eine Zusage an `CM-21`: Der systemd-Nutzerdienst unterscheidet
 /// daran „falsch eingerichtet" von „gescheitert" und entscheidet, ob ein
 /// Neustart überhaupt Sinn hat.
+///
+/// `127` und `203` sind vergeben, ohne dass die App sie nutzt: Die Unit
+/// schließt sie vom Neustart aus (Lader bzw. systemd, siehe
+/// `AutostartUnit.restartPreventExitStatus`). Ein künftiger Fall hier darf
+/// keinen der beiden Werte tragen, sonst würde er stillschweigend nie neu
+/// gestartet.
 enum TrayExit: Int32 {
     /// Normal beendet, oder `--selftest` erfolgreich.
     case ok = 0
