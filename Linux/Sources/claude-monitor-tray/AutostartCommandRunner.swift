@@ -90,7 +90,7 @@ struct PosixCommandRunner: CommandRunner {
 
         // Nacheinander gelesen und nicht über `poll`: Die einzigen Befehle,
         // die hier laufen, sind `systemctl --user is-enabled/is-active/
-        // daemon-reload/enable/disable`. Ihre Ausgabe ist ein paar Zeilen und
+        // daemon-reload/enable/disable` und `show -p FragmentPath --value`. Ihre Ausgabe ist ein paar Zeilen und
         // bleibt weit unter der Pipe-Puffergröße; ein Verklemmen setzte
         // voraus, dass der zweite Kanal 64 KiB füllt, während der erste noch
         // offen ist.

@@ -46,13 +46,15 @@ enum TrayExit: Int32 {
     /// wartet der Prozess auf den Watcher.
     case watcherMissing = 9
     /// Nur die Autostart-Unterbefehle: Die Bitte ließ sich nicht ausführen —
-    /// etwas am Zielort steht dagegen (fremde Datei, Symlink, Maske) oder der
-    /// Aufruf war nicht auswertbar (unbekanntes Argument). Der Zustand bleibt,
+    /// etwas am Zielort steht dagegen (fremde Datei, Symlink, Maske), systemd
+    /// lädt für den Namen eine andere Unit-Datei (CM-32), oder der Aufruf war
+    /// nicht auswertbar (unbekanntes Argument). Der Zustand bleibt,
     /// wie er war; es wurde nichts überschrieben.
     case autostartBlocked = 10
     /// Nur die Autostart-Unterbefehle: Es konnte **gar nichts gemessen** werden
-    /// — kein Nutzermanager erreichbar, kein Home ableitbar, oder `systemctl`
-    /// antwortet mit einem Zustand, der keine Auskunft ist. Ausdrücklich NICHT
+    /// — kein Nutzermanager erreichbar, kein Home ableitbar, `systemctl`
+    /// antwortet mit einem Zustand, der keine Auskunft ist, oder welche
+    /// Unit-Datei systemd lädt, ließ sich nicht bestimmen (CM-32). Ausdrücklich NICHT
     /// „nicht eingerichtet": Das wäre eine Aussage über eine Messung, die nicht
     /// stattgefunden hat.
     case autostartUnavailable = 11

@@ -128,6 +128,48 @@ public enum AutostartTexts {
             + "It was left untouched and autostart was not removed. Remove the link by hand."
     }
 
+    // MARK: - Andere wirksame Unit (CM-32)
+
+    /// Einrichten: systemd lädt für den Namen eine andere Datei.
+    ///
+    /// Neutral formuliert — die andere Datei kann auch in einem Verzeichnis
+    /// liegen, das systemd **nach** dem Zielverzeichnis durchsucht.
+    public static func shadowedNotInstalled(fragmentPath: String, unitPath: String) -> String {
+        "systemd uses \(fragmentPath) for \(AutostartPaths.unitName), not \(unitPath).\n"
+            + "Nothing was written or enabled — enabling would switch on that other unit. "
+            + "Move \(fragmentPath) aside and run --install-autostart again."
+    }
+
+    /// Entfernen: systemd lädt für den Namen eine andere Datei.
+    ///
+    /// Zwei getrennte Auswege: `disable` stoppt die andere Unit, lässt aber
+    /// die eigene Datei liegen — ein zweites `--uninstall-autostart` endete
+    /// wieder hier. Erst das Beiseitelegen der anderen Datei lässt es durch.
+    public static func shadowedNotRemoved(fragmentPath: String, unitPath: String) -> String {
+        "systemd uses \(fragmentPath) for \(AutostartPaths.unitName), not \(unitPath).\n"
+            + "Nothing was disabled or removed.\n"
+            + "To stop that unit from starting at login, run: systemctl --user disable \(AutostartPaths.unitName)\n"
+            + "Or move \(fragmentPath) aside and run --uninstall-autostart again; then this program's own unit file is removed."
+    }
+
+    /// Entfernen bei Maske: Ein `.wants`-Verweis zeigt auf eine andere Datei.
+    public static func foreignWantsLinkNotRemoved(linkPath: String, unitPath: String) -> String {
+        "The link \(linkPath) points at a unit file other than \(unitPath).\n"
+            + "Nothing was removed and the mask stays as it is. "
+            + "Remove that link by hand if it is not needed, then run --uninstall-autostart again."
+    }
+
+    /// Welche Datei systemd lädt, ließ sich nicht bestimmen.
+    public static func effectiveUnitUndetermined(reason: String) -> String {
+        "Could not determine which unit file systemd uses for \(AutostartPaths.unitName) (\(reason)).\n"
+            + "Nothing was changed."
+    }
+
+    /// `show` lieferte keinen absoluten Pfad.
+    public static func effectiveUnitUnusableValue(_ value: String) -> String {
+        effectiveUnitUndetermined(reason: "unexpected FragmentPath value \"\(value)\"")
+    }
+
     // MARK: - Nicht messbare Fälle
 
     /// Kein Nutzermanager erreichbar.

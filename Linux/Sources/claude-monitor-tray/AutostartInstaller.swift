@@ -9,7 +9,8 @@ import ClaudeMonitorShared
 /// Ergebnis melden.
 ///
 /// Die **Regeln** stehen im Ziel `Autostart` — Pfadauflösung, Unit-Text,
-/// Auswertung der `is-enabled`-Antwort, Entscheidungstabelle und sämtliche
+/// Auswertung der `is-enabled`- und der `show -p FragmentPath`-Antwort,
+/// Identitätsregel der wirksamen Unit, Entscheidungstabellen und sämtliche
 /// Texte. Hier steht nur, was ohne echtes Dateisystem und ohne echten
 /// Nutzermanager nicht geht (CM-20-Schichtung).
 struct AutostartInstaller {
@@ -39,9 +40,15 @@ struct AutostartInstaller {
 
         let before = currentReading()
         guard let stateBefore = usableState(before) else { return .autostartUnavailable }
+        guard let effective = effectiveUnit(layout: layout, state: stateBefore) else {
+            return .autostartUnavailable
+        }
 
         let target = probe(unitPath: layout.unitPath)
-        switch AutostartPlan.plan(target: target, status: before) {
+        switch AutostartPlan.plan(target: target, status: before, effectiveUnit: effective) {
+        case .refuseShadowed(let fragmentPath):
+            emit(AutostartTexts.shadowedNotInstalled(fragmentPath: fragmentPath, unitPath: layout.unitPath))
+            return .autostartBlocked
         case .refuseSymlink:
             emit(AutostartTexts.symlinkAtTarget(unitPath: layout.unitPath))
             return .autostartBlocked
@@ -129,11 +136,18 @@ struct AutostartInstaller {
         let before = currentReading()
         guard let stateBefore = usableState(before) else { return .autostartUnavailable }
 
-        // CM-30 · 2b-Auflage 3: Entfernt wird nur die eigene Unit. Geprüft
-        // VOR `disable` und `unlink` — eine fremde, aktivierte Unit am selben
-        // Pfad bleibt samt Aktivierung, wie sie ist.
+        // CM-30 · 2b-Auflage 3 / CM-32: Entfernt wird nur die eigene Unit.
+        // Geprüft VOR `disable` und `unlink` — die Datei am Zielpfad UND die
+        // Datei, die systemd für den Namen wirklich lädt. Eine fremde Unit
+        // bleibt samt Aktivierung, wie sie ist.
+        guard let effective = effectiveUnit(layout: layout, state: stateBefore) else {
+            return .autostartUnavailable
+        }
         let target = probe(unitPath: layout.unitPath)
-        switch AutostartRemovalPlan.plan(target: target) {
+        switch AutostartRemovalPlan.plan(target: target, effectiveUnit: effective) {
+        case .refuseShadowed(let fragmentPath):
+            emit(AutostartTexts.shadowedNotRemoved(fragmentPath: fragmentPath, unitPath: layout.unitPath))
+            return .autostartBlocked
         case .refuseSymlink:
             emit(AutostartTexts.symlinkNotRemoved(unitPath: layout.unitPath))
             return .autostartBlocked
@@ -151,6 +165,17 @@ struct AutostartInstaller {
             || layout.wantsLinkPaths.contains { pathExists($0) }
 
         if stateBefore == .requiresApproval {
+            // CM-32 · 2b-Auflage 5: Bei einer Maske ist die wirksame Unit nicht
+            // erhoben. Zeigt ein `.wants`-Verweis auf eine vorhandene andere
+            // Datei, gehört er zu einer fremden Unit und bleibt — mit allem.
+            let ownIdentity = regularFileIdentity(layout.unitPath)
+            for link in layout.wantsLinkPaths where AutostartRemovalPlan.isForeignWantsLink(
+                linkTarget: fileIdentity(followingLinks: link),
+                unitIdentity: ownIdentity
+            ) {
+                emit(AutostartTexts.foreignWantsLinkNotRemoved(linkPath: link, unitPath: layout.unitPath))
+                return .autostartBlocked
+            }
             // Die Maske selbst bleibt stehen: Sie ist eine Entscheidung des
             // Nutzers über systemd, nicht über diese App. Aufgehoben wird sie
             // von Hand (`systemctl --user unmask …`).
@@ -251,6 +276,50 @@ struct AutostartInstaller {
         )
     }
 
+    /// Misst, welche Unit-Datei systemd für den Namen lädt (CM-32) — oder
+    /// meldet, warum das nicht geht, und gibt `nil` zurück.
+    ///
+    /// Bei einer Maske wird nichts erhoben: FragmentPath ist dann der
+    /// Masken-Link selbst und sähe wie eine fremde Unit aus. Sonst erst
+    /// `daemon-reload` — ohne ihn meldet ein laufender Dienst den Pfad von vor
+    /// der Änderung —, dann `show`.
+    private func effectiveUnit(layout: AutostartPaths.Layout, state: LoginItemState) -> AutostartEffectiveUnit? {
+        guard state != .requiresApproval else { return .notMeasured }
+        let reading = AutostartStatus.fragmentReading(
+            reload: answer(systemctl(["daemon-reload"])),
+            show: { answer(systemctl(["show", "-p", "FragmentPath", "--value", AutostartPaths.unitName])) }
+        )
+        switch reading {
+        case .noUnitFile:
+            return .notShadowed
+        case .path(let fragmentPath):
+            return AutostartEffectiveUnit.compare(
+                fragmentPath: fragmentPath,
+                unitPath: layout.unitPath,
+                fragmentIdentity: fileIdentity(followingLinks: fragmentPath),
+                unitIdentity: regularFileIdentity(layout.unitPath)
+            )
+        case .didNotRun(let reason):
+            emit(AutostartTexts.systemctlUnavailable(reason: reason))
+        case .managerUnavailable:
+            emit(AutostartTexts.managerUnavailable)
+        case .failed(let reason):
+            emit(AutostartTexts.effectiveUnitUndetermined(reason: reason))
+        case .unusableValue(let value):
+            emit(AutostartTexts.effectiveUnitUnusableValue(value))
+        }
+        return nil
+    }
+
+    private func answer(_ outcome: CommandOutcome) -> AutostartStatus.Answer {
+        AutostartStatus.Answer(
+            exitStatus: outcome.exitStatus,
+            standardOutput: outcome.standardOutput,
+            standardError: outcome.standardError,
+            didRun: outcome.didRun
+        )
+    }
+
     /// Wandelt eine Messung in einen Schalterzustand — oder meldet, warum das
     /// nicht geht, und gibt `nil` zurück.
     private func usableState(_ reading: AutostartStatus.Reading) -> LoginItemState? {
@@ -307,6 +376,21 @@ struct AutostartInstaller {
                 unreadableReason: errnoName(errno)
             )
         }
+    }
+
+    /// Gerät + Inode der Datei, auf die `path` zeigt (`stat`, folgt Links);
+    /// `nil`, wenn `stat` scheitert.
+    private func fileIdentity(followingLinks path: String) -> AutostartEffectiveUnit.FileIdentity? {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        return AutostartEffectiveUnit.FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+    }
+
+    /// Gerät + Inode des Pfads SELBST (`lstat`), nur für eine reguläre Datei.
+    private func regularFileIdentity(_ path: String) -> AutostartEffectiveUnit.FileIdentity? {
+        var info = stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+        return AutostartEffectiveUnit.FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
 
     /// Ob am Pfad etwas liegt — auch ein toter Symlink zählt.

@@ -24,6 +24,52 @@ public struct AutostartTargetProbe: Equatable, Sendable {
     }
 }
 
+/// Die Unit-Datei, die systemd für `claude-monitor-tray.service` tatsächlich
+/// lädt, gemessen gegen den eigenen Zielpfad (CM-32).
+///
+/// `enable`, `disable` und `is-enabled` wirken über den **Namen**. Lädt
+/// systemd dafür eine andere Datei als `unitPath` — gleich in welchem
+/// Verzeichnis, auch wenn am Zielpfad gar keine liegt —, schaltete Einrichten
+/// die fremde Unit ein und Entfernen sie ab.
+public enum AutostartEffectiveUnit: Equatable, Sendable {
+    /// systemd lädt dieselbe Datei wie `unitPath`, oder gar keine.
+    case notShadowed
+    /// systemd lädt eine andere Datei.
+    case shadowed(path: String)
+    /// Nicht erhoben — bei einer Maske ist FragmentPath der Masken-Link selbst.
+    case notMeasured
+
+    /// Gerät und Inode einer Datei.
+    public struct FileIdentity: Equatable, Sendable {
+        public let device: UInt64
+        public let inode: UInt64
+
+        public init(device: UInt64, inode: UInt64) {
+            self.device = device
+            self.inode = inode
+        }
+    }
+
+    /// Die Identitätsregel: dieselbe Datei heißt gleicher Pfad **oder**
+    /// gleiches Gerät + Inode.
+    ///
+    /// - Parameters:
+    ///   - fragmentIdentity: `stat` des FragmentPath (folgt Links); `nil`, wenn
+    ///     `stat` scheiterte — dann gilt die Unit als fremd.
+    ///   - unitIdentity: `lstat` des Zielpfads, nur gesetzt für eine
+    ///     **reguläre** Datei.
+    public static func compare(
+        fragmentPath: String,
+        unitPath: String,
+        fragmentIdentity: FileIdentity?,
+        unitIdentity: FileIdentity?
+    ) -> AutostartEffectiveUnit {
+        if fragmentPath == unitPath { return .notShadowed }
+        if let fragmentIdentity, let unitIdentity, fragmentIdentity == unitIdentity { return .notShadowed }
+        return .shadowed(path: fragmentPath)
+    }
+}
+
 /// Die Entscheidung vor dem Schreiben — reine Tabelle, ohne Dateizugriff.
 public enum AutostartPlan: Equatable, Sendable {
 
@@ -45,6 +91,9 @@ public enum AutostartPlan: Equatable, Sendable {
     case refuseSymlink
     /// Der Nutzer hat die Unit maskiert; `enable` bliebe wirkungslos.
     case alreadyMaskedInform
+    /// systemd lädt für den Namen eine andere Datei als den Zielpfad (CM-32);
+    /// `enable` schaltete sie ein.
+    case refuseShadowed(fragmentPath: String)
 
     /// Die Entscheidungstabelle.
     ///
@@ -54,11 +103,18 @@ public enum AutostartPlan: Equatable, Sendable {
     /// 2. **Maske** vor „fremde Datei" — eine maskierte Unit kann nebenbei
     ///    eine reguläre Datei am Zielpfad haben; der Grund, warum nichts
     ///    wirkt, ist dann die Maske.
-    /// 3. **Fremde Datei** — vorhanden, aber ohne Marker.
-    /// 4. Sonst einrichten; eine eigene Datei wird dabei aufgefrischt.
-    public static func plan(target: AutostartTargetProbe, status: AutostartStatus.Reading) -> AutostartPlan {
+    /// 3. **Verschattet** — systemd lädt eine andere Datei; was am Zielpfad
+    ///    liegt, ist dann wirkungslos.
+    /// 4. **Unlesbar** bzw. **fremde Datei** — vorhanden, aber ohne Marker.
+    /// 5. Sonst einrichten; eine eigene Datei wird dabei aufgefrischt.
+    public static func plan(
+        target: AutostartTargetProbe,
+        status: AutostartStatus.Reading,
+        effectiveUnit: AutostartEffectiveUnit
+    ) -> AutostartPlan {
         if target.isSymlink { return .refuseSymlink }
         if status == .known(.requiresApproval) { return .alreadyMaskedInform }
+        if case .shadowed(let path) = effectiveUnit { return .refuseShadowed(fragmentPath: path) }
         if let reason = target.unreadableReason { return .refuseUnreadable(reason: reason) }
         if target.exists && !target.carriesMarker { return .refuseForeignFile }
         return .install
@@ -84,14 +140,41 @@ public enum AutostartRemovalPlan: Equatable, Sendable {
     case refuseUnreadable(reason: String)
     /// Der Zielpfad ist ein Symlink; diese Einrichtung legt dort nie einen an.
     case refuseSymlink
+    /// systemd lädt für den Namen eine andere Datei (CM-32). Weder `disable`
+    /// noch ein Löschen — auch die eigene, wirkungslose Datei bleibt liegen.
+    case refuseShadowed(fragmentPath: String)
 
-    /// Dieselbe Reihenfolge wie ``AutostartPlan/plan(target:status:)``, ohne
-    /// die Masken-Stufe: Beim Entfernen ist die Maske kein Hindernis, sie
-    /// bleibt nur stehen.
-    public static func plan(target: AutostartTargetProbe) -> AutostartRemovalPlan {
+    /// Dieselbe Reihenfolge wie
+    /// ``AutostartPlan/plan(target:status:effectiveUnit:)``, ohne die
+    /// Masken-Stufe: Beim Entfernen ist die Maske kein Hindernis, sie bleibt
+    /// nur stehen. Bei einer Maske ist `effectiveUnit` ``AutostartEffectiveUnit/notMeasured``.
+    public static func plan(
+        target: AutostartTargetProbe,
+        effectiveUnit: AutostartEffectiveUnit
+    ) -> AutostartRemovalPlan {
         if target.isSymlink { return .refuseSymlink }
+        if case .shadowed(let path) = effectiveUnit { return .refuseShadowed(fragmentPath: path) }
         if let reason = target.unreadableReason { return .refuseUnreadable(reason: reason) }
         if target.exists && !target.carriesMarker { return .refuseForeignFile }
         return .remove
+    }
+
+    /// Ob ein `.wants`-Verweis bei maskierter Unit auf eine **fremde** Datei
+    /// zeigt (CM-32, 2b-Auflage 5).
+    ///
+    /// Bei einer Maske wird die wirksame Unit nicht erhoben; die Verweise
+    /// würden rein über den Namen gelöscht. Zeigt einer auf eine vorhandene
+    /// Datei, die nicht die eigene ist, gehört er zu einer fremden Unit.
+    ///
+    /// - Parameters:
+    ///   - linkTarget: `stat` des Verweises (folgt dem Link); `nil` bei totem
+    ///     Verweis — der wird wie bisher aufgeräumt.
+    ///   - unitIdentity: `lstat` des Zielpfads, nur für eine reguläre Datei.
+    public static func isForeignWantsLink(
+        linkTarget: AutostartEffectiveUnit.FileIdentity?,
+        unitIdentity: AutostartEffectiveUnit.FileIdentity?
+    ) -> Bool {
+        guard let linkTarget else { return false }
+        return linkTarget != unitIdentity
     }
 }
