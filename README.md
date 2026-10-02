@@ -80,8 +80,9 @@ install -m 755 claude-monitor-tray-<version>/claude-monitor-tray ~/.local/bin/
 Requirements are two checkable numbers rather than distribution names — `glibc ≥ 2.38` and
 `GLIBCXX ≥ 3.4.32`, plus a panel that shows `org.kde.StatusNotifierItem` items. Distribution names
 would be the wrong unit here: two releases of the same distribution can sit on either side of that
-line. The full walkthrough, including the self-tests and the exit codes, is in
-[`Linux/INSTALL.md`](Linux/INSTALL.md).
+line. Updates are off until you turn them on: `claude-monitor-tray --update` checks once,
+`--install-auto-update` once a day. The full walkthrough, including the self-tests, updates and the
+exit codes, is in [`Linux/INSTALL.md`](Linux/INSTALL.md).
 
 ## Updates
 

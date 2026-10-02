@@ -127,6 +127,50 @@ than the one at the target path, in whatever directory it lies (for example a ha
 `~/.config/systemd/user/`): nothing is written, enabled, disabled or removed, and the message names
 that file.
 
+## Updates
+
+Updates are **off until you turn them on**. Without that step the binary starts no download of any
+kind. Check once by hand:
+
+```sh
+~/.local/bin/claude-monitor-tray --update
+```
+
+Or let it check once a day:
+
+```sh
+~/.local/bin/claude-monitor-tray --install-auto-update
+claude-monitor-tray --auto-update-status      # "enabled", plus the last failed run if there was one
+claude-monitor-tray --uninstall-auto-update   # turn it off again; takes effect at once
+```
+
+`--install-auto-update` writes two systemd **user** units next to the autostart unit —
+`~/.local/share/systemd/user/claude-monitor-tray-update.timer` and
+`claude-monitor-tray-update.service` — and enables the timer for `timers.target`. Nothing is
+started right away: the first check runs 15 minutes after your next login, then once a day. The same
+safety rules as for the autostart unit apply to both files (symbolic link, foreign file, mask,
+another unit file of the same name). `--uninstall-auto-update` disables and stops the timer and
+removes both files, so no further check runs in this session.
+
+What an update does, in this order: it reads the manifest `linux-latest.json` from this project's
+GitHub Pages, compares its build number with the running one (never a downgrade), checks the
+compatibility floor of this machine, downloads the tarball from this project's GitHub Releases —
+the address is fixed in the program, not taken from the manifest —, checks its size and its sha256
+from the manifest, unpacks only the binary, starts it once with `--version` as a load test and
+then puts it in place of the old one with a single `rename`. If the autostart unit is set up for
+exactly this binary, the tray service is restarted; otherwise you are told to restart the tray.
+
+It needs `curl` or, failing that, `wget`, and the directory the binary lies in must be writable
+for you — `~/.local/bin` is, `/usr/local/bin` is not. Otherwise `--install-auto-update` refuses
+with 10 and `--update` with 13, before anything is downloaded. While it runs, `--update` locks that
+directory, so a second update at the same time stops with 13.
+
+There is no way back: after the `rename` the previous binary is gone. To return to an older
+version, download it by hand as described above.
+
+An update replaces the binary only. It does not rewrite the unit files — they stay as they were
+written when you set them up.
+
 ## Exit codes
 
 The process is judged by its exit code, not by "it printed nothing".
@@ -139,11 +183,14 @@ The process is judged by its exit code, not by "it printed nothing".
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), or systemd uses another unit file of the same name. Nothing was overwritten or removed |
-| 11 | autostart only: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, or which unit file systemd uses could not be determined. Explicitly not "not set up" |
+| 10 | autostart and auto-update commands: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), systemd uses another unit file of the same name, or (auto-update) the binary's directory is not writable. Nothing was overwritten or removed |
+| 11 | autostart and auto-update commands: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, or which unit file systemd uses could not be determined. Explicitly not "not set up" |
+| 12 | `--update` only: **nothing could be checked** — neither `curl` nor `wget`, a network or HTTP error, a timeout, or no manifest at all. Explicitly not "up to date" |
+| 13 | `--update` only: the update was **refused** — the manifest is invalid or in another format, size or checksum do not match, the machine is below the floor, the load test failed, the directory is not writable, or another update is running. The installed binary is unchanged |
 
 Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to. So is
-exit 11 for the autostart commands there — without a session there is no user manager to ask.
+exit 11 for the autostart and auto-update commands there — without a session there is no user
+manager to ask.
 
 ## If it does not start
 
@@ -158,7 +205,13 @@ stays one file with nothing to install alongside it.
 
 ## Removing it
 
-First remove the autostart — untick **Start at login** in the tray menu, or run:
+First turn off automatic updates, if you set them up:
+
+```sh
+~/.local/bin/claude-monitor-tray --uninstall-auto-update
+```
+
+Then remove the autostart — untick **Start at login** in the tray menu, or run:
 
 ```sh
 ~/.local/bin/claude-monitor-tray --uninstall-autostart
@@ -171,5 +224,7 @@ rm ~/.local/bin/claude-monitor-tray
 ```
 
 Deleting the binary alone would leave an enabled service behind that points at a missing file and
-fails at every login. Apart from that service unit nothing is left behind: no configuration file,
-no cache, no log file. The process writes to stderr and nowhere else.
+fails at every login — and, with automatic updates on, a timer whose service fails once a day.
+Apart from those units nothing is left behind: no configuration file, no cache, no log file. The
+tray process writes to stderr and nowhere else; only `--update` writes, and only the binary
+itself (plus a temporary directory it removes again).

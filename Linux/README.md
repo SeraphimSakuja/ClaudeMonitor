@@ -170,6 +170,7 @@ who downloaded it, not for this repository.
 | `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
 | `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the "Start at login" transitions (`TrayAutostartDisplay`) |
 | `Autostart` | library | the rules of the systemd user service: paths from an injected environment, unit text, `is-enabled` mapping, set-up/removal decision tables, texts |
+| `Update` | library | the rules of the Linux auto-update (CM-29): fixed addresses, manifest check, build comparison, glibc floor, `--version` contract, mapping of `curl`/`wget` exit codes, timer/service unit texts, texts. Depends on `Autostart` for the one `ExecStart=` quoting rule |
 | `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
 | `TrayTests` | test | the proof slot for the two libraries |
 
@@ -195,9 +196,12 @@ exit contract below. With it, `write` returns `EPIPE`, the teardown surfaces on 
 and the loop leaves with exit 6. The switch covers the tray process only — the `claude-monitor`
 smoke tool keeps dying on `SIGPIPE` when piped, as a CLI should.
 
-It is strictly read-only, like the smoke tool: it never writes, never locks and never calls
-`SnapshotStore.write` — the tray targets do not even link `SnapshotStore`, so the promise cannot be
-broken by accident. That holds for `--selftest` too.
+The tray process is strictly read-only, like the smoke tool: it never writes, never locks and never
+calls `SnapshotStore.write` — the tray targets do not even link `SnapshotStore`, so the promise
+cannot be broken by accident. That holds for `--selftest` too. The only writers are the
+subcommands: the unit commands write their units (`--install-autostart`; `--install-auto-update`,
+timer and service), and `--update` replaces the binary itself and locks its directory with `flock`
+while doing so. None of them touches `usage.json`.
 
 ## Exit contract
 
@@ -209,8 +213,13 @@ broken by accident. That holds for `--selftest` too.
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart only: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit, systemd uses another unit file of the same name). Nothing was overwritten or removed |
-| 11 | autostart only: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer, the unit file systemd uses could not be determined |
+| 10 | autostart and auto-update commands: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit, systemd uses another unit file of the same name; auto-update: binary directory not writable). Nothing was overwritten or removed |
+| 11 | autostart and auto-update commands: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer, the unit file systemd uses could not be determined |
+| 12 | `--update` only: nothing could be **checked** — no `curl`/`wget`, network or HTTP error, timeout, no manifest. Never "up to date" |
+| 13 | `--update` only: **refused** — manifest invalid or another schema, size/sha256 mismatch, below the glibc floor, load test failed, directory not writable, another update running. The binary is unchanged |
+
+12 and 13 come only from `--update`; the resident tray never ends with them, so
+`RestartPreventExitStatus` of the autostart unit stays as it is.
 
 Exit 8 is the single-instance guard. Without it, an autostart instance plus a hand start — the
 normal case once autostart is set up — would put **two** entries in the panel, because the watcher
@@ -218,10 +227,11 @@ keys items by `busName@objectPath`.
 
 ## Autostart (`--install-autostart`)
 
-Three front-door subcommands, all of them evaluated **before** the bus is touched, because none of
-them needs a bus: `--install-autostart`, `--uninstall-autostart`, `--autostart-status`. Any other
-`--` argument is refused with exit 10 instead of silently falling through into the resident tray —
-a typo must not look like a successful setup.
+Front-door subcommands, all of them evaluated **before** the bus is touched, because none of them
+needs a bus: `--install-autostart`, `--uninstall-autostart`, `--autostart-status` and, since CM-29,
+`--version`, `--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`.
+Each one only on its own. Any other `--` argument is refused with exit 10 instead of silently
+falling through into the resident tray — a typo must not look like a successful setup.
 
 The unit is generated at install time, not shipped:
 
@@ -290,6 +300,75 @@ a value that is not absolute) the commands exit with 11 and change nothing. A ma
 checked this way — its FragmentPath is the mask link itself; instead removal refuses (exit 10) when
 a `.wants` link points at an existing file other than the own unit file. `--autostart-status` and
 the menu checkmark do not run this check.
+
+### Auto-update units (`--install-auto-update`, CM-29)
+
+`--install-auto-update`, `--uninstall-auto-update` and `--auto-update-status` run through the same
+`AutostartInstaller` chain as the autostart commands, parametrised by a `ManagedUnit` descriptor
+(name, enableable or static, marker, rendered text, text set) — the autostart output is unchanged.
+Two units are written next to the autostart unit:
+
+```ini
+# generated by claude-monitor-tray --install-auto-update
+[Unit]
+Description=ClaudeMonitor tray: daily update check
+
+[Timer]
+OnStartupSec=15min
+OnUnitActiveSec=1d
+
+[Install]
+WantedBy=timers.target
+```
+
+```ini
+# generated by claude-monitor-tray --install-auto-update
+[Unit]
+Description=ClaudeMonitor tray: install an available update
+
+[Service]
+Type=oneshot
+ExecStart=/absolute/path/to/claude-monitor-tray --update
+TimeoutStartSec=30min
+```
+
+* **Only the timer is enabled**, without `--now`: the first check comes 15 min after the user
+  manager starts, then daily. **No `Persistent=`** — it would make systemd keep a timestamp file.
+* **The service is static** (no `[Install]`): `is-enabled` answers `static`, which the installer
+  reads as "present, not masked" (`masked` = mask, `not-found` = absent) instead of an unexpected
+  word. Both files are measured and planned (symlink, mask, foreign file, unreadable, other unit
+  file of the same name) **before** either is written; if one is refused, none is written.
+* **`TimeoutStartSec=30min`** — a `oneshot` has no start limit otherwise; a hanging download would
+  leave the service "activating" and the timer would never fire it again. The value is above the
+  sum of the single limits (manifest 120 s, tarball 600 s, load test 30 s).
+* **Removal** disables **and stops** the timer — no check runs in this session any more — and
+  removes both files. `--auto-update-status` reports the timer's `is-enabled` and, when the last
+  run of the service ended with 12 or 13 (`show -p Result,ExecMainStatus,ExecMainExitTimestamp`),
+  that run with its code and time; the exit stays 0.
+* Setting up refuses with 10 when the binary's directory is not writable — the service could never
+  replace the binary there.
+
+`--update` (`UpdateClient`) never uses `URLSession`: with `--static-swift-stdlib` it would pull
+`libcurl`, `libssl` and more into the binary, far beyond the six sonames. It starts `curl` instead —
+always with `-q` first (no `~/.curlrc`), `--proto =https --proto-redir =https`, `--max-filesize`
+and `--max-time` — and **only if `curl` cannot be spawned (`ENOENT`)** `wget`, under `timeout`,
+with `--no-config` and `--hsts-file` inside its private temporary directory (otherwise
+`~/.wget-hsts` would stay behind) and, for the manifest, `--max-redirect=0`. A failed `curl` run
+never falls back to `wget`. `curl` 63 (larger than announced) and 1 (redirect to a non-https
+address) count as refused (13); everything else is "nothing checked" (12). The manifest must be at
+most 65536 bytes, schema 1, and name exactly the download address the program builds itself; the
+tarball's origin is then secured by the sha256 from a redirect-free https manifest. The directory
+is locked with `flock` on an `O_CLOEXEC` descriptor (no lock file), the new binary is staged next
+to the old one with `O_EXCL|O_NOFOLLOW`, `fchmod 0755` (the umask does not apply) and `fsync`, load
+tested with `--version` and moved into place with `rename`. A restart (`systemctl --user
+try-restart claude-monitor-tray.service`) only happens after the same `daemon-reload` + `show -p
+FragmentPath` check as above, when systemd loads the own autostart unit, it carries the marker and
+it equals the unit rendered for the replaced path; otherwise the message asks to restart the tray.
+
+`--version` prints `claude-monitor-tray <version> (build <n>)` on **stdout** and exits 0. That line
+and its channel are a frozen contract between versions: every installed client compares it
+character for character before replacing itself; `scripts/release-linux.sh` checks it on the built
+and on the unpacked binary.
 
 ### Menu entry "Start at login" (CM-30)
 
