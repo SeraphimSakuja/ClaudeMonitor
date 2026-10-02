@@ -227,4 +227,5 @@ Deleting the binary alone would leave an enabled service behind that points at a
 fails at every login — and, with automatic updates on, a timer whose service fails once a day.
 Apart from those units nothing is left behind: no configuration file, no cache, no log file. The
 tray process writes to stderr and nowhere else; only `--update` writes, and only the binary
-itself (plus a temporary directory it removes again).
+itself (plus a temporary directory it removes again — unless the process is killed from
+outside, for example by `TimeoutStartSec`; then `claude-monitor-tray-update.*` can stay in `$TMPDIR`).
