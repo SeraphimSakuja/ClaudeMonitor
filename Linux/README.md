@@ -237,7 +237,7 @@ Type=simple
 ExecStart=/absolute/path/to/claude-monitor-tray
 Restart=on-failure
 RestartSec=5
-RestartPreventExitStatus=5 8 9 127 203
+RestartPreventExitStatus=5 8 127 203
 
 [Install]
 WantedBy=graphical-session.target
@@ -251,13 +251,14 @@ Why it looks like that:
   — the normal way in `INSTALL.md` — `argv[0]` is just `claude-monitor-tray`, and systemd would fail
   with `203/EXEC` at the next login, long after "set up" was printed. The path is checked (absolute,
   regular file, executable) before anything is written, and quoted if it contains spaces.
-* **`RestartPreventExitStatus=5 8 9 127 203`** — no session, another instance, no watcher: conditions a
+* **`RestartPreventExitStatus=5 8 127 203`** — no session, another instance: conditions a
   restart cannot fix. **203** is systemd's own code for `ExecStart` failing (`203/EXEC`) — the binary
   was deleted, moved or lost its execute bit; restarting finds the same missing file, so the service
   fails once per login and stays `failed` instead of retrying every 5 s. **127** comes from the dynamic
   loader when a shared library is missing — only builds without `--static-swift-stdlib`, whose
-  RUNPATH points into a removed or switched toolchain; a restart hits the same gap. **7 is deliberately absent** (it can only come from `--selftest`, which the
-  service never runs), and so is **6**: a bus teardown is the one failure that does pass, and
+  RUNPATH points into a removed or switched toolchain; a restart hits the same gap. **7 and 9 are deliberately absent** (they can only come from `--selftest`, which the
+  service never runs; without a watcher the process waits instead of exiting),
+  and so is **6**: a bus teardown is the one failure that does pass, and
   restarting after it is exactly right.
 * **No `Environment=` line** — `systemd --user` already carries `DBUS_SESSION_BUS_ADDRESS`, `HOME`
   and `XDG_RUNTIME_DIR` (measured via `systemctl --user show-environment`). A copy here would be a

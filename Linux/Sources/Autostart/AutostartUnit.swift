@@ -14,7 +14,6 @@ public enum AutostartUnit {
     ///
     /// * `5` — keine Sitzung (`DBUS_SESSION_BUS_ADDRESS` fehlt).
     /// * `8` — es läuft bereits eine Instanz.
-    /// * `9` — kein `org.kde.StatusNotifierWatcher` auf dem Bus.
     /// * `127` — der dynamische Lader fand eine Bibliothek nicht. Kein Code der
     ///   App und keiner von systemd; trifft nur Builds ohne
     ///   `--static-swift-stdlib`, deren RUNPATH in eine entfernte oder
@@ -24,16 +23,18 @@ public enum AutostartUnit {
     ///   sondern ein Code von systemd; ein Neustart findet dieselbe Datei nicht
     ///   wieder.
     ///
-    /// **`7` steht bewusst NICHT hier** (Auflage 15a): Exit 7 kann nur
-    /// `--selftest` erzeugen, und der Dienst startet das Binary ohne diesen
-    /// Schalter — ein Ausschluss für einen Code, der im Dienst nie vorkommt,
-    /// wäre toter Text.
+    /// **`7` und `9` stehen bewusst NICHT hier**: Beide kann nur `--selftest`
+    /// erzeugen, und der Dienst startet das Binary ohne diesen Schalter — ein
+    /// Ausschluss für einen Code, der im Dienst nie vorkommt, wäre toter Text.
+    /// `7` = Abfragefolge blieb aus, Auflage 15a. `9` = kein
+    /// `org.kde.StatusNotifierWatcher` auf dem Bus (CM-33); ohne Watcher wartet
+    /// der Prozess im Normalbetrieb, statt zu enden.
     ///
     /// **`6` steht ebenfalls bewusst NICHT hier**: Ein Busabriss ist der eine
     /// Fehler, der von selbst vergeht (GNOME-Shell-Neustart, kurzer
     /// Bus-Hänger). Genau dort ist ein Neustart sinnvoll, und genau dafür ist
     /// `Restart=on-failure` da.
-    public static let restartPreventExitStatus = "5 8 9 127 203"
+    public static let restartPreventExitStatus = "5 8 127 203"
 
     /// Rendert die Unit für einen **absoluten** Binärpfad.
     ///
