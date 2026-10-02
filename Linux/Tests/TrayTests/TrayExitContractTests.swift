@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Autostart
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -677,18 +678,21 @@ struct TrayExitContractTests {
     static func autostartLauf(
         _ argumente: [String],
         umgebung: [String: String],
-        ueberPfad: Bool = false
+        ueberPfad: Bool = false,
+        binaer: String? = nil,
+        umask077: Bool = false
     ) throws -> (code: Int32, ausgabe: String) {
         var rohre: [Int32] = [-1, -1]
         #expect(pipe(&rohre) == 0)
         let leseEnde = rohre[0]
         let schreibEnde = rohre[1]
+        let ziel = binaer ?? Self.trayBinaer
         let kind = try #require(
             Self.starte(
-                binaer: ueberPfad ? "/bin/sh" : Self.trayBinaer,
+                binaer: ueberPfad || umask077 ? "/bin/sh" : ziel,
                 argumente: ueberPfad
                     ? ["-c", "exec claude-monitor-tray " + argumente.joined(separator: " ")]
-                    : argumente,
+                    : umask077 ? ["-c", "umask 077; exec \"$0\" \"$@\"", ziel] + argumente : argumente,
                 umgebung: umgebung,
                 stderrZiel: schreibEnde,
                 imKindSchliessen: [leseEnde]
@@ -1098,5 +1102,300 @@ struct TrayExitContractTests {
         let zweiter = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, ueberPfad: true)
         #expect(zweiter.code == 0, "Meldung: \(zweiter.ausgabe)")
         #expect(zweiter.ausgabe.contains("systemd uses") == false, "Meldung: \(zweiter.ausgabe)")
+    }
+
+    // MARK: - Fälle 13 bis 15 (CM-29 · Auto-Update)
+    //
+    // `--update` ersetzt `/proc/self/exe`: gestartet wird deshalb immer eine
+    // KOPIE des gebauten Binarys in `<home>/bin/`, nie `trayBinaer` selbst.
+
+    /// Kopiert das gebaute Tray-Binary nach `<home>/bin/claude-monitor-tray`.
+    static func binaerKopie(in home: URL) throws -> URL {
+        let verzeichnis = home.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: verzeichnis, withIntermediateDirectories: true)
+        let kopie = verzeichnis.appendingPathComponent("claude-monitor-tray")
+        try FileManager.default.copyItem(atPath: trayBinaer, toPath: kopie.path)
+        return kopie
+    }
+
+    /// Führt ein Werkzeug des Containers aus und liefert seine Standardausgabe.
+    static func werkzeug(_ pfad: String, _ argumente: [String]) throws -> String {
+        let prozess = Process()
+        prozess.executableURL = URL(fileURLWithPath: pfad)
+        prozess.arguments = argumente
+        let rohr = Pipe()
+        prozess.standardOutput = rohr
+        try prozess.run()
+        let daten = rohr.fileHandleForReading.readDataToEndOfFile()
+        prozess.waitUntilExit()
+        #expect(prozess.terminationStatus == 0, "\(pfad) \(argumente)")
+        return String(decoding: daten, as: UTF8.self)
+    }
+
+    /// Ein Test-Tarball `claude-monitor-tray-9.9.9/claude-monitor-tray`, dessen
+    /// „Binary" ein Shell-Skript ist, das `versionsZeile` ausgibt.
+    static func testTarball(in verzeichnis: URL, versionsZeile: String) throws
+        -> (datei: URL, skript: Data, sha256: String, groesse: Int) {
+        let dateien = FileManager.default
+        let paket = verzeichnis.appendingPathComponent("claude-monitor-tray-9.9.9", isDirectory: true)
+        try dateien.createDirectory(at: paket, withIntermediateDirectories: true)
+        let skript = Data("#!/bin/sh\necho \"\(versionsZeile)\"\n".utf8)
+        let binaer = paket.appendingPathComponent("claude-monitor-tray")
+        try skript.write(to: binaer)
+        try dateien.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaer.path)
+        let tarball = verzeichnis.appendingPathComponent("claude-monitor-tray-9.9.9-linux-x86_64.tar.gz")
+        _ = try werkzeug("/usr/bin/tar", ["-czf", tarball.path, "-C", verzeichnis.path, "claude-monitor-tray-9.9.9"])
+        let summe = try werkzeug("/usr/bin/sha256sum", [tarball.path])
+        let groesse = try #require(try dateien.attributesOfItem(atPath: tarball.path)[.size] as? NSNumber)
+        return (tarball, skript, String(summe.prefix(64)), groesse.intValue)
+    }
+
+    /// Das Manifest `linux-latest.json` für Version 9.9.9.
+    static func manifest(build: Int, glibc: String, sha256: String, groesse: Int) -> Data {
+        Data("""
+            {"schemaVersion": 1, "product": "claude-monitor-tray", "platform": "linux-x86_64",
+             "version": "9.9.9", "buildVersion": \(build),
+             "url": "https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v9.9.9/claude-monitor-tray-9.9.9-linux-x86_64.tar.gz",
+             "sha256": "\(sha256)", "size": \(groesse), "minimum": {"glibc": "\(glibc)"}}
+            """.utf8)
+    }
+
+    // MARK: - Fall 13 (CM-29 · T1)
+
+    /// Auto-Update einrichten, Status, abschalten: ein Paar aus statischem
+    /// Service und Timer, nie ein Netzzugriff.
+    @Test("CM-29: Auto-Update einrichten, Status, abschalten — Paar aus Service und Timer, kein Netz")
+    func CM29_autoUpdate_einrichtenStatusAbschalten() throws {
+        let dateien = FileManager.default
+        let home = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: home) }
+        let kopie = try Self.binaerKopie(in: home)
+        let attrappe = try AutostartSystemctlStub(home: home)
+        let abruf = try attrappe.abrufAttrappen()
+        let unitVerzeichnis = home.appendingPathComponent(".local/share/systemd/user", isDirectory: true)
+        let servicePfad = unitVerzeichnis.appendingPathComponent("claude-monitor-tray-update.service").path
+        let timerPfad = unitVerzeichnis.appendingPathComponent("claude-monitor-tray-update.timer").path
+        let marker = "# generated by claude-monitor-tray --install-auto-update"
+
+        func umgebung(timer: String, timerRC: Int32 = 0, schaltetUm: Bool = false, show: String = "") -> [String: String] {
+            attrappe.umgebung(
+                isEnabled: timer,
+                isEnabledRC: timerRC,
+                show: show,
+                serviceIsEnabled: "static",
+                enableSchaltetUm: schaltetUm,
+                zusaetzlich: abruf.umgebung
+            )
+        }
+
+        // (a) Eine fremde Datei ohne Marker am Timer-Pfad: nichts wird geschrieben.
+        try dateien.createDirectory(at: unitVerzeichnis, withIntermediateDirectories: true)
+        try Data("[Timer]\nOnBootSec=1\n".utf8).write(to: URL(fileURLWithPath: timerPfad))
+        let a = try Self.autostartLauf(
+            ["--install-auto-update"],
+            umgebung: umgebung(timer: "disabled", timerRC: 1, schaltetUm: true),
+            binaer: kopie.path
+        )
+        #expect(a.code == 10, "Meldung: \(a.ausgabe)")
+        #expect(Self.pfadVorhanden(servicePfad) == false, "Die Service-Datei blieb liegen")
+
+        // (b) Fremde Datei weg: beide Units geschrieben, nur der Timer eingeschaltet.
+        try dateien.removeItem(atPath: timerPfad)
+        let b = try Self.autostartLauf(
+            ["--install-auto-update"],
+            umgebung: umgebung(timer: "disabled", timerRC: 1, schaltetUm: true),
+            binaer: kopie.path
+        )
+        #expect(b.code == 0, "Meldung: \(b.ausgabe)")
+        let serviceText = try String(contentsOfFile: servicePfad, encoding: .utf8)
+        let timerText = try String(contentsOfFile: timerPfad, encoding: .utf8)
+        #expect(serviceText.hasPrefix(marker + "\n"), "Service:\n\(serviceText)")
+        #expect(timerText.hasPrefix(marker + "\n"), "Timer:\n\(timerText)")
+        #expect(serviceText.contains("\nTimeoutStartSec="), "Service:\n\(serviceText)")
+        #expect(serviceText.contains("\nExecStart=\(kopie.path) --update\n"), "Service:\n\(serviceText)")
+        var aufrufe = attrappe.aufrufe()
+        #expect(aufrufe.contains("--user enable claude-monitor-tray-update.timer"), "Aufrufe: \(aufrufe)")
+        #expect(aufrufe.contains { $0.contains("--now") || Self.hatWort($0, "start") } == false, "Aufrufe: \(aufrufe)")
+
+        // (c) Zweites Einrichten, Timer ist jetzt eingeschaltet.
+        let c = try Self.autostartLauf(
+            ["--install-auto-update"],
+            umgebung: umgebung(timer: "enabled"),
+            binaer: kopie.path
+        )
+        #expect(c.code == 0, "Meldung: \(c.ausgabe)")
+
+        // (d) Status nennt den letzten gescheiterten Lauf.
+        let d = try Self.autostartLauf(
+            ["--auto-update-status"],
+            umgebung: umgebung(
+                timer: "enabled",
+                show: "Result=exit-code\nExecMainStatus=13\nExecMainExitTimestamp=Fri 2026-10-02 10:00:00 UTC"
+            ),
+            binaer: kopie.path
+        )
+        #expect(d.code == 0, "Meldung: \(d.ausgabe)")
+        #expect(d.ausgabe.contains("exit 13"), "Meldung: \(d.ausgabe)")
+
+        // (e) Abschalten: Timer gestoppt, beide Dateien weg.
+        let e = try Self.autostartLauf(
+            ["--uninstall-auto-update"],
+            umgebung: umgebung(timer: "enabled"),
+            binaer: kopie.path
+        )
+        #expect(e.code == 0, "Meldung: \(e.ausgabe)")
+        #expect(Self.pfadVorhanden(servicePfad) == false)
+        #expect(Self.pfadVorhanden(timerPfad) == false)
+        aufrufe = attrappe.aufrufe()
+        #expect(aufrufe.contains("--user stop claude-monitor-tray-update.timer"), "Aufrufe: \(aufrufe)")
+
+        // FE 1: Ohne `--update` kein Netz — über die ganze Kette.
+        #expect(abruf.curlAufrufe().isEmpty, "curl: \(abruf.curlAufrufe())")
+        #expect(abruf.wgetAufrufe().isEmpty, "wget: \(abruf.wgetAufrufe())")
+    }
+
+    // MARK: - Fall 14 (CM-29 · T2)
+
+    /// `--update` bei fünf Serverzuständen: jede Ablehnung lässt das
+    /// installierte Binary unberührt.
+    @Test("CM-29: Update-Lauf — Ablehnungen lassen das installierte Binary unberührt")
+    func CM29_updateLauf_ablehnungenLassenBinaryUnberuehrt() throws {
+        let dateien = FileManager.default
+        let home = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: home) }
+        let kopie = try Self.binaerKopie(in: home)
+        let ausgangsstand = try Data(contentsOf: kopie)
+        let attrappe = try AutostartSystemctlStub(home: home)
+        let abruf = try attrappe.abrufAttrappen()
+        let temp = home.appendingPathComponent("t", isDirectory: true)
+        try dateien.createDirectory(at: temp, withIntermediateDirectories: true)
+        let umgebung = attrappe.umgebung(
+            isEnabled: "enabled",
+            zusaetzlich: abruf.umgebung.merging(["TMPDIR": temp.path]) { $1 }
+        )
+        let gut = try Self.testTarball(
+            in: home.appendingPathComponent("gut", isDirectory: true),
+            versionsZeile: "claude-monitor-tray 9.9.9 (build 999)"
+        )
+        let falsch = try Self.testTarball(
+            in: home.appendingPathComponent("falsch", isDirectory: true),
+            versionsZeile: "claude-monitor-tray 9.9.8 (build 999)"
+        )
+        let tarballName = "claude-monitor-tray-9.9.9-linux-x86_64.tar.gz"
+
+        func laufen(_ schritt: String) throws -> (code: Int32, ausgabe: String) {
+            let lauf = try Self.autostartLauf(["--update"], umgebung: umgebung, binaer: kopie.path)
+            #expect(try Data(contentsOf: kopie) == ausgangsstand, "\(schritt): Binary verändert")
+            #expect(
+                Self.pfadVorhanden(kopie.deletingLastPathComponent().appendingPathComponent(".claude-monitor-tray.update-new").path) == false,
+                "\(schritt): Staging-Datei blieb liegen"
+            )
+            #expect(try dateien.contentsOfDirectory(atPath: temp.path).isEmpty, "\(schritt): Temp nicht leer")
+            return lauf
+        }
+
+        // (a) Manifest-Abruf scheitert mit curl 22 ⇒ nichts gemessen.
+        try abruf.scheitert("linux-latest.json", mitCode: 22)
+        let a = try laufen("a")
+        #expect(a.code == 12, "Meldung: \(a.ausgabe)")
+        #expect(a.ausgabe.contains("up to date") == false, "Meldung: \(a.ausgabe)")
+        #expect(abruf.wgetAufrufe().isEmpty, "wget: \(abruf.wgetAufrufe())")
+
+        // (b) Manifest nennt die eigene Build-Nummer ⇒ aktuell, genau ein Abruf.
+        try abruf.zuruecksetzen()
+        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+            build: 3, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
+        ))
+        let b = try laufen("b")
+        #expect(b.code == 0, "Meldung: \(b.ausgabe)")
+        #expect(b.ausgabe.contains("up to date"), "Meldung: \(b.ausgabe)")
+        #expect(abruf.curlAufrufe().count == 1, "curl: \(abruf.curlAufrufe())")
+
+        // (c) Neuere Fassung, der Tarball-Abruf endet mit curl 63 ⇒ abgelehnt.
+        try abruf.zuruecksetzen()
+        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
+        ))
+        try abruf.scheitert(tarballName, mitCode: 63)
+        let c = try laufen("c")
+        #expect(c.code == 13, "Meldung: \(c.ausgabe)")
+
+        // (d) Gültiger Tarball, aber das Binary meldet eine andere Version ⇒ abgelehnt.
+        try abruf.zuruecksetzen()
+        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+            build: 999, glibc: "2.17", sha256: falsch.sha256, groesse: falsch.groesse
+        ))
+        try abruf.liefert(tarballName, inhalt: Data(contentsOf: falsch.datei))
+        let d = try laufen("d")
+        #expect(d.code == 13, "Meldung: \(d.ausgabe)")
+
+        // (e) Kompatibilitätsboden über dieser glibc ⇒ abgelehnt, kein Tarball-Abruf.
+        try abruf.zuruecksetzen()
+        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+            build: 999, glibc: "2.100", sha256: gut.sha256, groesse: gut.groesse
+        ))
+        try abruf.liefert(tarballName, inhalt: Data(contentsOf: gut.datei))
+        let e = try laufen("e")
+        #expect(e.code == 13, "Meldung: \(e.ausgabe)")
+        #expect(abruf.curlAufrufe().contains { $0.contains(".tar.gz") } == false, "curl: \(abruf.curlAufrufe())")
+    }
+
+    // MARK: - Fall 15 (CM-29 · T3)
+
+    /// Der Erfolgsweg von `--update`: Ersatz, Modus, Neustartentscheid.
+    @Test("CM-29: Update-Lauf — Ersatz, Modus 0755, Neustart nur bei der eigenen Unit")
+    func CM29_updateLauf_ersatzModusUndNeustartentscheid() throws {
+        let dateien = FileManager.default
+        let home = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: home) }
+        let kopie = try Self.binaerKopie(in: home)
+        let attrappe = try AutostartSystemctlStub(home: home)
+        let abruf = try attrappe.abrufAttrappen()
+        let temp = home.appendingPathComponent("t", isDirectory: true)
+        try dateien.createDirectory(at: temp, withIntermediateDirectories: true)
+
+        // Die eigene Autostart-Unit mit Marker am CM-21-Pfad …
+        let unitVerzeichnis = home.appendingPathComponent(".local/share/systemd/user", isDirectory: true)
+        try dateien.createDirectory(at: unitVerzeichnis, withIntermediateDirectories: true)
+        try AutostartUnit.render(executablePath: kopie.path).write(
+            to: unitVerzeichnis.appendingPathComponent("claude-monitor-tray.service"),
+            atomically: true,
+            encoding: .utf8
+        )
+        // … aber systemd lädt eine andere Datei gleichen Namens.
+        let fremd = try Self.fremdeUnit(in: home, ordner: ".config/systemd/user")
+
+        let umgebung = attrappe.umgebung(
+            isEnabled: "enabled",
+            show: fremd.path,
+            zusaetzlich: abruf.umgebung.merging(["TMPDIR": temp.path]) { $1 }
+        )
+        let gut = try Self.testTarball(
+            in: home.appendingPathComponent("gut", isDirectory: true),
+            versionsZeile: "claude-monitor-tray 9.9.9 (build 999)"
+        )
+        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
+        ))
+        try abruf.liefert("claude-monitor-tray-9.9.9-linux-x86_64.tar.gz", inhalt: Data(contentsOf: gut.datei))
+
+        let lauf = try Self.autostartLauf(["--update"], umgebung: umgebung, binaer: kopie.path, umask077: true)
+
+        #expect(lauf.code == 0, "Meldung: \(lauf.ausgabe)")
+        #expect(try Data(contentsOf: kopie) == gut.skript)
+        let rechte = try #require(dateien.attributesOfItem(atPath: kopie.path)[.posixPermissions] as? NSNumber)
+        #expect(String(rechte.uint16Value, radix: 8) == "755", "Modus: \(String(rechte.uint16Value, radix: 8))")
+        let curl = abruf.curlAufrufe()
+        #expect(curl.isEmpty == false)
+        for aufruf in curl {
+            #expect(aufruf.hasPrefix("-q "), "erstes curl-Argument: \(aufruf)")
+        }
+        let aufrufe = attrappe.aufrufe()
+        #expect(aufrufe.contains { Self.hatWort($0, "try-restart") } == false, "Aufrufe: \(aufrufe)")
+        #expect(lauf.ausgabe.contains("Restart the tray to use 9.9.9"), "Meldung: \(lauf.ausgabe)")
+        #expect(
+            Self.pfadVorhanden(kopie.deletingLastPathComponent().appendingPathComponent(".claude-monitor-tray.update-new").path) == false
+        )
+        #expect(try dateien.contentsOfDirectory(atPath: temp.path).isEmpty)
     }
 }
