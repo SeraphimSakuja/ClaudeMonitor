@@ -84,6 +84,7 @@ SHARED_DIR="$PROJECT_DIR/Shared"
 RELEASE_SH="$PROJECT_DIR/scripts/release.sh"
 PBXPROJ="$PROJECT_DIR/App/ClaudeMonitor.xcodeproj/project.pbxproj"
 TRAY_TEXTS="$PROJECT_DIR/Linux/Sources/TrayPresentation/TrayTexts.swift"
+UPDATE_ENDPOINTS="$PROJECT_DIR/Linux/Sources/Update/UpdateEndpoints.swift"
 MANIFEST="$PROJECT_DIR/docs/linux-latest.json"
 INSTALL_DOC="$PROJECT_DIR/Linux/INSTALL.md"
 LINUX_README="$PROJECT_DIR/Linux/README.md"
@@ -195,6 +196,26 @@ max_symbol_version() {
 # „$1 ist größer als $2" mit echtem Versionsvergleich.
 version_gt() {
   [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$1" ]
+}
+
+# Versionsprobe (CM-29): `--version` muss mit Exit 0 genau die Zeile ausgeben,
+# die jeder installierte Update-Client vor dem Austausch erwartet.
+#
+# ⚠️ EINGEFRORENER CLIENT-VERTRAG. Der Client liest stdout und vergleicht
+# zeichengleich mit „claude-monitor-tray <version> (build <n>)"
+# (`UpdateDecision.versionLine`, Kanal `UpdateDecision.versionOutputDescriptor`).
+# Ein Binary, das hier abweicht, würde von JEDEM installierten Client mit 13
+# abgelehnt — still und dauerhaft. Deshalb bricht schon der Bau ab.
+version_probe() {
+  local bin="$1" label="$2" rc=0 out expected
+  expected="$PRODUCT $SHORT_VERSION (build $BUILD_VERSION)"
+  out="$(timeout 30 env -u DBUS_SESSION_BUS_ADDRESS "$bin" --version 2>/dev/null)" || rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "$expected" ] \
+    || fail "$label: --version endete mit Exit $rc und „$out\", erwartet war Exit 0 und „$expected\".
+  Installierte Update-Clients vergleichen genau diese Zeile (stdout) mit dem Manifest und lehnen
+  jedes Binary ab, das abweicht. Ursache ist fast immer TrayTexts.version/buildVersion oder ein
+  geänderter Wortlaut bzw. Kanal von --version — beides ist ein eingefrorener Vertrag."
+  echo "  ✓ $label: --version → „$out\""
 }
 
 # Die vier Wächter über ein Binary — einmal für das gebaute, einmal für das
@@ -402,6 +423,49 @@ TRAY_VERSION="$(sed -n 's/^[[:space:]]*public static let version = "\(.*\)"$/\1/
     public static let version = \"$SHORT_VERSION\""
 echo "  ✓ Version $SHORT_VERSION (Build $BUILD_VERSION), TrayTexts.version stimmt überein"
 
+# ZWILLINGSWÄCHTER: die von Hand geführte Build-Nummer (CM-29).
+#
+# `TrayTexts.buildVersion` ist die EINZIGE Vergleichsgröße des Linux-Update-
+# Clients. Bleibt sie hinter CURRENT_PROJECT_VERSION zurück, böte jeder Client
+# dasselbe Release bei jedem Lauf erneut an und die Ladeprobe lehnte es ab;
+# läuft sie voraus, nähme kein Client das Release je an.
+TRAY_BUILD="$(sed -n 's/^[[:space:]]*public static let buildVersion = \([0-9]*\)$/\1/p' "$TRAY_TEXTS" | head -n 1)"
+[ -n "$TRAY_BUILD" ] \
+  || fail "In $TRAY_TEXTS ließ sich „public static let buildVersion\" nicht lesen.
+  Wurde die Zeile umbenannt, prüft dieser Wächter nichts mehr — deshalb Abbruch statt Warnung."
+[ "$TRAY_BUILD" = "$BUILD_VERSION" ] \
+  || fail "Build-Nummern laufen auseinander: TrayTexts.buildVersion=$TRAY_BUILD, CURRENT_PROJECT_VERSION=$BUILD_VERSION.
+  Der Linux-Update-Client vergleicht nur diese Zahl. Abhilfe: in $TRAY_TEXTS
+    public static let buildVersion = $BUILD_VERSION"
+echo "  ✓ TrayTexts.buildVersion = $TRAY_BUILD stimmt überein"
+
+# ZWILLINGSWÄCHTER: die Adressen des Update-Clients (CM-29).
+#
+# Der Client trägt Manifest-Adresse, Download-Basis, Produkt und Plattform als
+# Konstanten im Binary (`UpdateEndpoints`) — eine Umgebungsvariable dafür gibt
+# es bewusst nicht. Diese Zweitkopie muss gleich dem sein, was dieses Skript
+# erzeugt; sonst holte jeder Client ein Manifest, das es nicht gibt, oder
+# lehnte jede Download-Adresse ab.
+read_endpoint() {
+  sed -n "s/^[[:space:]]*public static let $1 = \"\(.*\)\"\$/\1/p" "$UPDATE_ENDPOINTS" | head -n 1
+}
+[ -r "$UPDATE_ENDPOINTS" ] || fail "$UPDATE_ENDPOINTS nicht lesbar — der Wächter über die Client-Adressen prüft sonst nichts."
+for pair in \
+  "manifestURL=$FEED_BASE/$(basename "$MANIFEST")" \
+  "downloadURLBase=$DOWNLOAD_URL_BASE" \
+  "product=$PRODUCT" \
+  "platform=$PLATFORM"; do
+  name="${pair%%=*}"; want="${pair#*=}"; have="$(read_endpoint "$name")"
+  [ -n "$have" ] \
+    || fail "In $UPDATE_ENDPOINTS ließ sich „public static let $name\" nicht lesen.
+  Wurde die Zeile umformatiert, prüft dieser Wächter nichts mehr — deshalb Abbruch."
+  [ "$have" = "$want" ] \
+    || fail "UpdateEndpoints.$name=$have, dieses Skript erzeugt $want.
+  Installierte Clients suchen dort, wo das Binary es sagt. Abhilfe: in $UPDATE_ENDPOINTS
+    public static let $name = \"$want\""
+done
+echo "  ✓ UpdateEndpoints stimmt mit Feed-, Download-Adresse, Produkt und Plattform überein"
+
 # WÄCHTER: Build-Nummer gegen das vorhandene Manifest.
 #
 # Beide Richtungen, und die zweite ist der Grund für den Wächter:
@@ -426,14 +490,17 @@ if [ -f "$MANIFEST" ]; then
   braucht nur eine eigene Zahl. Zu tun, GENAU diese Zeile:
     $PBXPROJ
       CURRENT_PROJECT_VERSION = $((PREV_BUILD + 1));
-  (beide Konfigurationen, Debug und Release). Ändert sich dabei auch die
-  Marketing-Version, MARKETING_VERSION und TrayTexts.version gemeinsam nachziehen —
-  der Zwillingswächter oben prüft das."
+  (beide Konfigurationen, Debug und Release), und in
+    $TRAY_TEXTS
+      public static let buildVersion = $((PREV_BUILD + 1))
+  Ändert sich dabei auch die Marketing-Version, MARKETING_VERSION und TrayTexts.version
+  gemeinsam nachziehen — die Zwillingswächter oben prüfen beides."
   fi
   if [ "$BUILD_VERSION" -lt "$PREV_BUILD" ]; then
     fail "Build-Nummer $BUILD_VERSION ist KLEINER als die veröffentlichte ($PREV_BUILD).
   Ein Update-Client böte das Artefakt nie an. Abhilfe: CURRENT_PROJECT_VERSION in
-  $PBXPROJ auf mindestens $((PREV_BUILD + 1)) setzen."
+  $PBXPROJ auf mindestens $((PREV_BUILD + 1)) setzen, und in $TRAY_TEXTS
+    public static let buildVersion = <dieselbe Zahl>"
   fi
   echo "  ✓ Build-Nummer $BUILD_VERSION ist neu (veröffentlicht: $PREV_BUILD)"
 else
@@ -525,6 +592,7 @@ echo "  ✓ $BIN"
 step "3/7  Wächter über das gebaute Binary"
 check_binary "$BIN" "gebautes Binary"
 load_probe "$BIN" "gebautes Binary"
+version_probe "$BIN" "gebautes Binary"
 
 # ---------------------------------------------------------------------------
 # Der Tarball packt ein VERZEICHNIS, keine nackte Datei: Wer ihn im
@@ -532,6 +600,11 @@ load_probe "$BIN" "gebautes Binary"
 step "4/7  Tarball (reproduzierbar verpackt)"
 TAR_NAME="$PRODUCT-$SHORT_VERSION-$PLATFORM.tar.gz"
 TARBALL="$BUILD_DIR/$TAR_NAME"
+# ⚠️ EINGEFRORENER CLIENT-VERTRAG (CM-29): Jeder installierte Update-Client packt
+# genau das Mitglied `$PRODUCT-$SHORT_VERSION/$PRODUCT` aus
+# (`UpdateDecision.memberPath`) und bildet die Adresse aus `TAR_NAME`
+# (`UpdateDecision.expectedURL`). Ein anderer Aufbau hier hieße: Alle
+# installierten Clients lehnen jedes Update mit 13 ab.
 PAYLOAD="$STAGE_DIR/$PRODUCT-$SHORT_VERSION"
 mkdir -p "$PAYLOAD"
 cp "$BIN" "$PAYLOAD/$PRODUCT"
@@ -578,6 +651,7 @@ cmp -s "$BIN" "$UNPACKED" \
   ausgepackt:  $UNPACKED"
 check_binary "$UNPACKED" "ausgepacktes Binary"
 load_probe "$UNPACKED" "ausgepacktes Binary"
+version_probe "$UNPACKED" "ausgepacktes Binary"
 ( cd "$BUILD_DIR" && sha256sum -c "$(basename "$SHA_FILE")" ) >/dev/null \
   || fail "Die Prüfsummendatei passt nicht zum Tarball."
 echo "  ✓ Prüfsummendatei bestätigt, ausgepackt nach $VERIFY_DIR"
@@ -587,6 +661,12 @@ echo "  ✓ Prüfsummendatei bestätigt, ausgepackt nach $VERIFY_DIR"
 # Sparkles Format mit Sparkles Signaturregeln — ein Linux-Eintrag darin wäre
 # ein Fremdkörper, den Sparkle mitliest und ein Linux-Client erst herausfiltern
 # müsste. Zwei kleine Dateien sind billiger als ein Format, das zwei Herren dient.
+#
+# ⚠️ EINGEFRORENER CLIENT-VERTRAG (CM-29): Installierte Update-Clients holen
+# GENAU diese Datei am festen Pfad und lesen nur `schemaVersion: 1`
+# (`UpdateManifest.supportedSchemaVersion`); jedes andere Schema lehnen sie mit
+# 13 ab. Ein Schemawechsel braucht deshalb ein PARALLELES v1-Manifest an diesem
+# alten Pfad, solange es Clients gibt, die nur v1 lesen.
 step "7/7  Manifest docs/linux-latest.json"
 DOWNLOAD_URL="$DOWNLOAD_URL_BASE/v$SHORT_VERSION/$TAR_NAME"
 mkdir -p "$(dirname "$MANIFEST")"
