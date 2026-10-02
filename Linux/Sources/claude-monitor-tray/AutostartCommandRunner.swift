@@ -19,17 +19,30 @@ struct CommandOutcome: Equatable {
     /// (z. B. „spawn failed errno=2") und darf nicht als Antwort von
     /// `systemctl` selbst gelesen werden.
     let didRun: Bool
+    /// Der `errno` von `posix_spawnp`, wenn der Start daran scheiterte.
+    ///
+    /// CM-29: `ENOENT` heißt „Werkzeug nicht installiert" — nur dann darf der
+    /// Update-Abruf von `curl` auf `wget` ausweichen (2b-Auflage 3), nie nach
+    /// einem gescheiterten `curl`-Lauf.
+    let spawnErrno: Int32?
 
-    init(exitStatus: Int32, standardOutput: String, standardError: String, didRun: Bool = true) {
+    init(
+        exitStatus: Int32,
+        standardOutput: String,
+        standardError: String,
+        didRun: Bool = true,
+        spawnErrno: Int32? = nil
+    ) {
         self.exitStatus = exitStatus
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.didRun = didRun
+        self.spawnErrno = spawnErrno
     }
 
     /// Ein Ergebnis, das gar nicht erst zustande kam (Spawn/Pipe gescheitert).
-    static func notRun(reason: String) -> CommandOutcome {
-        CommandOutcome(exitStatus: -1, standardOutput: "", standardError: reason, didRun: false)
+    static func notRun(reason: String, spawnErrno: Int32? = nil) -> CommandOutcome {
+        CommandOutcome(exitStatus: -1, standardOutput: "", standardError: reason, didRun: false, spawnErrno: spawnErrno)
     }
 }
 
@@ -85,15 +98,18 @@ struct PosixCommandRunner: CommandRunner {
         close(errPipe[1])
         guard spawnResult == 0 else {
             close(outPipe[0]); close(errPipe[0])
-            return .notRun(reason: "spawn failed errno=\(spawnResult)")
+            return .notRun(reason: "spawn failed errno=\(spawnResult)", spawnErrno: spawnResult)
         }
 
         // Nacheinander gelesen und nicht über `poll`: Die einzigen Befehle,
         // die hier laufen, sind `systemctl --user is-enabled/is-active/
-        // daemon-reload/enable/disable` und `show -p FragmentPath --value`. Ihre Ausgabe ist ein paar Zeilen und
-        // bleibt weit unter der Pipe-Puffergröße; ein Verklemmen setzte
-        // voraus, dass der zweite Kanal 64 KiB füllt, während der erste noch
-        // offen ist.
+        // daemon-reload/enable/disable/stop/try-restart` und `show -p …`,
+        // seit CM-29 außerdem `curl`, `timeout … wget`, `sha256sum`, `tar` und
+        // `timeout … <neues Binary> --version`. Ihre Ausgabe ist ein paar
+        // Zeilen und bleibt weit unter der Pipe-Puffergröße — die Abrufe
+        // schreiben per `-o`/`-O` in Dateien, nicht nach stdout; ein Verklemmen
+        // setzte voraus, dass der zweite Kanal 64 KiB füllt, während der erste
+        // noch offen ist.
         let output = readAll(descriptor: outPipe[0])
         let errorOutput = readAll(descriptor: errPipe[0])
         close(outPipe[0])

@@ -119,7 +119,7 @@ public enum TrayPresentation {
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
     /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
     /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
-    /// | Update-Block (`:208-278`) | **draußen** | Sparkle ist macOS-only; die Linux-Auslieferung entscheidet `CM-22` |
+    /// | Update-Block (`:208-278`) | **draußen** | Sparkle ist macOS-only. Das Linux-Pendant (`CM-29`) wird über Unterbefehle bedient (`--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`); der Menüeintrag folgt in `CM-37` |
     static func menu(
         for state: MonitorViewState,
         now: Date,

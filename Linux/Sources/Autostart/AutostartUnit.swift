@@ -65,8 +65,17 @@ public enum AutostartUnit {
 
     /// Ob ein vorgefundener Dateiinhalt von dieser Einrichtung stammt.
     public static func carriesMarker(_ contents: String) -> Bool {
+        carriesMarker(contents, marker: markerComment)
+    }
+
+    /// Ob ein vorgefundener Dateiinhalt eine bestimmte Marker-Zeile trägt.
+    ///
+    /// CM-29: Jede Unit dieses Programms hat ihren EIGENEN Marker (Autostart,
+    /// Update-Timer, Update-Service) — die Prüfung ist dieselbe, nur die Zeile
+    /// kommt vom Aufrufer.
+    public static func carriesMarker(_ contents: String, marker: String) -> Bool {
         contents.split(separator: "\n", omittingEmptySubsequences: false).contains { line in
-            line.trimmingCharacters(in: .whitespaces) == markerComment
+            line.trimmingCharacters(in: .whitespaces) == marker
         }
     }
 
@@ -75,12 +84,11 @@ public enum AutostartUnit {
     /// systemd zerlegt die Zeile in Wörter; ein Leerzeichen im Pfad machte aus
     /// dem Rest Argumente und der Dienst scheiterte mit `203/EXEC`. Deshalb
     /// wird bei Leerzeichen, Anführungszeichen oder Rückstrich gequotet.
+    ///
+    /// CM-29: Die Regel `needsQuoting` steht NUR hier; auch die Service-Unit
+    /// des Auto-Updates (`UpdateUnits`) rendert ihr `ExecStart=` hierüber.
     public static func execStartValue(for executablePath: String) -> String {
-        let needsQuoting = executablePath.contains(" ")
-            || executablePath.contains("\"")
-            || executablePath.contains("\\")
-            || executablePath.contains("'")
-        guard needsQuoting else { return executablePath }
+        guard executablePath.contains(where: { quotingTriggers.contains($0) }) else { return executablePath }
         var escaped = ""
         for character in executablePath {
             if character == "\"" || character == "\\" { escaped.append("\\") }
@@ -88,4 +96,7 @@ public enum AutostartUnit {
         }
         return "\"\(escaped)\""
     }
+
+    /// Zeichen, bei denen der Pfad gequotet wird.
+    private static let quotingTriggers: Set<Character> = [" ", "\"", "\\", "'"]
 }

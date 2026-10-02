@@ -60,6 +60,19 @@ let package = Package(
             ]
         ),
 
+        // CM-29 · dieselbe Schicht wie `Autostart`: die REGELN des
+        // Linux-Auto-Updates — Adressen, Manifest-Prüfung, Versionsvergleich,
+        // Abbildung der Werkzeug-Rückgabecodes, Unit-Texte von Timer und
+        // Service und alle kundensichtbaren Texte. Kein Dateizugriff, kein
+        // Prozessstart, kein Netz; das liegt im Programm-Ziel (`UpdateClient`).
+        // Kein Zyklus: `Autostart` hängt nur an `ClaudeMonitorShared`; die
+        // Abhängigkeit trägt die EINE Quoting-Regel für `ExecStart=`
+        // (`AutostartUnit.execStartValue`) — eine Kopie liefe auseinander.
+        .target(
+            name: "Update",
+            dependencies: ["Autostart"]
+        ),
+
         // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife des
         // residenten Tray-Prozesses. Seit CM-26 ist das **nicht** mehr
         // gleichbedeutend mit „ungeprüft": Die Bus-Attrappe in `TrayTests`
@@ -72,6 +85,7 @@ let package = Package(
                 "Autostart",
                 "DBusWire",
                 "TrayPresentation",
+                "Update",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")
             ]
@@ -86,6 +100,7 @@ let package = Package(
                 "Autostart",
                 "DBusWire",
                 "TrayPresentation",
+                "Update",
                 // CM-26: das Executable-Ziel selbst. Ohne diese Abhängigkeit
                 // bliebe `TrayProcess` aus dem Testkontext unerreichbar und die
                 // Bus-Attrappe hätte nichts, womit sie sprechen könnte.

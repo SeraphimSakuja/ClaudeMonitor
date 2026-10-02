@@ -75,8 +75,49 @@ public enum AutostartPaths {
         absolutePath(environment["HOME"])
     }
 
-    /// Alle Pfade zusammen.
+    /// Alle Pfade der Autostart-Unit zusammen.
+    ///
+    /// Hülle um ``layout(environment:unitName:installTarget:)`` plus der
+    /// Altpfad `default.target.wants` — den behält NUR die Autostart-Unit
+    /// (CM-29).
     public static func layout(environment: [String: String]) -> Result<Layout, ResolveError> {
+        switch layout(environment: environment, unitName: unitName, installTarget: installTargetName) {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let base):
+            // Gleicher Ausgangspunkt wie der Hauptverweis: Wäre der Konfigbaum
+            // nicht ableitbar, hätte schon `base` gescheitert.
+            guard case .success(let configHomeValue) = configHome(environment: environment) else {
+                return .failure(.noHomeDirectory)
+            }
+            return .success(Layout(
+                unitDirectory: base.unitDirectory,
+                unitPath: base.unitPath,
+                wantsLinkPaths: base.wantsLinkPaths + [
+                    // `default.target.wants` wird von dieser Karte nie angelegt.
+                    // Er wird trotzdem mitgeprüft: Eine ältere Einrichtung von
+                    // Hand kann dort liegen, und „entfernt" zu melden, während
+                    // noch ein Verweis auf die gelöschte Unit zeigt, wäre eine
+                    // Falschauskunft (Auflage 3).
+                    configHomeValue + "/systemd/user/default.target.wants/" + unitName
+                ]
+            ))
+        }
+    }
+
+    /// Die Pfade einer beliebigen Unit dieses Programms (CM-29).
+    ///
+    /// Ablageregel wie bei der Autostart-Unit: Datenbaum
+    /// `$XDG_DATA_HOME|$HOME/.local/share/systemd/user/`. Der `.wants`-Verweis
+    /// liegt im Konfigbaum unter `<installTarget>.wants/`.
+    ///
+    /// - Parameter installTarget: `nil` für eine **statische** Unit (ohne
+    ///   `[Install]`-Abschnitt) — die hat keine `.wants`-Verweise.
+    public static func layout(
+        environment: [String: String],
+        unitName: String,
+        installTarget: String?
+    ) -> Result<Layout, ResolveError> {
         let dataHomeValue: String
         switch dataHome(environment: environment) {
         case .success(let value): dataHomeValue = value
@@ -90,18 +131,14 @@ public enum AutostartPaths {
 
         let unitDirectory = dataHomeValue + "/systemd/user"
         let configUnitDirectory = configHomeValue + "/systemd/user"
+        var wantsLinkPaths: [String] = []
+        if let installTarget {
+            wantsLinkPaths.append(configUnitDirectory + "/" + installTarget + ".wants/" + unitName)
+        }
         return .success(Layout(
             unitDirectory: unitDirectory,
             unitPath: unitDirectory + "/" + unitName,
-            wantsLinkPaths: [
-                configUnitDirectory + "/" + installTargetName + ".wants/" + unitName,
-                // `default.target.wants` wird von dieser Karte nie angelegt.
-                // Er wird trotzdem mitgeprüft: Eine ältere Einrichtung von
-                // Hand kann dort liegen, und „entfernt" zu melden, während
-                // noch ein Verweis auf die gelöschte Unit zeigt, wäre eine
-                // Falschauskunft (Auflage 3).
-                configUnitDirectory + "/default.target.wants/" + unitName
-            ]
+            wantsLinkPaths: wantsLinkPaths
         ))
     }
 

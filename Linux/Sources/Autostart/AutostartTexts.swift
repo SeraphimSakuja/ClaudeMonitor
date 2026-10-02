@@ -260,15 +260,21 @@ public enum AutostartTexts {
         "Unknown option: \(argument)\n\(usage)"
     }
 
-    /// Mehr als ein Autostart-Unterbefehl auf einmal.
-    public static let conflictingOptions = "Use only one of --install-autostart, --uninstall-autostart, --autostart-status.\n\(usage)"
+    /// Mehr als ein Unterbefehl auf einmal.
+    public static let conflictingOptions = "Use only one of --install-autostart, --uninstall-autostart, --autostart-status, "
+        + "--version, --update, --install-auto-update, --uninstall-auto-update, --auto-update-status.\n\(usage)"
 
     public static let usage = """
         Usage:
-          claude-monitor-tray                      run the tray (foreground)
-          claude-monitor-tray --selftest           check the session bus and exit
-          claude-monitor-tray --install-autostart  set up the systemd user service
-          claude-monitor-tray --uninstall-autostart  remove it again
-          claude-monitor-tray --autostart-status   report whether it is set up
+          claude-monitor-tray                          run the tray (foreground)
+          claude-monitor-tray --selftest               check the session bus and exit
+          claude-monitor-tray --install-autostart      set up the systemd user service
+          claude-monitor-tray --uninstall-autostart    remove it again
+          claude-monitor-tray --autostart-status       report whether it is set up
+          claude-monitor-tray --version                print the version and exit
+          claude-monitor-tray --update                 check for an update and install it now
+          claude-monitor-tray --install-auto-update    check for updates once a day (systemd timer)
+          claude-monitor-tray --uninstall-auto-update  turn that off again
+          claude-monitor-tray --auto-update-status     report whether it is set up
         """
 }

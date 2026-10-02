@@ -27,10 +27,19 @@ public enum TrayTexts {
     /// Fassung des Tray-Prozesses.
     ///
     /// ⚠️ Von Hand geführt und **nicht** aus einem Bundle gelesen: Auf Linux
-    /// gibt es keines. Die Marketing-Version der macOS-App steht im
-    /// Xcode-Projekt, das diese Karte nicht anfasst (Null-Diff-Zusage). Die
-    /// Zusammenführung beider Stellen gehört zur Paketierung (`CM-22`).
+    /// gibt es keines. Die Quelle ist `MARKETING_VERSION` im Xcode-Projekt;
+    /// `scripts/release-linux.sh` bricht ab, wenn beide auseinanderlaufen
+    /// (Zwillingswächter, `CM-22`).
     public static let version = "1.0.2"
+
+    /// Build-Nummer des Tray-Prozesses — die einzige Vergleichsgröße des
+    /// Linux-Auto-Updates (CM-29, FE 2).
+    ///
+    /// Quelle ist `CURRENT_PROJECT_VERSION` im Xcode-Projekt; auch hier bricht
+    /// `scripts/release-linux.sh` ab, wenn beide auseinanderlaufen. Eine zu
+    /// kleine Zahl ließe den Client jedes Release erneut anbieten, eine zu
+    /// große keines mehr.
+    public static let buildVersion = 3
 
     /// Kopfzeile des Menüs: „ClaudeMonitor 1.0.2".
     ///

@@ -7,13 +7,21 @@ import ClaudeMonitorCore
 import ClaudeMonitorShared
 import DBusWire
 import TrayPresentation
+import Update
 
 // CM-20 — residenter Tray-Prozess für Linux.
 //
-// Strikt lesend, wie die Rauchprobe: kein Schreiben, kein Lock, kein
-// `SnapshotStore.write` (Leitplanke L1). Die Tray-Ziele binden `SnapshotStore`
-// nicht einmal ein — die Zusage ist damit nicht nur eingehalten, sondern
-// mechanisch nicht brechbar. Das gilt auch für `--selftest`.
+// Der residente Tray-Prozess ist strikt lesend, wie die Rauchprobe: kein
+// Schreiben, kein Lock, kein `SnapshotStore.write` (Leitplanke L1). Die
+// Tray-Ziele binden `SnapshotStore` nicht einmal ein — die Zusage ist damit
+// nicht nur eingehalten, sondern mechanisch nicht brechbar. Das gilt auch für
+// `--selftest`.
+//
+// Ausnahmen sind die Unterbefehle, und nur sie (CM-21, CM-29): Die
+// Unit-Befehle schreiben ihre Units (`--install-autostart`,
+// `--install-auto-update` — Timer und Service), und `--update` ersetzt das
+// eigene Binary und sperrt dazu dessen Verzeichnis per `flock`. Keiner davon
+// berührt `usage.json`.
 //
 // Für den Druckvertrag (was dieser Prozess NIE ausgibt) siehe `TrayLog`.
 
@@ -58,6 +66,18 @@ enum TrayExit: Int32 {
     /// „nicht eingerichtet": Das wäre eine Aussage über eine Messung, die nicht
     /// stattgefunden hat.
     case autostartUnavailable = 11
+    /// Nur `--update` (CM-29): **nichts gemessen** — kein `curl`/`wget`,
+    /// Netz- oder HTTP-Fehler, Zeitüberschreitung, auch **kein Manifest**.
+    /// Ausdrücklich NICHT „aktuell": Das darf nur nach einem gültig gelesenen
+    /// Manifest gemeldet werden.
+    case updateUnavailable = 12
+    /// Nur `--update` (CM-29): **abgelehnt** — Manifest ungültig oder in
+    /// anderem Format, Größe oder Prüfsumme falsch, unter dem
+    /// Kompatibilitätsboden, Ladeprobe gescheitert, Verzeichnis nicht
+    /// schreibbar, ein anderes Update läuft. Das installierte Binary ist
+    /// unverändert. Der residente Tray endet nie mit 12/13 — darum bleibt
+    /// `RestartPreventExitStatus` der Autostart-Unit unverändert.
+    case updateRefused = 13
 
     /// Ein **fester** Bezeichner je Verbindungsfehler.
     ///
@@ -664,7 +684,12 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
 
     let options = rawArguments.filter { $0.hasPrefix("--") }
     let autostartOptions = options.filter { $0 != "--selftest" }
-    let known: Set<String> = ["--install-autostart", "--uninstall-autostart", "--autostart-status"]
+    let known: Set<String> = [
+        "--install-autostart", "--uninstall-autostart", "--autostart-status",
+        // CM-29
+        "--version", "--update",
+        "--install-auto-update", "--uninstall-auto-update", "--auto-update-status"
+    ]
 
     if let unknown = autostartOptions.first(where: { !known.contains($0) }) {
         log.always(AutostartTexts.unknownOption(unknown))
@@ -678,15 +703,56 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
         return .autostartBlocked
     }
 
+    if subcommand == "--version" {
+        printVersion()
+        return .ok
+    }
+
+    let runner = PosixCommandRunner(environment: environment)
+    if subcommand == "--update" {
+        return UpdateClient(environment: environment, runner: runner, emit: { log.always($0) }).run()
+    }
+
     let installer = AutostartInstaller(
         environment: environment,
-        runner: PosixCommandRunner(environment: environment),
+        runner: runner,
         emit: { log.always($0) }
     )
     switch subcommand {
     case "--install-autostart": return installer.install()
     case "--uninstall-autostart": return installer.uninstall()
+    case "--install-auto-update": return installer.installAutoUpdate()
+    case "--uninstall-auto-update": return installer.uninstallAutoUpdate()
+    case "--auto-update-status": return installer.autoUpdateStatus()
     default: return installer.status()
+    }
+}
+
+/// `--version` (CM-29).
+///
+/// ⚠️ **Eingefrorener Client-Vertrag.** Jeder installierte Client startet das
+/// NEUE Binary vor dem Austausch mit `--version` und vergleicht die Ausgabe
+/// zeichengleich (FE 8). Kanal (`UpdateDecision.versionOutputDescriptor`,
+/// stdout) und Wortlaut (`UpdateDecision.versionLine`) stehen deshalb im Ziel
+/// `Update` und nur dort. Ändert eine spätere Fassung eines von beiden, lehnen
+/// alle installierten Clients jedes Update dauerhaft mit 13 ab.
+/// `scripts/release-linux.sh` prüft die Zeile am gebauten und am ausgepackten
+/// Binary. Nicht über `TrayLog`: der schreibt auf stderr und redigiert.
+func printVersion() {
+    let line = UpdateDecision.versionLine(version: TrayTexts.version, buildVersion: TrayTexts.buildVersion) + "\n"
+    let bytes = Array(line.utf8)
+    var offset = 0
+    bytes.withUnsafeBytes { raw in
+        guard let base = raw.baseAddress else { return }
+        while offset < bytes.count {
+            let written = Glibc.write(UpdateDecision.versionOutputDescriptor, base + offset, bytes.count - offset)
+            if written > 0 {
+                offset += written
+                continue
+            }
+            if written < 0 && errno == EINTR { continue }
+            return
+        }
     }
 }
 
