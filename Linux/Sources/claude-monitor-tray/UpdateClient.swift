@@ -207,7 +207,7 @@ struct UpdateClient {
         ])
         guard probe.didRun else {
             emit(UpdateTexts.toolNotRunnable(tool: "timeout", reason: probe.standardError))
-            return .updateRefused
+            return .updateUnavailable
         }
         let probeOutput = UpdateDecision.versionOutputDescriptor == 1 ? probe.standardOutput : probe.standardError
         guard UpdateDecision.probeConfirms(exitStatus: probe.exitStatus, output: probeOutput, offer: offer) else {
@@ -288,7 +288,9 @@ struct UpdateClient {
                 "--connect-timeout", String(UpdateDecision.connectTimeoutSeconds),
                 "--max-time", String(seconds)
             ]
-            if followRedirects { arguments.append("--location") }
+            // Manifest: `--location --max-redirs 0` — eine Umleitung endet mit
+            // curl 47 (⇒ 12) statt mit Exit 0 und einem Rumpf in der Datei (⇒ 13).
+            arguments += followRedirects ? ["--location"] : ["--location", "--max-redirs", "0"]
             arguments += ["-o", destination, url]
             let outcome = runner.run(executable: "curl", arguments: arguments)
             if outcome.didRun {
