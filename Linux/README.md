@@ -256,7 +256,8 @@ Why it looks like that:
   was deleted, moved or lost its execute bit; restarting finds the same missing file, so the service
   fails once per login and stays `failed` instead of retrying every 5 s. **127** comes from the dynamic
   loader when a shared library is missing — only builds without `--static-swift-stdlib`, whose
-  RUNPATH points into a removed or switched toolchain; a restart hits the same gap. **7 and 9 are deliberately absent** (they can only come from `--selftest`, which the
+  RUNPATH points into a removed or switched toolchain; a restart hits the same gap.
+  **7 and 9 are deliberately absent** (they can only come from `--selftest`, which the
   service never runs; without a watcher the process waits instead of exiting),
   and so is **6**: a bus teardown is the one failure that does pass, and
   restarting after it is exactly right.
