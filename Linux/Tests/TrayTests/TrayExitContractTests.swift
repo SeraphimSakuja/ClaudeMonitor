@@ -1078,7 +1078,7 @@ struct TrayExitContractTests {
         #expect(execStartWert.hasPrefix("/"), "ExecStart-Wert: \(execStartWert)")
         #expect(execStartWert != "claude-monitor-tray")
 
-        #expect(zeilen.contains("RestartPreventExitStatus=5 8 9 127 203"), "Unit:\n\(text)")
+        #expect(zeilen.contains("RestartPreventExitStatus=5 8 127 203"), "Unit:\n\(text)")
         #expect(zeilen.contains("WantedBy=graphical-session.target"), "Unit:\n\(text)")
         #expect(zeilen.contains("Restart=on-failure"))
         #expect(zeilen.contains("RestartSec=5"))
