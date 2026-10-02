@@ -360,15 +360,20 @@ struct AutostartInstaller {
             }
         }
 
+        // Fund 5: Pfade, die in diesem Lauf neu entstehen — scheitert eine
+        // spätere Unit, werden nur sie zurückgebaut, nie vorhandene Dateien.
+        var createdThisRun: [String] = []
         for (unit, layout) in zip(set.units, layouts) {
             // Auflage 17: Scheitert schon das Verzeichnis, wird nicht
             // weitergelaufen — sonst folgte ein `enable` auf eine Unit, die es
             // nicht gibt, und die Meldung wäre erfunden.
             if let reason = createDirectory(layout.unitDirectory) {
+                for path in createdThisRun { _ = unlink(path) }
                 emit(AutostartTexts.directoryNotCreated(path: layout.unitDirectory, reason: reason))
                 return .autostartUnavailable
             }
 
+            let existedBefore = pathExists(layout.unitPath)
             if let code = writeUnit(unit.render(executablePath), to: layout.unitPath) {
                 // `O_NOFOLLOW` beantwortet einen Symlink am Zielpfad mit `ELOOP`.
                 // Das ist der Abbruchgrund — niemals ein Überschreiben: Ein
@@ -376,12 +381,15 @@ struct AutostartInstaller {
                 // durch eine reguläre Datei, ein nicht-atomares Schreiben schriebe
                 // lautlos an sein Ziel (etwa `/dev/null`). Beides gemessen.
                 if code == ELOOP {
+                    for path in createdThisRun { _ = unlink(path) }
                     emit(set.messages.symlinkAtTarget(layout.unitPath))
                     return .autostartBlocked
                 }
+                for path in createdThisRun { _ = unlink(path) }
                 emit(set.messages.writeFailed(layout.unitPath, Self.errnoName(code)))
                 return .autostartUnavailable
             }
+            if !existedBefore { createdThisRun.append(layout.unitPath) }
         }
 
         _ = systemctl(["daemon-reload"])
