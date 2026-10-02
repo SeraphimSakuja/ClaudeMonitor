@@ -157,7 +157,7 @@ EXPECTED_SONAMES="$(printf '%s\n' \
 # Beleg, sondern ein Befund.
 BASELINE_CORE=153
 BASELINE_SHARED=125
-BASELINE_LINUX=23
+BASELINE_LINUX=34
 
 # Größenfenster des fertigen Binarys. `--static-swift-stdlib` bindet die
 # Swift-Laufzeit ein; gemessen rund 70 MB. Deutlich darunter heißt, dass statisch
