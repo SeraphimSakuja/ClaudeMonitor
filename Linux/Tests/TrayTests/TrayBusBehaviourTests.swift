@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import DBusWire
+import Autostart
 import TrayPresentation
 @testable import claude_monitor_tray
 
@@ -250,7 +251,7 @@ struct TrayBusBehaviourTests {
             """
         }
         let laufendes = try FileManager.default.destinationOfSymbolicLink(atPath: "/proc/self/exe")
-        try unitText(execStart: laufendes).write(to: unitDatei, atomically: true, encoding: .utf8)
+        try unitText(execStart: AutostartUnit.execStartValue(for: laufendes)).write(to: unitDatei, atomically: true, encoding: .utf8)
         try ereignis(bus, verbindung, prozess, id: TrayMenuIdentifiers.root, art: "opened")
         _ = prozess.handleMenuEvents()
         menue = try layoutLesen(bus, verbindung, prozess)

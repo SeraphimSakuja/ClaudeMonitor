@@ -1124,6 +1124,33 @@ struct TrayExitContractTests {
             z4.ausgabe.contains("It starts \(angezeigt), which does not exist or is not executable"),
             "Z4: \(z4.ausgabe)"
         )
+
+        // CM-38 T1: Binary unter einem Pfad mit `%` — Unit maskiert `%%`, Status nennt den echten Pfad.
+        let prozentVerzeichnis = home.appendingPathComponent("100%h", isDirectory: true)
+        try FileManager.default.createDirectory(at: prozentVerzeichnis, withIntermediateDirectories: true)
+        let prozentKopie = prozentVerzeichnis.appendingPathComponent("claude-monitor-tray")
+        try FileManager.default.copyItem(atPath: Self.trayBinaer, toPath: prozentKopie.path)
+        let prozentEinrichten = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, binaer: prozentKopie.path)
+        #expect(prozentEinrichten.code == 0, "T1: \(prozentEinrichten.ausgabe)")
+        let prozentText = try String(contentsOfFile: unitPfad, encoding: .utf8)
+        #expect(
+            prozentText.split(separator: "\n", omittingEmptySubsequences: false)
+                .contains(Substring("ExecStart=" + home.path + "/100%%h/claude-monitor-tray")),
+            "T1 Unit:\n\(prozentText)"
+        )
+        let prozentStatus = try Self.autostartLauf(["--autostart-status"], umgebung: umgebung, binaer: prozentKopie.path)
+        #expect(prozentStatus.ausgabe.contains("It starts ~/100%h/claude-monitor-tray."), "T1 Status: \(prozentStatus.ausgabe)")
+        #expect(prozentStatus.ausgabe.contains("That is not the binary you ran") == false, "T1 Status: \(prozentStatus.ausgabe)")
+
+        // CM-38 T2: Binary unter `Bob's Apps` — Einrichten verweigert, nichts geschrieben.
+        let bobVerzeichnis = home.appendingPathComponent("Bob's Apps", isDirectory: true)
+        try FileManager.default.createDirectory(at: bobVerzeichnis, withIntermediateDirectories: true)
+        let bobKopie = bobVerzeichnis.appendingPathComponent("claude-monitor-tray")
+        try FileManager.default.copyItem(atPath: Self.trayBinaer, toPath: bobKopie.path)
+        let bobEinrichten = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, binaer: bobKopie.path)
+        #expect(bobEinrichten.code == 10, "T2: \(bobEinrichten.ausgabe)")
+        #expect(bobEinrichten.ausgabe.contains("Nothing was written"), "T2: \(bobEinrichten.ausgabe)")
+        #expect(try String(contentsOfFile: unitPfad, encoding: .utf8) == prozentText, "T2: Unit wurde verändert")
     }
 
     // MARK: - Fälle 13 bis 15 (CM-29 · Auto-Update)
@@ -1234,7 +1261,7 @@ struct TrayExitContractTests {
         #expect(serviceText.hasPrefix(marker + "\n"), "Service:\n\(serviceText)")
         #expect(timerText.hasPrefix(marker + "\n"), "Timer:\n\(timerText)")
         #expect(serviceText.contains("\nTimeoutStartSec="), "Service:\n\(serviceText)")
-        #expect(serviceText.contains("\nExecStart=\(kopie.path) --update\n"), "Service:\n\(serviceText)")
+        #expect(serviceText.contains("\nExecStart=\(AutostartUnit.execStartValue(for: kopie.path)) --update\n"), "Service:\n\(serviceText)")
         var aufrufe = attrappe.aufrufe()
         #expect(aufrufe.contains("--user enable claude-monitor-tray-update.timer"), "Aufrufe: \(aufrufe)")
         #expect(aufrufe.contains { $0.contains("--now") || Self.hatWort($0, "start") } == false, "Aufrufe: \(aufrufe)")
