@@ -1102,6 +1102,28 @@ struct TrayExitContractTests {
         let zweiter = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, ueberPfad: true)
         #expect(zweiter.code == 0, "Meldung: \(zweiter.ausgabe)")
         #expect(zweiter.ausgabe.contains("systemd uses") == false, "Meldung: \(zweiter.ausgabe)")
+
+        // CM-34: Binary mit Leerzeichen im Pfad (gequotete Unit) einrichten, Status
+        // nennt den gestarteten Pfad; ist das Binary weg, warnt der Status.
+        let kopieVerzeichnis = home.appendingPathComponent("My Apps", isDirectory: true)
+        try FileManager.default.createDirectory(at: kopieVerzeichnis, withIntermediateDirectories: true)
+        let kopie = kopieVerzeichnis.appendingPathComponent("claude-monitor-tray")
+        try FileManager.default.copyItem(atPath: Self.trayBinaer, toPath: kopie.path)
+        let einrichten = try Self.autostartLauf(["--install-autostart"], umgebung: umgebung, binaer: kopie.path)
+        #expect(einrichten.code == 0, "Meldung: \(einrichten.ausgabe)")
+        // Die Ausgabe kürzt `$HOME` zu `~` (Pfad der Meldung, nicht der Unit).
+        let angezeigt = "~/My Apps/claude-monitor-tray"
+        let z3 = try Self.autostartLauf(["--autostart-status"], umgebung: umgebung, binaer: kopie.path)
+        #expect(z3.code == 0, "Z3: \(z3.ausgabe)")
+        #expect(z3.ausgabe.contains("It starts \(angezeigt)."), "Z3: \(z3.ausgabe)")
+        #expect(z3.ausgabe.contains("That is not the binary you ran") == false, "Z3: \(z3.ausgabe)")
+        try FileManager.default.removeItem(at: kopie)
+        let z4 = try Self.autostartLauf(["--autostart-status"], umgebung: umgebung)
+        #expect(z4.code == 0, "Z4: \(z4.ausgabe)")
+        #expect(
+            z4.ausgabe.contains("It starts \(angezeigt), which does not exist or is not executable"),
+            "Z4: \(z4.ausgabe)"
+        )
     }
 
     // MARK: - Fälle 13 bis 15 (CM-29 · Auto-Update)
