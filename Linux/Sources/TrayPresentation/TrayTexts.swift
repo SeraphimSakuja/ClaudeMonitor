@@ -66,6 +66,8 @@ public enum TrayTexts {
     }
     public static let startAtLoginUnavailable =
         "Autostart state unknown — run claude-monitor-tray --autostart-status for details"
+    public static let startAtLoginOtherBinary =
+        "Autostart starts another binary — untick and tick again; details: claude-monitor-tray --autostart-status"
     public static let startAtLoginInstallFailed =
         "Could not set up autostart — run claude-monitor-tray --install-autostart for details"
     public static let startAtLoginUninstallFailed =

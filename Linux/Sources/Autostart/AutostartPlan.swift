@@ -70,6 +70,38 @@ public enum AutostartEffectiveUnit: Equatable, Sendable {
     }
 }
 
+/// Zeigt die eigene Autostart-Unit auf das laufende Binary? (CM-34)
+///
+/// Maßstab ist die Datei auf der Platte; gleich heißt gleiche Datei
+/// (Gerät + Inode), nicht gleicher Pfadtext.
+public enum AutostartBinaryMatch: Equatable, Sendable {
+    case matches
+    case differs(unitExecutable: String, running: String)
+    case missing(unitExecutable: String)
+    /// Keine eigene Unit am Zielpfad, nicht lesbar, nicht auswertbar oder das
+    /// laufende Binary nicht auflösbar — keine Behauptung ohne Messung.
+    case notMeasured
+
+    /// - Parameters:
+    ///   - unitExecutable: Pfad aus der Unit; `nil`, wenn keiner auswertbar war.
+    ///   - unitTarget: Identität des Ziels, nur für eine reguläre ausführbare Datei.
+    ///   - running: Pfad des laufenden Binarys; `nil`, wenn nicht auflösbar.
+    ///   - runningIdentity: Identität des laufenden Binarys.
+    public static func compare(
+        unitExecutable: String?,
+        unitTarget: AutostartEffectiveUnit.FileIdentity?,
+        running: String?,
+        runningIdentity: AutostartEffectiveUnit.FileIdentity?
+    ) -> AutostartBinaryMatch {
+        guard let unitExecutable else { return .notMeasured }
+        guard let unitTarget else { return .missing(unitExecutable: unitExecutable) }
+        guard let running, let runningIdentity else { return .notMeasured }
+        return unitTarget == runningIdentity
+            ? .matches
+            : .differs(unitExecutable: unitExecutable, running: running)
+    }
+}
+
 /// Die Entscheidung vor dem Schreiben — reine Tabelle, ohne Dateizugriff.
 public enum AutostartPlan: Equatable, Sendable {
 

@@ -238,7 +238,25 @@ struct AutostartInstaller {
     func uninstall() -> TrayExit { uninstall(.autostart) }
 
     /// `--autostart-status`
-    func status() -> TrayExit { status(.autostart) }
+    ///
+    /// CM-34: Bei `enabled` folgt der gestartete Pfad, bei Abweichung oder
+    /// fehlendem Binary eine Warnung. Exit bleibt `.ok`.
+    func status() -> TrayExit {
+        let result = status(.autostart)
+        guard result.exit == .ok, result.state == .enabled else { return result.exit }
+        switch binaryMatch() {
+        case .matches:
+            if let path = ownUnitExecutable() { emit(AutostartTexts.statusExecutable(path: path)) }
+        case .differs(let unitExecutable, let running):
+            emit(AutostartTexts.statusExecutable(path: unitExecutable))
+            emit(AutostartTexts.statusExecutableDiffers(running: running))
+        case .missing(let unitExecutable):
+            emit(AutostartTexts.statusExecutableMissing(path: unitExecutable))
+        case .notMeasured:
+            break
+        }
+        return .ok
+    }
 
     /// `--install-auto-update`: Timer und statischen Service schreiben, nur den
     /// Timer einschalten — ohne `--now` (FE 1).
@@ -250,7 +268,7 @@ struct AutostartInstaller {
     /// `--auto-update-status`: Zustand des **Timers** (FE 13), dazu der letzte
     /// gescheiterte Lauf des Service (2b-Auflage 9). Exit bleibt 0.
     func autoUpdateStatus() -> TrayExit {
-        let result = status(.autoUpdate)
+        let result = status(.autoUpdate).exit
         guard result == .ok else { return result }
         let show = systemctl([
             "show", "-p", "Result,ExecMainStatus,ExecMainExitTimestamp", UpdateUnits.serviceName
@@ -271,6 +289,44 @@ struct AutostartInstaller {
             return .managerUnavailable
         }
         return currentReading(unitName: AutostartPaths.unitName)
+    }
+
+    /// Der Programmpfad aus der EIGENEN Autostart-Unit am Zielpfad (CM-34) —
+    /// `nil` bei fehlender, fremder (ohne Marker), unlesbarer Datei, Symlink
+    /// oder nicht auswertbarem `ExecStart`. Kein `systemctl`.
+    private func ownUnitExecutable() -> String? {
+        guard case .success(let layout) = ManagedUnit.autostart.layout(environment) else { return nil }
+        let target = probe(unitPath: layout.unitPath, marker: AutostartUnit.markerComment)
+        guard target.exists, !target.isSymlink, target.carriesMarker,
+              let contents = try? String(contentsOfFile: layout.unitPath, encoding: .utf8) else { return nil }
+        return AutostartUnit.executablePath(inUnit: contents)
+    }
+
+    /// Stille Dateimessung für Menü und `--autostart-status` (CM-34): zeigt
+    /// die eigene Unit auf das laufende Binary? **Ohne** `systemctl`, ohne
+    /// `emit`. Schattung wird nicht erhoben.
+    func binaryMatch() -> AutostartBinaryMatch {
+        let unitExecutable = ownUnitExecutable()
+        var unitTarget: AutostartEffectiveUnit.FileIdentity?
+        if let unitExecutable {
+            var info = stat()
+            if stat(unitExecutable, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+               access(unitExecutable, X_OK) == 0 {
+                unitTarget = AutostartEffectiveUnit.FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+            }
+        }
+        var running: String?
+        var runningIdentity: AutostartEffectiveUnit.FileIdentity?
+        if case .usable(let path) = AutostartExecutable.resolve() {
+            running = path
+            runningIdentity = fileIdentity(followingLinks: path)
+        }
+        return AutostartBinaryMatch.compare(
+            unitExecutable: unitExecutable,
+            unitTarget: unitTarget,
+            running: running,
+            runningIdentity: runningIdentity
+        )
     }
 
     /// Ob ein `try-restart` des Tray-Dienstes genau das ersetzte Binary trifft
@@ -550,17 +606,19 @@ struct AutostartInstaller {
         return .ok
     }
 
-    private func status(_ set: ManagedUnitSet) -> TrayExit {
+    /// Der gemessene Zustand wird mit zurückgegeben (CM-34), damit der
+    /// Aufrufer nicht ein zweites `is-enabled` abfragt.
+    private func status(_ set: ManagedUnitSet) -> (exit: TrayExit, state: LoginItemState?) {
         let primary = set.primary
-        guard let layout = resolvedLayout(primary) else { return .autostartUnavailable }
-        guard managerReachable(set.messages) else { return .autostartUnavailable }
+        guard let layout = resolvedLayout(primary) else { return (.autostartUnavailable, nil) }
+        guard managerReachable(set.messages) else { return (.autostartUnavailable, nil) }
 
         guard let state = usableState(
             currentReading(unitName: primary.name),
             unitName: primary.name,
             messages: set.messages
         ) else {
-            return .autostartUnavailable
+            return (.autostartUnavailable, nil)
         }
         switch state {
         case .enabled:
@@ -572,7 +630,7 @@ struct AutostartInstaller {
         }
         // Eine Auskunft ist gelungen — auch „maskiert" ist eine. Blockiert ist
         // hier nichts, weil nichts eingerichtet werden sollte.
-        return .ok
+        return (.ok, state)
     }
 
     // MARK: - Gemeinsame Schritte

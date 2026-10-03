@@ -97,6 +97,57 @@ public enum AutostartUnit {
         return "\"\(escaped)\""
     }
 
+    /// Der Programmpfad aus einer Unit — Gegenstück zu ``execStartValue(for:)`` (CM-34).
+    ///
+    /// Nimmt nur die zwei Formen an, die ``execStartValue(for:)`` erzeugt:
+    /// ungequotet = ein Wort ohne `"`, `'` und `\`; gequotet = beginnt mit `"`,
+    /// einzige Escapes `\"` und `\\`, nach dem schließenden `"` folgt Leerraum
+    /// oder Zeilenende. Jede andere Form liest systemd womöglich anders
+    /// (Anführungszeichen mitten im Wort, C-Escapes) — dann gibt es `nil`
+    /// statt einer Behauptung ohne Messung. Ein `%` im Pfad ergibt ebenfalls
+    /// `nil`: systemd expandiert Spezifier in der Befehlszeile.
+    ///
+    /// Text nach dem Pfad (Argumente) wird ignoriert.
+    public static func executablePath(inUnit contents: String) -> String? {
+        let prefix = "ExecStart="
+        guard let line = contents.split(separator: "\n", omittingEmptySubsequences: false)
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { $0.hasPrefix(prefix) }) else { return nil }
+        let value = Array(line.dropFirst(prefix.count).drop(while: { $0 == " " || $0 == "\t" }))
+        var path = ""
+        if value.first == "\"" {
+            var index = 1
+            var closed = false
+            while index < value.count {
+                let character = value[index]
+                if character == "\\" {
+                    guard index + 1 < value.count, value[index + 1] == "\"" || value[index + 1] == "\\" else {
+                        return nil
+                    }
+                    path.append(value[index + 1])
+                    index += 2
+                } else if character == "\"" {
+                    closed = true
+                    index += 1
+                    break
+                } else {
+                    path.append(character)
+                    index += 1
+                }
+            }
+            guard closed else { return nil }
+            if index < value.count, value[index] != " ", value[index] != "\t" { return nil }
+        } else {
+            for character in value {
+                if character == " " || character == "\t" { break }
+                if character == "\"" || character == "'" || character == "\\" { return nil }
+                path.append(character)
+            }
+        }
+        guard path.hasPrefix("/"), !path.contains("%") else { return nil }
+        return path
+    }
+
     /// Zeichen, bei denen der Pfad gequotet wird.
     private static let quotingTriggers: Set<Character> = [" ", "\"", "\\", "'"]
 }

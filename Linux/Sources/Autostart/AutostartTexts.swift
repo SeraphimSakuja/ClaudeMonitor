@@ -70,6 +70,19 @@ public enum AutostartTexts {
         "Autostart is enabled (\(unitPath))."
     }
 
+    /// CM-34: der Pfad, den die Unit beim Login startet.
+    public static func statusExecutable(path: String) -> String {
+        "It starts \(path)."
+    }
+
+    public static func statusExecutableDiffers(running: String) -> String {
+        "That is not the binary you ran (\(running)) — run --install-autostart with the binary that should start, or untick and tick \"Start at login\" in its tray."
+    }
+
+    public static func statusExecutableMissing(path: String) -> String {
+        "It starts \(path), which does not exist or is not executable — systemd fails at every login (203/EXEC). Run --install-autostart with the binary that should start."
+    }
+
     public static func statusDisabled(unitPath: String) -> String {
         "Autostart is not set up (\(unitPath))."
     }

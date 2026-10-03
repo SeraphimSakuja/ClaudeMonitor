@@ -222,7 +222,7 @@ final class TrayProcess {
             emit: { autostartLog.always($0) }
         )
         self.installer = installer
-        let autostart = TrayAutostartDisplay(reading: installer.reading())
+        let autostart = TrayAutostartDisplay(reading: installer.reading(), binary: installer.binaryMatch())
         self.autostart = autostart
 
         let view = Self.makeView(state: state, autostart: autostart, now: now)
@@ -313,7 +313,7 @@ final class TrayProcess {
         // zeitabhängigen Zeilen („Checked … ago", Restzeiten) werden dabei
         // neu berechnet.
         if menu.takeMenuOpened() {
-            autostart = autostart.afterRequery(reading: installer.reading())
+            autostart = autostart.afterRequery(reading: installer.reading(), binary: installer.binaryMatch())
             publish(makeView(now: Date()))
         }
 
@@ -355,7 +355,8 @@ final class TrayProcess {
         autostart = autostart.afterAttempt(
             attempt,
             succeeded: exit == .ok,
-            reading: installer.reading()
+            reading: installer.reading(),
+            binary: installer.binaryMatch()
         )
         log.always("autostart=\(word) exit=\(exit.rawValue)")
 

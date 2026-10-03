@@ -41,14 +41,19 @@ public struct TrayAutostartDisplay: Equatable, Sendable {
     /// gescheitert ist.
     public let failedAttempt: Attempt?
 
-    public init(status: Status, failedAttempt: Attempt? = nil) {
+    /// Ob die Unit auf das laufende Binary zeigt (CM-34) — stille
+    /// Dateimessung, ohne `systemctl`.
+    public let binary: AutostartBinaryMatch
+
+    public init(status: Status, failedAttempt: Attempt? = nil, binary: AutostartBinaryMatch) {
         self.status = status
         self.failedAttempt = failedAttempt
+        self.binary = binary
     }
 
     /// Anfangszustand aus einer Messung.
-    public init(reading: AutostartStatus.Reading) {
-        self.init(status: Self.status(of: reading))
+    public init(reading: AutostartStatus.Reading, binary: AutostartBinaryMatch) {
+        self.init(status: Self.status(of: reading), binary: binary)
     }
 
     /// Nach einem Versuch.
@@ -63,14 +68,15 @@ public struct TrayAutostartDisplay: Equatable, Sendable {
     public func afterAttempt(
         _ attempt: Attempt,
         succeeded: Bool,
-        reading: AutostartStatus.Reading
+        reading: AutostartStatus.Reading,
+        binary: AutostartBinaryMatch
     ) -> TrayAutostartDisplay {
         let measured = Self.status(of: reading)
         if measured == .known(.requiresApproval) {
-            return TrayAutostartDisplay(status: measured)
+            return TrayAutostartDisplay(status: measured, binary: binary)
         }
         let missed = !succeeded || measured != attempt.target
-        return TrayAutostartDisplay(status: measured, failedAttempt: missed ? attempt : nil)
+        return TrayAutostartDisplay(status: measured, failedAttempt: missed ? attempt : nil, binary: binary)
     }
 
     /// Nach einem Neu-Erfragen ohne Versuch (Menü geöffnet).
@@ -79,11 +85,12 @@ public struct TrayAutostartDisplay: Equatable, Sendable {
     /// nach dem Fehlversuch — allein das Öffnen löscht sie nicht, sonst wäre
     /// sie nie zu sehen: Der Klick schließt das Menü (gnome-shell
     /// `popupMenu.js:746-750,785-787`), das nächste Öffnen fragt neu (F6).
-    public func afterRequery(reading: AutostartStatus.Reading) -> TrayAutostartDisplay {
+    public func afterRequery(reading: AutostartStatus.Reading, binary: AutostartBinaryMatch) -> TrayAutostartDisplay {
         let measured = Self.status(of: reading)
         return TrayAutostartDisplay(
             status: measured,
-            failedAttempt: measured == status ? failedAttempt : nil
+            failedAttempt: measured == status ? failedAttempt : nil,
+            binary: binary
         )
     }
 
@@ -98,14 +105,20 @@ public struct TrayAutostartDisplay: Equatable, Sendable {
     }
 
     /// Höchstens EINE Hinweiszeile; Vorrang Maske > nicht messbar >
-    /// Fehlversuch (F7).
+    /// Fehlversuch > Binary-Abweichung (F7, CM-34). Die letzte Stufe gilt nur
+    /// bei `enabled`; das Häkchen bleibt dabei gesetzt.
     public var hint: String? {
         if status == .known(.requiresApproval) { return TrayTexts.startAtLoginMasked }
         if status == .unavailable { return TrayTexts.startAtLoginUnavailable }
         switch failedAttempt {
         case .install: return TrayTexts.startAtLoginInstallFailed
         case .uninstall: return TrayTexts.startAtLoginUninstallFailed
-        case nil: return nil
+        case nil:
+            guard status == .known(.enabled) else { return nil }
+            switch binary {
+            case .differs, .missing: return TrayTexts.startAtLoginOtherBinary
+            case .matches, .notMeasured: return nil
+            }
         }
     }
 
