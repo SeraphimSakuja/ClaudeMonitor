@@ -365,6 +365,14 @@ struct AutostartInstaller {
         let executablePath: String
         switch AutostartExecutable.resolve() {
         case .usable(let path):
+            // CM-38: systemd nimmt diese Zeichen in ExecStart= nicht an — die
+            // Unit würde erst beim nächsten Login nicht laden.
+            if AutostartUnit.pathRefusedBySystemd(path) {
+                emit(AutostartTexts.executableNotUsable(
+                    reason: "the path contains a character systemd refuses in ExecStart= "
+                        + "(\", ', \\ or a control character) — move the binary to a path without it"))
+                return .autostartBlocked
+            }
             executablePath = path
         case .unusable(let reason):
             emit(AutostartTexts.executableNotUsable(reason: reason))

@@ -85,16 +85,45 @@ public enum AutostartUnit {
     /// dem Rest Argumente und der Dienst scheiterte mit `203/EXEC`. Deshalb
     /// wird bei Leerzeichen, Anführungszeichen oder Rückstrich gequotet.
     ///
+    /// CM-38: Jedes `%` wird als `%%` geschrieben, gequotet wie ungequotet —
+    /// systemd expandiert Spezifier in der Befehlszeile. Ein unmaskiertes `%`
+    /// hat zwei Folgen: `%h` & Co. ergeben einen falschen Pfad, ein `%` mit
+    /// unbekanntem Buchstaben (`%Z`) lässt die Unit gar nicht laden. `$` bleibt
+    /// unmaskiert: im Programmwort ersetzt systemd es weder beim Laden noch
+    /// beim Start (gemessen, `$$` würde den Pfad sogar verfälschen).
+    ///
+    /// Die Zeichenebene ist durchgehend `unicodeScalars`, nicht `Character`:
+    /// Swift fasst `%`, ` `, `"` und `\` mit einem folgenden Kombinationszeichen
+    /// zu einem Character zusammen, systemd liest Bytes.
+    ///
+    /// Pfade mit `'`, `"`, `\` oder Steuerzeichen nimmt systemd in `ExecStart=`
+    /// nicht an (``pathRefusedBySystemd(_:)``); die Einrichtung verweigert sie.
+    ///
     /// CM-29: Die Regel `needsQuoting` steht NUR hier; auch die Service-Unit
     /// des Auto-Updates (`UpdateUnits`) rendert ihr `ExecStart=` hierüber.
     public static func execStartValue(for executablePath: String) -> String {
-        guard executablePath.contains(where: { quotingTriggers.contains($0) }) else { return executablePath }
-        var escaped = ""
-        for character in executablePath {
-            if character == "\"" || character == "\\" { escaped.append("\\") }
-            escaped.append(character)
+        var escaped = String.UnicodeScalarView()
+        var needsQuoting = false
+        for scalar in executablePath.unicodeScalars {
+            if quotingTriggers.contains(scalar) { needsQuoting = true }
+            if scalar == "%" || scalar == "\"" || scalar == "\\" {
+                escaped.append(scalar == "%" ? "%" : "\\")
+            }
+            escaped.append(scalar)
         }
-        return "\"\(escaped)\""
+        let value = String(escaped)
+        return needsQuoting ? "\"\(value)\"" : value
+    }
+
+    /// Ob systemd den Pfad als Programmpfad in `ExecStart=` ablehnt (CM-38).
+    ///
+    /// Gemessen (systemd 259): `"`, `'`, `\`, U+0001–U+001F und U+007F ergeben
+    /// „Executable path contains special characters“, die Unit lädt nicht.
+    public static func pathRefusedBySystemd(_ path: String) -> Bool {
+        path.unicodeScalars.contains { scalar in
+            scalar == "\"" || scalar == "'" || scalar == "\\"
+                || (1...0x1F).contains(scalar.value) || scalar.value == 0x7F
+        }
     }
 
     /// Der Programmpfad aus einer Unit — Gegenstück zu ``execStartValue(for:)`` (CM-34).
@@ -104,8 +133,16 @@ public enum AutostartUnit {
     /// einzige Escapes `\"` und `\\`, nach dem schließenden `"` folgt Leerraum
     /// oder Zeilenende. Jede andere Form liest systemd womöglich anders
     /// (Anführungszeichen mitten im Wort, C-Escapes) — dann gibt es `nil`
-    /// statt einer Behauptung ohne Messung. Ein `%` im Pfad ergibt ebenfalls
-    /// `nil`: systemd expandiert Spezifier in der Befehlszeile.
+    /// statt einer Behauptung ohne Messung.
+    ///
+    /// CM-38: `%%` ergibt `%`, ein einzelnes `%` ergibt `nil` (systemd liest
+    /// es als Spezifier). Enthält der dekodierte Pfad ein Zeichen, das systemd
+    /// ablehnt (``pathRefusedBySystemd(_:)``), ebenfalls `nil`.
+    ///
+    /// Der Roundtrip `executablePath(inUnit: render(p)) == p` gilt nur für
+    /// Pfade, die systemd annimmt — und nicht für Pfade, die auf Unicode-
+    /// Leerraum (U+00A0) enden: die Zeilen-Trimmung (`.whitespaces`) kürzt sie
+    /// (Altbestand CM-34).
     ///
     /// Text nach dem Pfad (Argumente) wird ignoriert.
     public static func executablePath(inUnit contents: String) -> String? {
@@ -113,41 +150,56 @@ public enum AutostartUnit {
         guard let line = contents.split(separator: "\n", omittingEmptySubsequences: false)
             .map({ $0.trimmingCharacters(in: .whitespaces) })
             .first(where: { $0.hasPrefix(prefix) }) else { return nil }
-        let value = Array(line.dropFirst(prefix.count).drop(while: { $0 == " " || $0 == "\t" }))
-        var path = ""
+        let value = Array(line.unicodeScalars.dropFirst(prefix.unicodeScalars.count)
+            .drop(while: { $0 == " " || $0 == "\t" }))
+        var path = String.UnicodeScalarView()
         if value.first == "\"" {
             var index = 1
             var closed = false
             while index < value.count {
-                let character = value[index]
-                if character == "\\" {
+                let scalar = value[index]
+                if scalar == "\\" {
                     guard index + 1 < value.count, value[index + 1] == "\"" || value[index + 1] == "\\" else {
                         return nil
                     }
                     path.append(value[index + 1])
                     index += 2
-                } else if character == "\"" {
+                } else if scalar == "\"" {
                     closed = true
                     index += 1
                     break
                 } else {
-                    path.append(character)
+                    path.append(scalar)
                     index += 1
                 }
             }
             guard closed else { return nil }
             if index < value.count, value[index] != " ", value[index] != "\t" { return nil }
         } else {
-            for character in value {
-                if character == " " || character == "\t" { break }
-                if character == "\"" || character == "'" || character == "\\" { return nil }
-                path.append(character)
+            for scalar in value {
+                if scalar == " " || scalar == "\t" { break }
+                if scalar == "\"" || scalar == "'" || scalar == "\\" { return nil }
+                path.append(scalar)
             }
         }
-        guard path.hasPrefix("/"), !path.contains("%") else { return nil }
-        return path
+        guard let decoded = decodeSpecifierEscapes(path) else { return nil }
+        guard decoded.hasPrefix("/"), !pathRefusedBySystemd(decoded) else { return nil }
+        return decoded
+    }
+
+    /// `%%` ⇒ `%`; ein einzelnes `%` ⇒ `nil` (CM-38).
+    private static func decodeSpecifierEscapes(_ raw: String.UnicodeScalarView) -> String? {
+        var decoded = String.UnicodeScalarView()
+        var iterator = raw.makeIterator()
+        while let scalar = iterator.next() {
+            if scalar == "%" {
+                guard iterator.next() == "%" else { return nil }
+            }
+            decoded.append(scalar)
+        }
+        return String(decoded)
     }
 
     /// Zeichen, bei denen der Pfad gequotet wird.
-    private static let quotingTriggers: Set<Character> = [" ", "\"", "\\", "'"]
+    private static let quotingTriggers: Set<Unicode.Scalar> = [" ", "\"", "\\", "'"]
 }

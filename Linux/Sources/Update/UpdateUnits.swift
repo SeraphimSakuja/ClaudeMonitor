@@ -56,7 +56,7 @@ public enum UpdateUnits {
     /// Der Service — ruft das Binary mit `--update` auf.
     ///
     /// `ExecStart=` über ``AutostartUnit/execStartValue(for:)``: die EINE
-    /// Quoting-Regel (Folge sonst `203/EXEC`).
+    /// Quoting- und Escape-Regel (Folge sonst `203/EXEC`).
     public static func renderService(executablePath: String) -> String {
         """
         \(markerComment)

@@ -260,7 +260,9 @@ Why it looks like that:
 * **`ExecStart` comes from `readlink("/proc/self/exe")`**, never from `argv[0]`. Started over `PATH`
   — the normal way in `INSTALL.md` — `argv[0]` is just `claude-monitor-tray`, and systemd would fail
   with `203/EXEC` at the next login, long after "set up" was printed. The path is checked (absolute,
-  regular file, executable) before anything is written, and quoted if it contains spaces.
+  regular file, executable) before anything is written, and quoted if it contains spaces; a literal `%`
+  is written as `%%` because systemd expands specifiers in command lines. Paths containing `"`, `'`, `\` or
+  control characters are refused — systemd rejects them in `ExecStart=`.
 * **`RestartPreventExitStatus=5 8 127 203`** — no session, another instance: conditions a
   restart cannot fix. **203** is systemd's own code for `ExecStart` failing (`203/EXEC`) — the binary
   was deleted, moved or lost its execute bit; restarting finds the same missing file, so the service
