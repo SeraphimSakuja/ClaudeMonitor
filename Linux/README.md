@@ -299,7 +299,8 @@ would switch that other unit. If the file cannot be determined (`daemon-reload` 
 a value that is not absolute) the commands exit with 11 and change nothing. A masked unit is not
 checked this way — its FragmentPath is the mask link itself; instead removal refuses (exit 10) when
 a `.wants` link points at an existing file other than the own unit file. `--autostart-status` and
-the menu checkmark do not run this check.
+the menu checkmark do not run this check (`--autostart-status` does name the binary the unit
+starts when it is enabled, CM-34, but still does not look for a shadowing unit).
 
 ### Auto-update units (`--install-auto-update`, CM-29)
 
@@ -385,7 +386,11 @@ installer's messages go through a `TrayLog` whose redaction prefix is `$HOME`, l
 * **State:** the checkmark mirrors `systemctl --user is-enabled` (`enabled` → ticked, `disabled`/
   `not-found` → unticked). `masked` greys the entry out with the `unmask` command below it; an
   answer that is no measurement (no user manager, `systemctl` not runnable, unexpected word) greys
-  it out as unticked with "Autostart state unknown" — never as a switchable "off".
+  it out as unticked with "Autostart state unknown" — never as a switchable "off". CM-34: When the
+  menu opens, the unit file at the target path is also compared with the running binary (the file
+  only, no `systemctl`). If it points at another or a missing binary, one hint line appears and the
+  checkmark stays; precedence: masked > not measurable > failed attempt > binary. `--autostart-status`
+  names the started path when enabled.
 * **When it is asked:** once at start, after **every** attempt, and whenever the shell sends
   `opened` for the root (id 0) — so a change made in a terminal shows up on the next open. The
   30 s store tick does not ask. Side effect of the refresh on open, intended: all time-dependent

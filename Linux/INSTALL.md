@@ -93,6 +93,10 @@ systemctl --user is-enabled claude-monitor-tray.service     # "enabled"
 claude-monitor-tray --autostart-status                      # the same answer in plain words
 ```
 
+When it is `enabled`, `--autostart-status` also names the binary the unit starts and warns if that
+is not the binary you ran the command with, or if the file is gone (the check compares the unit
+file with the binary you run the command with; it runs no `systemctl` beyond `is-enabled`).
+
 If the answer is `masked`, systemd is blocking the unit — `enable` cannot undo that, only you can:
 
 ```sh
@@ -107,7 +111,9 @@ up there too. Ticking it sets the unit up for the binary of the tray that is **r
 put the binary where it should stay first, then tick. Ticking starts nothing right away, and
 unticking does not end the tray that is running. If the unit is masked, the entry is greyed out and
 the line below it names the `systemctl --user unmask` command; if an attempt fails, the line below
-names the command that prints the details.
+names the command that prints the details. If the unit file points at another or a missing binary
+than the tray that is running, the checkmark stays ticked and a line below it says so — untick and
+tick again to point it at this binary, or run `claude-monitor-tray --autostart-status` for the path.
 
 Remove it again:
 
