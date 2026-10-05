@@ -86,11 +86,81 @@ struct TrayPresentationContractTests {
             isActive: true
         )
 
-        let label = TrayPresentation.make(for: TrayFixture.state([account]), now: now).labelText
+        let view = TrayPresentation.make(for: TrayFixture.state([account]), now: now)
+        let label = view.labelText
 
-        #expect(label == "▸74/28 2h04")
+        // CM-25 F3: der Stufen-Marker (rot, 92 % über `spend`) steht nach dem ▸.
+        #expect(label == "▸\u{1F534}74/28 2h04")
         // Fachentscheid 5.3: Namen stehen im Menü, nie im Panel.
         #expect(!label.contains("privat"))
+
+        // CM-25 F5: der Vorlesetext trägt den markerfreien Panel-Text.
+        let table = TraySNIProperties.itemTable(for: view, menuPath: "/StatusNotifierItem/Menu")
+        #expect(
+            TraySNIProperties.value(named: "IconAccessibleDesc", in: table)
+                == .string(TrayTexts.applicationName + " ▸74/28 2h04")
+        )
+    }
+
+    // MARK: - CM-25 · Ampel bei mehreren Accounts
+
+    /// Stufen-Marker im Panel-Text, als Unicode-Skalare in Textreihenfolge.
+    private static func levelMarkers(in label: String) -> [UInt32] {
+        let known: Set<UInt32> = [0x1F7E2, 0x1F7E0, 0x1F534, 0x26AA]
+        return label.unicodeScalars.map(\.value).filter { known.contains($0) }
+    }
+
+    @Test("Mehrere Accounts: ein Stufen-Marker je gezeigtem Segment, Symbol = schlechteste gezeigte Stufe")
+    func severalAccountsShowOneMarkerEachAndWorstLevelIcon() {
+        let now = TrayFixture.now
+        let green = TrayFixture.account(
+            id: "a", name: "account-a",
+            windows: [
+                TrayFixture.window(.fiveHour, percent: 40),
+                TrayFixture.window(.sevenDay, percent: 10)
+            ],
+            isActive: true
+        )
+        let red = TrayFixture.account(
+            id: "b", name: "account-b",
+            windows: [
+                TrayFixture.window(.fiveHour, percent: 92, resetsAt: now.addingTimeInterval(3600)),
+                TrayFixture.window(.sevenDay, percent: 10)
+            ]
+        )
+
+        let view = TrayPresentation.make(for: TrayFixture.state([green, red]), now: now)
+
+        #expect(view.icon == .level(.red))
+        #expect(Self.levelMarkers(in: view.labelText) == [0x1F7E2, 0x1F534])
+    }
+
+    @Test("Aktiver Account ohne Aussage neben grünem Account: ⚪ im Text, Symbol grün")
+    func activeAccountWithoutDataShowsNeutralMarkerButGreenIcon() {
+        let now = TrayFixture.now
+        let dead = MonitoredAccount(
+            id: "a",
+            displayName: "account-a",
+            windows: [],
+            fetchedAt: now,
+            state: .authDead(strikes: 3),
+            isActive: true
+        )
+        let green = TrayFixture.account(
+            id: "b", name: "account-b",
+            windows: [
+                TrayFixture.window(.fiveHour, percent: 30),
+                TrayFixture.window(.sevenDay, percent: 10)
+            ]
+        )
+
+        let view = TrayPresentation.make(for: TrayFixture.state([dead, green]), now: now)
+
+        // Vorbedingung: beide Segmente sind gezeigt (aktiv + bester).
+        let display = MenuBarDisplay.make(for: TrayFixture.state([dead, green]), mode: TrayPresentation.mode, now: now)
+        #expect(display.segments.count == 2)
+        #expect(view.icon == .level(.green))
+        #expect(Self.levelMarkers(in: view.labelText).filter { $0 == 0x26AA }.count == 1)
     }
 
     // MARK: - T2 · Menü-Kennungen
