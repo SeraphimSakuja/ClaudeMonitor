@@ -5,17 +5,22 @@ import ClaudeMonitorShared
 /// Was das Tray-Item gerade zeigt — Beschriftung, Symbol, Menü.
 public struct TrayView: Equatable, Sendable {
 
-    /// Der Text neben dem Symbol im Panel (`XAyatanaLabel`).
+    /// Der Text neben dem Symbol im Panel (`XAyatanaLabel`), mit einem
+    /// farbigen Stufen-Marker je Account.
     /// Darf leer sein — ein leerer Text ja, ein verschwundenes Item nie
     /// (Fachentscheid 5.2).
     public let labelText: String
+    /// Derselbe Panel-Text **ohne** Stufen-Marker — für den Vorlesetext, damit
+    /// ein Screenreader nicht „green circle …" liest (CM-25).
+    public let spokenLabelText: String
     /// Das eine Symbol des Items.
     public let icon: TrayIconStatus
     /// Die Einträge des Menüs, flach, in Anzeigereihenfolge.
     public let menu: [TrayMenuItem]
 
-    public init(labelText: String, icon: TrayIconStatus, menu: [TrayMenuItem]) {
+    public init(labelText: String, spokenLabelText: String, icon: TrayIconStatus, menu: [TrayMenuItem]) {
         self.labelText = labelText
+        self.spokenLabelText = spokenLabelText
         self.icon = icon
         self.menu = menu
     }
@@ -63,36 +68,51 @@ public enum TrayPresentation {
         let display = MenuBarDisplay.make(for: state, mode: mode, now: now)
         return TrayView(
             labelText: labelText(for: display),
-            icon: TrayIconAggregation.provisionalIcon(for: display),
+            spokenLabelText: labelText(for: display, withMarkers: false),
+            icon: TrayIconAggregation.icon(for: display),
             menu: menu(for: state, now: now, autostart: autostart)
         )
     }
 
     // MARK: - Panel-Text
 
-    /// Der Text im Panel: `▸74/28 2h04  97/11  0/28`.
+    /// Der Text im Panel: `▸🔴74/28 2h04  🟢97/11  ⚪–/–`.
     ///
-    /// Reihenfolge je Segment: **Marker · Zahlen · Restzeit** (Auflage 1). Die
-    /// Restzeit trägt höchstens ein Segment — das mit der Reset-Rolle —, und
-    /// sie ist der Grund, warum man überhaupt hinsieht: „auf diesen hier
-    /// wartest du".
+    /// Reihenfolge je Segment: **Marker · Stufen-Marker · Zahlen · Restzeit**
+    /// (Auflage 1). Die Restzeit trägt höchstens ein Segment — das mit der
+    /// Reset-Rolle —, und sie ist der Grund, warum man überhaupt hinsieht:
+    /// „auf diesen hier wartest du".
     ///
-    /// Ohne Ampelpunkte, anders als auf macOS: Dort zeichnet
-    /// `MenuBarImageRenderer` ein einziges Bild mit farbigen Punkten; das
-    /// SNI-Label ist reiner Text und kann keine Farbe tragen. Die Ampel sitzt
-    /// hier im Symbol (siehe ``TrayIconAggregation``).
+    /// Der Stufen-Marker ist das Gegenstück zum Ampelpunkt der macOS-Leiste
+    /// (`MenuBarImageRenderer`): ein farbiges Emoji je Account. Gemessen am
+    /// echten GNOME-Panel (Phase-3-Bericht CM-25): `NotoColorEmoji` zeichnet
+    /// 🟢 🟠 🔴 ⚪ farbig im SNI-Label. Das Symbol trägt dazu die Gesamtaussage
+    /// (siehe ``TrayIconAggregation``).
     ///
     /// Keine Account-Namen — Parität zu `MenuBarLabelView.swift:5-7`; die
     /// Namen stehen im Menü (Fachentscheid 5.3).
-    static func labelText(for display: MenuBarDisplay) -> String {
+    static func labelText(for display: MenuBarDisplay, withMarkers: Bool = true) -> String {
         display.segments.map { segment in
             var parts: [String] = []
             if let marker = segment.markerText { parts.append(marker) }
+            if withMarkers { parts.append(statusMarker(for: segment.status)) }
             parts.append(segment.numbersText)
             if let reset = segment.resetText { parts.append(" " + reset) }
             return parts.joined()
         }
         .joined(separator: segmentSeparator)
+    }
+
+    /// Der farbige Marker einer Stufe. Gelb wird orange gezeigt — wie im
+    /// Symbol (`TrayIconPixmap.color`) und auf macOS (`StatusAppearance.swift:22`);
+    /// `nil` (keine Aussage) ist neutral.
+    static func statusMarker(for status: StatusLevel?) -> String {
+        switch status {
+        case .green: return "\u{1F7E2}"
+        case .yellow: return "\u{1F7E0}"
+        case .red: return "\u{1F534}"
+        case nil: return "\u{26AA}"
+        }
     }
 
     // MARK: - Menü

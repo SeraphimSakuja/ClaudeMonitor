@@ -53,11 +53,12 @@ public enum TraySNIProperties {
         ]
     }
 
-    /// Vorlesetext des Symbols: Produktname plus Panel-Text, falls einer da ist.
+    /// Vorlesetext des Symbols: Produktname plus markerfreier Panel-Text,
+    /// falls einer da ist.
     static func accessibleDescription(for view: TrayView) -> String {
-        view.labelText.isEmpty
+        view.spokenLabelText.isEmpty
             ? TrayTexts.applicationName
-            : "\(TrayTexts.applicationName) \(view.labelText)"
+            : "\(TrayTexts.applicationName) \(view.spokenLabelText)"
     }
 
     /// Die Eigenschaften von `com.canonical.dbusmenu`.

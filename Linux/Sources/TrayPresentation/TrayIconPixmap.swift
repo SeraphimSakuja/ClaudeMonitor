@@ -27,26 +27,35 @@ public enum TrayIconStatus: Equatable, Sendable {
 /// Wählt das Symbol zu einer Leistenanzeige.
 public enum TrayIconAggregation {
 
-    /// ⚠️ **VORLÄUFIG — CM-25 entscheidet.**
+    /// Das Symbol als **Gesamtaussage** über die Leiste (CM-25).
     ///
     /// Ein `StatusNotifierItem` hat genau **ein** Symbol (Fachentscheid 5.15);
-    /// die Leiste auf macOS zeichnet dagegen einen Punkt je Account. Wie sich
-    /// mehrere Ampeln auf eine zusammenziehen — schlechteste Stufe, Stufe des
-    /// aktiven Accounts, Stufe des erstgereihten — ist eine Frage an den
-    /// Kunden und ausdrücklich **nicht** Teil dieser Karte. Sie ist an `CM-25`
-    /// ausgelagert und sperrt dort die Auslieferung, nicht den Bau.
+    /// die Leiste auf macOS zeichnet dagegen einen Punkt je Account. Hier trägt
+    /// jeder gezeigte Account seinen eigenen Marker im Panel-Text
+    /// (``TrayPresentation/statusMarker(for:)``), das Symbol sagt dazu das
+    /// Schlimmste: die **schlechteste Stufe** (rot vor gelb vor grün) über die
+    /// **gezeigten** Segmente. Ein Account ohne Aussage (`status == nil`) zählt
+    /// nicht mit; haben alle keine, ist das Symbol neutral, ohne Segmente
+    /// `.noData`.
     ///
-    /// Bis dahin gilt Weg (a) der Spezifikation: die Stufe des **erstgereihten**
-    /// Segments. Das ist auf macOS der Account, den die Rollenauswahl als
-    /// „besten" vorne einsortiert — die Auskunft, auf die man in der Leiste
-    /// zuerst schaut.
+    /// Die Marker im Panel-Text sind am echten GNOME-Panel gemessen (Phase-3-
+    /// Bericht CM-25): `NotoColorEmoji` zeichnet alle vier farbig.
     ///
-    /// Diese Funktion ist die einzige Stelle, an der die Regel steht. `CM-25`
-    /// tauscht ihren Rumpf aus; die Signatur bleibt, kein Aufrufer ändert sich.
-    public static func provisionalIcon(for display: MenuBarDisplay) -> TrayIconStatus {
-        guard let first = display.segments.first else { return .noData }
-        guard let status = first.status else { return .neutral }
-        return .level(status)
+    /// Diese Funktion ist die einzige Stelle, an der die Regel steht.
+    public static func icon(for display: MenuBarDisplay) -> TrayIconStatus {
+        guard !display.segments.isEmpty else { return .noData }
+        let worst = display.segments.compactMap(\.status).max { rank($0) < rank($1) }
+        guard let worst else { return .neutral }
+        return .level(worst)
+    }
+
+    /// Rang einer Stufe — `StatusLevel` ist nicht `Comparable`.
+    private static func rank(_ level: StatusLevel) -> Int {
+        switch level {
+        case .green: return 0
+        case .yellow: return 1
+        case .red: return 2
+        }
     }
 }
 
