@@ -31,6 +31,10 @@ public struct TrayMenuItem: Equatable, Sendable {
         /// trägt ``TrayMenuItem/checkmark``; erzeugt wird der Fall nur über
         /// ``TrayMenuItem/startAtLogin(key:label:checkmark:)``.
         case startAtLogin
+        /// „Automatic updates" — ankreuzbar, spiegelt den Update-Timer (CM-37).
+        /// Erzeugt wird der Fall nur über
+        /// ``TrayMenuItem/automaticUpdates(key:label:checkmark:)``.
+        case automaticUpdates
     }
 
     /// Stellung und Bedienbarkeit eines ankreuzbaren Eintrags.
@@ -59,8 +63,10 @@ public struct TrayMenuItem: Equatable, Sendable {
     public let role: Role
     /// Der angezeigte Text. Bei ``Role/separator`` leer.
     public let label: String
-    /// Setzbar ausschließlich über ``startAtLogin(key:label:checkmark:)``;
-    /// der öffentliche Init lässt es `nil`. Fehlt es, gilt der Eintrag als
+    /// Setzbar ausschließlich über die Fabriken der ankreuzbaren Rollen
+    /// (``startAtLogin(key:label:checkmark:)``,
+    /// ``automaticUpdates(key:label:checkmark:)``); der öffentliche Init lässt
+    /// es `nil`. Fehlt es, gilt der Eintrag als
     /// „aus" und gesperrt.
     public let checkmark: Checkmark?
 
@@ -78,6 +84,11 @@ public struct TrayMenuItem: Equatable, Sendable {
     /// Der ankreuzbare Eintrag „Start at login" (CM-30).
     public static func startAtLogin(key: String, label: String, checkmark: Checkmark) -> TrayMenuItem {
         TrayMenuItem(key: key, role: .startAtLogin, label: label, checkmark: checkmark)
+    }
+
+    /// Der ankreuzbare Eintrag „Automatic updates" (CM-37).
+    public static func automaticUpdates(key: String, label: String, checkmark: Checkmark) -> TrayMenuItem {
+        TrayMenuItem(key: key, role: .automaticUpdates, label: label, checkmark: checkmark)
     }
 
     /// Eine Auskunftszeile.
@@ -99,7 +110,7 @@ public struct TrayMenuItem: Equatable, Sendable {
         case .refresh, .quit: return true
         case .information, .separator: return false
         // Gesperrt, wenn Umlegen nichts bewirken kann (Maske, nicht messbar).
-        case .startAtLogin: return checkmark?.isToggleable ?? false
+        case .startAtLogin, .automaticUpdates: return checkmark?.isToggleable ?? false
         }
     }
 }

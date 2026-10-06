@@ -36,7 +36,7 @@ public enum TrayMenuLayout {
                 DBusDictionaryEntry("enabled", .bool(item.isEnabled)),
                 DBusDictionaryEntry("visible", .bool(true))
             ]
-        case .startAtLogin:
+        case .startAtLogin, .automaticUpdates:
             // CM-30 · F1: `toggle-type` ist `s`, `toggle-state` ist `i`
             // (int32 1/0, nicht bool) — gnome-shell verwirft einen falschen
             // Typ und zeigt dann kein Häkchen (`dbusMenu.js:52-55,82-83`).

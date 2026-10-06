@@ -177,6 +177,14 @@ version, download it by hand as described above.
 An update replaces the binary only. It does not rewrite the unit files — they stay as they were
 written when you set them up.
 
+In the tray menu, **Automatic updates** carries a checkmark that mirrors
+`systemctl --user is-enabled claude-monitor-tray-update.timer`. Ticking it runs
+`--install-auto-update`, unticking it runs `--uninstall-auto-update`; the state is read again after
+every attempt and whenever you open the menu. Ticking starts nothing right away: the first check
+runs 15 minutes after your next login. Unticking takes effect at once. If the timer is masked or its
+state cannot be read, the entry is greyed out and the line below it names the command that helps; if
+an attempt fails, that line names the command that prints the details.
+
 ## Exit codes
 
 The process is judged by its exit code, not by "it printed nothing".

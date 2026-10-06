@@ -63,14 +63,15 @@ public enum TrayPresentation {
     public static func make(
         for state: MonitorViewState,
         now: Date = Date(),
-        autostart: TrayAutostartDisplay? = nil
+        autostart: TrayAutostartDisplay? = nil,
+        autoUpdate: TrayAutoUpdateDisplay? = nil
     ) -> TrayView {
         let display = MenuBarDisplay.make(for: state, mode: mode, now: now)
         return TrayView(
             labelText: labelText(for: display),
             spokenLabelText: labelText(for: display, withMarkers: false),
             icon: TrayIconAggregation.icon(for: display),
-            menu: menu(for: state, now: now, autostart: autostart)
+            menu: menu(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate)
         )
     }
 
@@ -139,11 +140,12 @@ public enum TrayPresentation {
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
     /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
     /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
-    /// | Update-Block (`:208-278`) | **draußen** | Sparkle ist macOS-only. Das Linux-Pendant (`CM-29`) wird über Unterbefehle bedient (`--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`); der Menüeintrag folgt in `CM-37` |
+    /// | Update-Block (`:208-278`) | drin — `CM-37` | „Automatic updates" ankreuzbar, spiegelt `is-enabled` des Timers (``TrayAutoUpdateDisplay``). „Check for updates now" folgt im selben Block. Sparkle selbst bleibt macOS-only |
     static func menu(
         for state: MonitorViewState,
         now: Date,
-        autostart: TrayAutostartDisplay? = nil
+        autostart: TrayAutostartDisplay? = nil,
+        autoUpdate: TrayAutoUpdateDisplay? = nil
     ) -> [TrayMenuItem] {
         var items: [TrayMenuItem] = [
             .information(key: "header", label: TrayTexts.header),
@@ -189,6 +191,18 @@ public enum TrayPresentation {
             ))
             if let hint = autostart.hint {
                 items.append(.information(key: "startAtLogin.hint", label: hint))
+            }
+        }
+        // CM-37 · FE 6: Reihenfolge wie macOS (`loginItemRow` → `updateRow` →
+        // `footer`, `MonitorPopoverView.swift:45-47`).
+        if let autoUpdate {
+            items.append(.automaticUpdates(
+                key: "action.automaticUpdates",
+                label: TrayTexts.automaticUpdates,
+                checkmark: autoUpdate.checkmark
+            ))
+            if let hint = autoUpdate.hint {
+                items.append(.information(key: "automaticUpdates.hint", label: hint))
             }
         }
         if let capturedAt = state.snapshot?.capturedAt,

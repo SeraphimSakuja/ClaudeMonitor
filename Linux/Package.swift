@@ -42,6 +42,10 @@ let package = Package(
                 // Unit-Namen für den Masken-Hinweis — aus EINER Quelle.
                 // Kein Zyklus: `Autostart` hängt nur an `ClaudeMonitorShared`.
                 "Autostart",
+                // CM-37: Timer-Name für den Masken-Hinweis aus EINER Quelle
+                // (`UpdateUnits.timerName`). Kein Zyklus: `Update` hängt nur
+                // an `Autostart`.
+                "Update",
                 "DBusWire",
                 .product(name: "ClaudeMonitorCore", package: "Core"),
                 .product(name: "ClaudeMonitorShared", package: "Shared")

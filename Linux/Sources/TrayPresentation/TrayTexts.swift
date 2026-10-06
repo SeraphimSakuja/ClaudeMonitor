@@ -1,5 +1,6 @@
 import Foundation
 import Autostart
+import Update
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 
@@ -72,6 +73,23 @@ public enum TrayTexts {
         "Could not set up autostart — run claude-monitor-tray --install-autostart for details"
     public static let startAtLoginUninstallFailed =
         "Could not remove autostart — run claude-monitor-tray --uninstall-autostart for details"
+
+    /// CM-37 · FE 1: Der Timer startet `--update`, und das **installiert** —
+    /// „Check" verschwiege die Wirkung. Wortlaut wie die CLI
+    /// (`UpdateTexts.swift:190`).
+    public static let automaticUpdates = "Automatic updates"
+
+    /// Hinweiszeilen unter „Automatic updates" (FE 5). Keine Pfade im Menü.
+    public static var automaticUpdatesMasked: String {
+        "Masked in systemd — undo with: "
+            + AutostartTexts.unmaskCommand(unitName: UpdateUnits.timerName)
+    }
+    public static let automaticUpdatesUnavailable =
+        "Automatic update state unknown — run claude-monitor-tray --auto-update-status for details"
+    public static let automaticUpdatesInstallFailed =
+        "Could not set up automatic updates — run claude-monitor-tray --install-auto-update for details"
+    public static let automaticUpdatesUninstallFailed =
+        "Could not remove automatic updates — run claude-monitor-tray --uninstall-auto-update for details"
 
     // MARK: - Inhaltsfälle des Detailfensters
 

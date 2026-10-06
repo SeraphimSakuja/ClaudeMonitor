@@ -183,6 +183,8 @@ final class TrayProcess {
 
     private var state: MonitorViewState
     private var autostart: TrayAutostartDisplay
+    /// „Automatic updates" — der Timer des Auto-Updates (CM-37).
+    private var autoUpdate: TrayAutoUpdateDisplay
     private var nextRead: Date
     private var registeredWithWatcher = false
 
@@ -224,8 +226,10 @@ final class TrayProcess {
         self.installer = installer
         let autostart = TrayAutostartDisplay(reading: installer.reading(), binary: installer.binaryMatch())
         self.autostart = autostart
+        let autoUpdate = TrayAutoUpdateDisplay(reading: installer.autoUpdateReading())
+        self.autoUpdate = autoUpdate
 
-        let view = Self.makeView(state: state, autostart: autostart, now: now)
+        let view = Self.makeView(state: state, autostart: autostart, autoUpdate: autoUpdate, now: now)
         item = StatusNotifierItemObject(
             objectPath: Self.itemPath,
             menuPath: Self.menuPath,
@@ -314,12 +318,14 @@ final class TrayProcess {
         // neu berechnet.
         if menu.takeMenuOpened() {
             autostart = autostart.afterRequery(reading: installer.reading(), binary: installer.binaryMatch())
+            autoUpdate = autoUpdate.afterRequery(reading: installer.autoUpdateReading())
             publish(makeView(now: Date()))
         }
 
         // Mehrere Klicks auf „Start at login" in einem Durchlauf trugen alle
         // denselben angezeigten Stand — ein Versuch genügt.
         var autostartAttempted = false
+        var autoUpdateAttempted = false
         for item in menu.takePendingActions() {
             switch item.role {
             case .quit:
@@ -333,6 +339,10 @@ final class TrayProcess {
                 guard !autostartAttempted else { continue }
                 autostartAttempted = true
                 attemptAutostart(showing: item.checkmark)
+            case .automaticUpdates:
+                guard !autoUpdateAttempted else { continue }
+                autoUpdateAttempted = true
+                attemptAutoUpdate(showing: item.checkmark)
             case .information, .separator:
                 break
             }
@@ -371,10 +381,37 @@ final class TrayProcess {
         publish(makeView(now: Date()))
     }
 
+    /// Ein Klick auf „Automatic updates" (CM-37 · FE 3): wie
+    /// ``attemptAutostart(showing:)``, nur für den Timer. Ankreuzen startet
+    /// nichts sofort (FE 4); die erste Prüfung läuft 15 min nach dem nächsten
+    /// Login.
+    private func attemptAutoUpdate(showing checkmark: TrayMenuItem.Checkmark?) {
+        let attempt: TrayAutoUpdateDisplay.Attempt = (checkmark?.isOn ?? false) ? .uninstall : .install
+        let word = attempt == .install ? "install" : "uninstall"
+        log.always("autoupdate=\(word) started")
+        let exit = attempt == .install ? installer.installAutoUpdate() : installer.uninstallAutoUpdate()
+        autoUpdate = autoUpdate.afterAttempt(
+            attempt,
+            succeeded: exit == .ok,
+            reading: installer.autoUpdateReading()
+        )
+        log.always("autoupdate=\(word) exit=\(exit.rawValue)")
+
+        // Spät eingegangene Klicks derselben Rolle werden abgeholt und
+        // verworfen (wie bei „Start at login"); Klicks auf andere Rollen
+        // bleiben unberührt.
+        if let late = try? connection.pump(timeoutMilliseconds: 0) {
+            for message in late { handle(signal: message) }
+        }
+        menu.discardPendingActions(role: .automaticUpdates)
+
+        publish(makeView(now: Date()))
+    }
+
     /// Die Oberfläche aus dem aktuellen Zustand — der EINE Weg, auf dem der
     /// Prozess eine Ansicht baut, damit der Autostart-Block nie fehlt.
     private func makeView(now: Date) -> TrayView {
-        Self.makeView(state: state, autostart: autostart, now: now)
+        Self.makeView(state: state, autostart: autostart, autoUpdate: autoUpdate, now: now)
     }
 
     /// Statisch, weil `init` die Ansicht braucht, bevor alle gespeicherten
@@ -382,9 +419,10 @@ final class TrayProcess {
     private static func makeView(
         state: MonitorViewState,
         autostart: TrayAutostartDisplay,
+        autoUpdate: TrayAutoUpdateDisplay,
         now: Date
     ) -> TrayView {
-        TrayPresentation.make(for: state, now: now, autostart: autostart)
+        TrayPresentation.make(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate)
     }
 
     /// Ist die Abnahmefolge des Selbsttests durchlaufen?

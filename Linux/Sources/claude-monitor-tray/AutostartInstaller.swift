@@ -285,10 +285,20 @@ struct AutostartInstaller {
     /// ``status()`` druckt bei jedem Aufruf; der Tray fragt bei jedem Öffnen
     /// des Menüs, und das gehört nicht ins Journal.
     func reading() -> AutostartStatus.Reading {
+        silentReading(unitName: AutostartPaths.unitName)
+    }
+
+    /// Stille Messung des Update-**Timers** für „Automatic updates" (CM-37,
+    /// FE 2) — dieselbe Vorbedingung und derselbe Weg wie ``reading()``.
+    func autoUpdateReading() -> AutostartStatus.Reading {
+        silentReading(unitName: UpdateUnits.timerName)
+    }
+
+    private func silentReading(unitName: String) -> AutostartStatus.Reading {
         guard AutostartPaths.managerCanBeReachable(environment: environment) else {
             return .managerUnavailable
         }
-        return currentReading(unitName: AutostartPaths.unitName)
+        return currentReading(unitName: unitName)
     }
 
     /// Der Programmpfad aus der EIGENEN Autostart-Unit am Zielpfad (CM-34) —

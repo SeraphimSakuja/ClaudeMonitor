@@ -168,7 +168,7 @@ who downloaded it, not for this repository.
 | Target | Kind | Contains |
 |---|---|---|
 | `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
-| `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the "Start at login" transitions (`TrayAutostartDisplay`) |
+| `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the checkmark transitions (`TrayUnitToggle`) of "Start at login" and "Automatic updates" |
 | `Autostart` | library | the rules of the systemd user service: paths from an injected environment, unit text, `is-enabled` mapping, set-up/removal decision tables, texts |
 | `Update` | library | the rules of the Linux auto-update (CM-29): fixed addresses, manifest check, build comparison, glibc floor, `--version` contract, mapping of `curl`/`wget` exit codes, timer/service unit texts, texts. Depends on `Autostart` for the one `ExecStart=` quoting rule |
 | `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
