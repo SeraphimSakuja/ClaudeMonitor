@@ -204,7 +204,7 @@ struct TrayBusBehaviourTests {
         defer { try? FileManager.default.removeItem(at: home) }
         try schreibeEinenAccount(in: home, fetchedAt: Date())
 
-        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled", timerIsEnabled: "enabled")
         let prozess = TrayProcess(
             connection: verbindung,
             homeDirectory: home,
@@ -221,8 +221,16 @@ struct TrayBusBehaviourTests {
         #expect(eintrag.eigenschaften["toggle-type"] == .string("checkmark"))
         #expect(eintrag.eigenschaften["toggle-state"] == .int32(0))
         #expect(eintrag.eigenschaften["enabled"] == .bool(true))
-        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.hasPrefix("Checked ") == true,
-                "nach „Start at login“ folgt nicht die Fußzeile: \(menue)")
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label == "Automatic updates",
+                "nach „Start at login“ folgt nicht „Automatic updates“: \(menue)")
+        // CM-37 · FE 2: „Automatic updates“ liest den Timer, nicht die Autostart-Unit.
+        let update = try #require(menue.first { $0.label == "Automatic updates" }, "Menü: \(menue)")
+        #expect(update.eigenschaften["toggle-state"] == .int32(1), "Automatic updates: \(update)")
+        #expect(update.eigenschaften["enabled"] == .bool(true))
+        // CM-37 · FE 6: „Check for updates now“ liegt vor der Fußzeile.
+        let pruefen = try #require(menue.firstIndex { $0.label == "Check for updates now" }, "Menü: \(menue)")
+        let fusszeile = try #require(menue.firstIndex { $0.label?.hasPrefix("Checked ") == true }, "Menü: \(menue)")
+        #expect(pruefen < fusszeile, "„Check for updates now“ nicht vor der Fußzeile: \(menue)")
 
         // (b) im Terminal eingerichtet, Menü geöffnet
         attrappe.isEnabled = "enabled"
@@ -257,7 +265,7 @@ struct TrayBusBehaviourTests {
         menue = try layoutLesen(bus, verbindung, prozess)
         index = try #require(menue.firstIndex { $0.label == "Start at login" })
         #expect(menue[index].eigenschaften["toggle-state"] == .int32(1), "b1: \(menue[index])")
-        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.hasPrefix("Checked ") == true,
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label == "Automatic updates",
                 "b1: Hinweis beim eigenen Binary: \(menue)")
 
         // (b2) CM-34: Binary verschoben ⇒ Häkchen bleibt, Hinweiszeile folgt.
@@ -282,8 +290,92 @@ struct TrayBusBehaviourTests {
         menue = try layoutLesen(bus, verbindung, prozess)
         index = try #require(menue.firstIndex { $0.label == "Start at login" })
         #expect(menue[index].eigenschaften["toggle-state"] == .int32(0), "nach dem Klick: \(menue[index])")
-        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.hasPrefix("Checked ") == true,
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label == "Automatic updates",
                 "Hinweiszeile nach dem Abwählen: \(menue)")
+
+        // (d) CM-37: „Automatic updates“ abwählen — nur der Timer wird ausgeschaltet.
+        let updateEintrag = try #require(menue.first { $0.label == "Automatic updates" })
+        try ereignis(bus, verbindung, prozess, id: updateEintrag.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        #expect(attrappe.aufrufe.contains("--user disable claude-monitor-tray-update.timer"), "Aufrufe: \(attrappe.aufrufe)")
+        #expect(!attrappe.aufrufe.contains { $0.hasPrefix("--user enable") && $0.hasSuffix("claude-monitor-tray-update.timer") },
+                "Aufrufe: \(attrappe.aufrufe)")
+        menue = try layoutLesen(bus, verbindung, prozess)
+        index = try #require(menue.firstIndex { $0.label == "Automatic updates" })
+        #expect(menue[index].eigenschaften["toggle-state"] == .int32(0), "nach dem Klick: \(menue[index])")
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label == "Check for updates now",
+                "unter „Automatic updates“ keine Hinweiszeile: \(menue)")
+        let autostartZeile = try #require(menue.first { $0.label == "Start at login" })
+        #expect(autostartZeile.eigenschaften["toggle-state"] == .int32(0), "Start at login: \(autostartZeile)")
+    }
+
+    /// J2 — „Check for updates now“: startet `--update`, sperrt während der
+    /// Prüfung, zeigt das Ergebnis.
+    @Test("CM-37: Check for updates now — startet --update, sperrt während der Prüfung, zeigt das Ergebnis")
+    func checkForUpdatesNow_startetUpdate_sperrtWaehrendPruefung_zeigtErgebnis() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+        let verbindung = try DBusConnection(socketPath: bus.socketPfad)
+        defer { verbindung.close() }
+        let home = try temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try schreibeEinenAccount(in: home, fetchedAt: Date())
+
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
+        let starter = StarterAttrappe()
+        // Ohne XDG_RUNTIME_DIR: Nutzermanager nicht erreichbar.
+        let prozess = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: Date(),
+            environment: ["HOME": home.path],
+            runner: attrappe,
+            starter: starter
+        )
+
+        // (1) immer sichtbar und bedienbar, obwohl „Automatic updates“ gesperrt ist.
+        var menue = try layoutLesen(bus, verbindung, prozess)
+        let automatisch = try #require(menue.first { $0.label == "Automatic updates" }, "Menü: \(menue)")
+        #expect(automatisch.eigenschaften["enabled"] == .bool(false))
+        let pruefen = try #require(menue.first { $0.label == "Check for updates now" }, "Menü: \(menue)")
+        #expect(pruefen.eigenschaften["enabled"] == .bool(true))
+
+        // (2) Klick startet genau ein Kind; während der Prüfung gesperrt, Zweitklick wirkungslos.
+        try ereignis(bus, verbindung, prozess, id: pruefen.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        #expect(starter.starts.count == 1, "Starts: \(starter.starts)")
+        #expect(starter.starts.first?.arguments == ["--update"])
+        #expect(starter.starts.first?.executable.hasPrefix("/") == true, "Starts: \(starter.starts)")
+        menue = try layoutLesen(bus, verbindung, prozess)
+        let eintrag = try #require(menue.first { $0.id == pruefen.id }, "Menü: \(menue)")
+        #expect(eintrag.eigenschaften["enabled"] == .bool(false), "während der Prüfung: \(eintrag)")
+        try ereignis(bus, verbindung, prozess, id: pruefen.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        #expect(starter.starts.count == 1, "Zweitklick startete erneut: \(starter.starts)")
+
+        // (3) Exit 13 ⇒ wieder bedienbar, Ergebniszeile „refused“.
+        starter.pollErgebnis = .exited(13)
+        prozess.pollUpdateCheck()
+        menue = try layoutLesen(bus, verbindung, prozess)
+        var index = try #require(menue.firstIndex { $0.id == pruefen.id }, "Menü: \(menue)")
+        #expect(menue[index].eigenschaften["enabled"] == .bool(true), "nach Exit 13: \(menue[index])")
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.contains("refused") == true,
+                "Zeile unter dem Eintrag: \(menue)")
+
+        // (4) Zweiter Lauf, Exit 0, Pfad unverändert ⇒ „up to date“, „refused“ weg.
+        starter.pollErgebnis = .running
+        try ereignis(bus, verbindung, prozess, id: pruefen.id, art: "clicked")
+        _ = prozess.handleMenuEvents()
+        starter.pollErgebnis = .exited(0)
+        prozess.pollUpdateCheck()
+        #expect(starter.starts.count == 2, "Starts: \(starter.starts)")
+        menue = try layoutLesen(bus, verbindung, prozess)
+        index = try #require(menue.firstIndex { $0.id == pruefen.id }, "Menü: \(menue)")
+        #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.contains("up to date") == true,
+                "Zeile unter dem Eintrag: \(menue)")
+        #expect(!menue.contains { $0.label?.contains("refused") == true }, "Menü: \(menue)")
     }
 
     /// T2 — maskiert: gesperrt, mit unmask-Hinweis, Klick ohne Wirkung.
@@ -416,14 +508,25 @@ struct TrayBusBehaviourTests {
 }
 
 /// `systemctl`-Attrappe im Prozess: protokolliert jeden Aufruf, antwortet auf
-/// `is-enabled` mit ``isEnabled`` und stellt nach `disable` auf `disabled` um.
+/// `is-enabled <unit>` aus einer Tabelle je Unit und stellt nach `disable <unit>`
+/// nur diese Unit auf `disabled` um. ``isEnabled`` ist der Zustand der
+/// Autostart-Unit; der Update-Timer steht in ``timerIsEnabled``.
 final class SystemctlAttrappe: CommandRunner {
-    var isEnabled: String
+    private var zustand: [String: String]
     private(set) var aufrufe: [String] = []
 
-    init(isEnabled: String) {
-        self.isEnabled = isEnabled
+    init(isEnabled: String, timerIsEnabled: String = "disabled") {
+        zustand = [
+            "claude-monitor-tray.service": isEnabled,
+            "claude-monitor-tray-update.timer": timerIsEnabled
+        ]
     }
+
+    var isEnabled: String {
+        get { zustand["claude-monitor-tray.service"] ?? "disabled" }
+        set { zustand["claude-monitor-tray.service"] = newValue }
+    }
+    var timerIsEnabled: String { zustand["claude-monitor-tray-update.timer"] ?? "disabled" }
 
     func umgebung(home: URL) -> [String: String] {
         ["HOME": home.path, "XDG_RUNTIME_DIR": "/run/user/1000"]
@@ -433,13 +536,14 @@ final class SystemctlAttrappe: CommandRunner {
         aufrufe.append(arguments.joined(separator: " "))
         switch arguments.dropFirst().first {
         case "is-enabled":
+            let wert = zustand[arguments.last ?? ""] ?? "disabled"
             return CommandOutcome(
-                exitStatus: isEnabled == "enabled" ? 0 : 1,
-                standardOutput: isEnabled + "\n",
+                exitStatus: wert == "enabled" ? 0 : 1,
+                standardOutput: wert + "\n",
                 standardError: ""
             )
         case "disable":
-            isEnabled = "disabled"
+            zustand[arguments.last ?? ""] = "disabled"
             return CommandOutcome(exitStatus: 0, standardOutput: "", standardError: "")
         case "is-active":
             return CommandOutcome(exitStatus: 0, standardOutput: "active\n", standardError: "")
@@ -447,4 +551,18 @@ final class SystemctlAttrappe: CommandRunner {
             return CommandOutcome(exitStatus: 0, standardOutput: "", standardError: "")
         }
     }
+}
+
+/// `BackgroundStarter`-Attrappe: zeichnet Starts auf, liefert eine pid, `poll`
+/// antwortet mit dem vom Test gesetzten Wert (anfangs `.running`).
+final class StarterAttrappe: BackgroundStarter {
+    private(set) var starts: [(executable: String, arguments: [String])] = []
+    var pollErgebnis: BackgroundPoll = .running
+
+    func start(executable: String, arguments: [String]) -> pid_t? {
+        starts.append((executable, arguments))
+        return 4242
+    }
+
+    func poll(_ pid: pid_t) -> BackgroundPoll { pollErgebnis }
 }
