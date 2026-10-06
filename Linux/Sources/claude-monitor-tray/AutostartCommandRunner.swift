@@ -56,6 +56,83 @@ protocol CommandRunner {
     func run(executable: String, arguments: [String]) -> CommandOutcome
 }
 
+/// Stand eines im Hintergrund gestarteten Kindes.
+enum BackgroundPoll: Equatable {
+    case running
+    /// Beendet; Signaltod und nicht abholbar ⇒ `-1` (wie `exitStatus(from:)`).
+    case exited(Int32)
+}
+
+/// Die EINE Stelle, an der dieser Prozess ein Kind startet, **ohne auf es zu
+/// warten** (CM-37: „Check for updates now"). Eine Naht neben ``CommandRunner``,
+/// der blockierend wartet (`PosixCommandRunner.run`): Ein `--update` dauert
+/// bis zu Minuten (Manifest 120 s + Tarball 600 s, `UpdateUnits.swift:25-29`),
+/// die Gegenstelle des Menüs gibt nach 10 s auf.
+protocol BackgroundStarter {
+    /// Startet `executable` (absoluter Pfad) mit `arguments`; `nil`, wenn der
+    /// Start scheiterte.
+    func start(executable: String, arguments: [String]) -> pid_t?
+    /// Holt das Kind ab, falls es beendet ist — ohne zu blockieren.
+    func poll(_ pid: pid_t) -> BackgroundPoll
+}
+
+/// Standard-Implementierung über `posix_spawn` und `waitpid(WNOHANG)`.
+///
+/// Bewusst **ohne** `posix_spawnattr` (2b-Mitnahme 3): Das Kind erbt die
+/// Prozessgruppe des Trays und das ignorierte `SIGPIPE` (`main.swift`,
+/// `signal(SIGPIPE, SIG_IGN)`; `execve` behält ignorierte Signale). Beides ist
+/// harmlos — die Staging-Datei räumt der nächste Lauf weg
+/// (`UpdateClient.swift:388`), Temp liegt unter `$TMPDIR`/`/tmp`. Folge, als
+/// Ergänzung zu FE 12: Strg-C am Terminal-Tray beendet auch eine laufende
+/// Prüfung. Am Verhalten ändert sich dadurch nichts.
+struct PosixBackgroundStarter: BackgroundStarter {
+
+    /// Die Umgebung des Kindes — die des Trays.
+    let environment: [String: String]
+    /// Für die Zeile bei einem nicht abholbaren Kind.
+    let log: (String) -> Void
+
+    func start(executable: String, arguments: [String]) -> pid_t? {
+        var actions = posix_spawn_file_actions_t()
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        // stdin = /dev/null; stdout und stderr erbt das Kind (Journal bzw.
+        // Terminal des Trays, FE 11).
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+
+        var argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) }
+        argv.append(nil)
+        var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
+        envp.append(nil)
+        defer {
+            for pointer in argv where pointer != nil { free(pointer) }
+            for pointer in envp where pointer != nil { free(pointer) }
+        }
+
+        var pid: pid_t = 0
+        // Absoluter Pfad, nicht `posix_spawnp`: gestartet wird genau dieses Binary.
+        guard posix_spawn(&pid, executable, &actions, nil, argv, envp) == 0 else { return nil }
+        return pid
+    }
+
+    func poll(_ pid: pid_t) -> BackgroundPoll {
+        var status: Int32 = 0
+        while true {
+            let result = waitpid(pid, &status, WNOHANG)
+            if result == 0 { return .running }
+            if result == pid {
+                return .exited((status & 0x7f) == 0 ? (status >> 8) & 0xff : -1)
+            }
+            if errno == EINTR { continue }
+            // 2b-Auflage 2: `-1` mit errno ≠ EINTR (z. B. ECHILD) — das Kind ist
+            // nicht mehr abholbar. Es gibt keinen Pfad, auf dem „läuft" ohne
+            // lebendes Kind bestehen bleibt: Menü zeigt „could not run".
+            log("update=check exit=-1 errno=\(errno)")
+            return .exited(-1)
+        }
+    }
+}
+
 /// Die Standard-Implementierung über `posix_spawnp`.
 struct PosixCommandRunner: CommandRunner {
 

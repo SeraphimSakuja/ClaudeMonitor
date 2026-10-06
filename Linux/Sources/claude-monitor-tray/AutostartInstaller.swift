@@ -848,9 +848,7 @@ struct AutostartInstaller {
     /// Gerät + Inode der Datei, auf die `path` zeigt (`stat`, folgt Links);
     /// `nil`, wenn `stat` scheitert.
     private func fileIdentity(followingLinks path: String) -> AutostartEffectiveUnit.FileIdentity? {
-        var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
-        return AutostartEffectiveUnit.FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+        AutostartExecutable.fileIdentity(followingLinks: path)
     }
 
     /// Gerät + Inode des Pfads SELBST (`lstat`), nur für eine reguläre Datei.
@@ -980,6 +978,15 @@ enum AutostartExecutable {
         }
         guard access(path, X_OK) == 0 else { return .unusable(reason: "\(path) is not executable") }
         return .usable(path)
+    }
+
+    /// Gerät + Inode der Datei, auf die `path` zeigt (`stat`, folgt Links);
+    /// `nil`, wenn `stat` scheitert. Für `/proc/self/exe` ist das auch bei
+    /// gelöschter Datei der Inode des LAUFENDEN Binaries (CM-37).
+    static func fileIdentity(followingLinks path: String) -> AutostartEffectiveUnit.FileIdentity? {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        return AutostartEffectiveUnit.FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
 
     /// Das Ergebnis der Auflösung.

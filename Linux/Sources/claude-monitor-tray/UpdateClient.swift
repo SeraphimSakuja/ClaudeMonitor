@@ -230,6 +230,14 @@ struct UpdateClient {
         fsync(directoryDescriptor)
         emit(UpdateTexts.updated(version: offer.version, buildVersion: offer.buildVersion, path: binaryPath))
 
+        // CM-37: Das Temp-Verzeichnis jetzt abräumen, nicht erst per `defer`.
+        // Startet der Tray `--update` als Kind, liegt es in der cgroup der
+        // Tray-Unit; `try-restart` unten beendet es mitten im Lauf
+        // (`KillMode=control-group`), und das `defer` liefe nie. Ab hier liest
+        // der Lauf nichts mehr aus `temporary`; das `defer` bleibt (ein zweites
+        // Entfernen ist ein No-op).
+        try? FileManager.default.removeItem(atPath: temporary)
+
         // (12) FE 11 + 2b-Auflage 5: Neustart nur, wenn systemd für den Namen
         // die eigene Autostart-Unit lädt und die genau dieses Binary startet.
         // Dieselbe Messung wie beim Einrichten (gemeinsamer Code); ihre

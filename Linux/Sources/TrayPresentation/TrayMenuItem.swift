@@ -35,6 +35,10 @@ public struct TrayMenuItem: Equatable, Sendable {
         /// Erzeugt wird der Fall nur über
         /// ``TrayMenuItem/automaticUpdates(key:label:checkmark:)``.
         case automaticUpdates
+        /// „Check for updates now" (CM-37) — startet `--update` als
+        /// Kindprozess. Während der Prüfung trägt derselbe Schlüssel die Rolle
+        /// ``information`` (FE 8).
+        case checkForUpdates
     }
 
     /// Stellung und Bedienbarkeit eines ankreuzbaren Eintrags.
@@ -107,7 +111,7 @@ public struct TrayMenuItem: Equatable, Sendable {
     /// und nichts bewirkt, ist eine Falschaussage über die eigene Bedienung.
     public var isEnabled: Bool {
         switch role {
-        case .refresh, .quit: return true
+        case .refresh, .quit, .checkForUpdates: return true
         case .information, .separator: return false
         // Gesperrt, wenn Umlegen nichts bewirken kann (Maske, nicht messbar).
         case .startAtLogin, .automaticUpdates: return checkmark?.isToggleable ?? false

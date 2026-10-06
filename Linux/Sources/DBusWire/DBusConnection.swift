@@ -90,7 +90,10 @@ public final class DBusConnection {
 
     /// Verbindet, meldet sich per SASL EXTERNAL an und ruft `Hello`.
     public init(socketPath: String) throws {
-        descriptor = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+        // CM-37: `SOCK_CLOEXEC` — kein Kindprozess erbt die Busverbindung. Ein
+        // minutenlanger `--update`-Lauf hielte sonst nach „Quit" den Namen
+        // `org.claudemonitor.Tray`, und ein Neustart des Trays endete mit 8.
+        descriptor = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue) | Int32(SOCK_CLOEXEC.rawValue), 0)
         guard descriptor >= 0 else { throw ConnectError.connectFailed(errno: errno) }
 
         var address = sockaddr_un()

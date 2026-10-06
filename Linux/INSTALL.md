@@ -135,8 +135,8 @@ that file.
 
 ## Updates
 
-Updates are **off until you turn them on**. Without that step the binary starts no download of any
-kind. Check once by hand:
+Updates are **off until you turn them on**. Without that step — or until you click **Check for
+updates now** in the tray menu — the binary starts no download of any kind. Check once by hand:
 
 ```sh
 ~/.local/bin/claude-monitor-tray --update
@@ -184,6 +184,16 @@ every attempt and whenever you open the menu. Ticking starts nothing right away:
 runs 15 minutes after your next login. Unticking takes effect at once. If the timer is masked or its
 state cannot be read, the entry is greyed out and the line below it names the command that helps; if
 an attempt fails, that line names the command that prints the details.
+
+**Check for updates now** runs `claude-monitor-tray --update` as a child process of the tray, whether
+or not Automatic updates is ticked. While it runs the entry reads "Checking for updates…" and is
+greyed out; afterwards one line below it says how the last check ended ("up to date", "nothing could
+be checked", "update refused", "could not run", or that a newer version is installed). The details
+are what the same command prints in a terminal. ⚠️ It does not only check: **a newer version found is
+installed at once**, replacing the binary. If the tray runs as the autostart unit set up for exactly
+this binary, it then **restarts itself** (the icon disappears briefly and comes back as the new
+version, without a result line); otherwise the line asks you to restart the tray. Quitting the tray —
+or Ctrl-C when it runs in a terminal — ends a running check with it.
 
 ## Exit codes
 

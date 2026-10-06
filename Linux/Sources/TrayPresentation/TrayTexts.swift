@@ -91,6 +91,23 @@ public enum TrayTexts {
     public static let automaticUpdatesUninstallFailed =
         "Could not remove automatic updates — run claude-monitor-tray --uninstall-auto-update for details"
 
+    /// „Check for updates now" (CM-37 · FE 1, Wortlaut der Karte) und die
+    /// Laufzeile (FE 8).
+    public static let checkForUpdates = "Check for updates now"
+    public static let checkingForUpdates = "Checking for updates…"
+
+    /// Ergebniszeilen (FE 9). Vergangenheitsform, damit der Satz auch Tage
+    /// später wahr ist (FE 10). Details liefert derselbe Befehl im Terminal.
+    public static let lastCheckUpToDate = "Last check: up to date"
+    public static let lastCheckReplaced =
+        "Last check: a newer version is installed — restart the tray to use it"
+    public static let lastCheckNothingChecked =
+        "Last check: nothing could be checked — details: claude-monitor-tray --update"
+    public static let lastCheckRefused =
+        "Last check: update refused — details: claude-monitor-tray --update"
+    public static let lastCheckCouldNotRun =
+        "Last check could not run — details: claude-monitor-tray --update"
+
     // MARK: - Inhaltsfälle des Detailfensters
 
     public static let loading = "Loading…"

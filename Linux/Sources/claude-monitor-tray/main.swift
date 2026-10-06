@@ -185,6 +185,11 @@ final class TrayProcess {
     private var autostart: TrayAutostartDisplay
     /// „Automatic updates" — der Timer des Auto-Updates (CM-37).
     private var autoUpdate: TrayAutoUpdateDisplay
+    /// „Check for updates now" (CM-37).
+    private var updateCheck = TrayUpdateCheck.idle
+    /// Das laufende Kind der Prüfung samt dem Pfad, den es ersetzen kann.
+    private var updateChild: (pid: pid_t, path: String)?
+    private let starter: BackgroundStarter
     private var nextRead: Date
     private var registeredWithWatcher = false
 
@@ -195,17 +200,22 @@ final class TrayProcess {
     ///     **aufrufenden** Prozesses sucht, nicht über das übergebene
     ///     Environment — eine PATH-Attrappe wirkt in-process nicht
     ///     (2b-Auflage 4).
+    ///   - starter: Zugang zu `--update` als Kindprozess; `nil` ⇒
+    ///     ``PosixBackgroundStarter``. Tests injizieren immer einen Starter;
+    ///     ohne ihn startet ein Klick das Testbinary mit `--update`.
     init(
         connection: DBusConnection,
         homeDirectory: URL,
         log: TrayLog,
         now: Date,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        runner: CommandRunner? = nil
+        runner: CommandRunner? = nil,
+        starter: BackgroundStarter? = nil
     ) {
         self.connection = connection
         self.homeDirectory = homeDirectory
         self.log = log
+        self.starter = starter ?? PosixBackgroundStarter(environment: environment, log: { log.always($0) })
 
         let result = UsageStoreReader().read(homeDirectory: homeDirectory, now: now)
         state = MonitorViewState().reduced(with: result)
@@ -229,7 +239,9 @@ final class TrayProcess {
         let autoUpdate = TrayAutoUpdateDisplay(reading: installer.autoUpdateReading())
         self.autoUpdate = autoUpdate
 
-        let view = Self.makeView(state: state, autostart: autostart, autoUpdate: autoUpdate, now: now)
+        let view = Self.makeView(
+            state: state, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck, now: now
+        )
         item = StatusNotifierItemObject(
             objectPath: Self.itemPath,
             menuPath: Self.menuPath,
@@ -299,6 +311,7 @@ final class TrayProcess {
             for message in incoming { handle(signal: message) }
 
             if let exit = handleMenuEvents() { return exit }
+            pollUpdateCheck()
 
             if Date() >= nextRead { refresh(now: Date()) }
         }
@@ -343,11 +356,66 @@ final class TrayProcess {
                 guard !autoUpdateAttempted else { continue }
                 autoUpdateAttempted = true
                 attemptAutoUpdate(showing: item.checkmark)
+            case .checkForUpdates:
+                startUpdateCheck()
             case .information, .separator:
                 break
             }
         }
         return nil
+    }
+
+    /// Ein Klick auf „Check for updates now" (CM-37 · FE 8/11): `--update` als
+    /// Kindprozess, ohne zu warten. Ein Klick während einer laufenden Prüfung
+    /// startet nichts (Mehrfachklicks im selben Durchlauf ergeben ein Kind).
+    private func startUpdateCheck() {
+        guard updateCheck.canStart else { return }
+        switch AutostartExecutable.resolve() {
+        case .usable(let path):
+            log.always("update=check starting")
+            if let pid = starter.start(executable: path, arguments: ["--update"]) {
+                log.always("update=check started pid=\(pid)")
+                updateChild = (pid, path)
+                updateCheck = .running
+            } else {
+                log.always("update=check spawn failed")
+                updateCheck = .finished(.couldNotRun)
+            }
+        case .unusable(let reason):
+            log.always("update=check unusable — \(reason)")
+            updateCheck = .finished(.couldNotRun)
+        }
+        publish(makeView(now: Date()))
+    }
+
+    /// Holt das Kind von „Check for updates now" ab, falls es beendet ist —
+    /// je Schleifendurchlauf (≤ 1 s, FE 11). Nicht privat, damit der Pfad ohne
+    /// `run(selftestDeadline:)` fahrbar ist.
+    ///
+    /// Bei Exit 0 trennt die **Dateiidentität** „aktuell" von „ersetzt"
+    /// (2b-Auflage 1): Identität(Pfad) ≠ Identität(`/proc/self/exe`). Der Pfad
+    /// kann schon VOR dem Klick ersetzt gewesen sein (früherer Lauf ohne
+    /// Neustart); ein Vorher/Nachher-Vergleich verfehlte das.
+    func pollUpdateCheck() {
+        guard let child = updateChild else { return }
+        guard case .exited(let code) = starter.poll(child.pid) else { return }
+        updateChild = nil
+
+        var exitStatus: Int32? = code
+        var replaced = false
+        if code == 0 {
+            if let onDisk = AutostartExecutable.fileIdentity(followingLinks: child.path),
+               let running = AutostartExecutable.fileIdentity(followingLinks: "/proc/self/exe") {
+                replaced = onDisk != running
+            } else {
+                // Eigenes Binary nicht auflösbar (FE 9): kein „aktuell" behaupten.
+                exitStatus = nil
+            }
+        }
+        let outcome = TrayUpdateCheck.outcome(exitStatus: exitStatus, binaryReplaced: replaced)
+        log.always("update=check exit=\(code) outcome=\(outcome)")
+        updateCheck = .finished(outcome)
+        publish(makeView(now: Date()))
     }
 
     /// Ein Klick auf „Start at login": Umkehr des beim Klick angezeigten
@@ -411,7 +479,9 @@ final class TrayProcess {
     /// Die Oberfläche aus dem aktuellen Zustand — der EINE Weg, auf dem der
     /// Prozess eine Ansicht baut, damit der Autostart-Block nie fehlt.
     private func makeView(now: Date) -> TrayView {
-        Self.makeView(state: state, autostart: autostart, autoUpdate: autoUpdate, now: now)
+        Self.makeView(
+            state: state, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck, now: now
+        )
     }
 
     /// Statisch, weil `init` die Ansicht braucht, bevor alle gespeicherten
@@ -420,9 +490,12 @@ final class TrayProcess {
         state: MonitorViewState,
         autostart: TrayAutostartDisplay,
         autoUpdate: TrayAutoUpdateDisplay,
+        updateCheck: TrayUpdateCheck,
         now: Date
     ) -> TrayView {
-        TrayPresentation.make(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate)
+        TrayPresentation.make(
+            for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck
+        )
     }
 
     /// Ist die Abnahmefolge des Selbsttests durchlaufen?

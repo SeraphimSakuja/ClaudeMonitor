@@ -64,14 +64,15 @@ public enum TrayPresentation {
         for state: MonitorViewState,
         now: Date = Date(),
         autostart: TrayAutostartDisplay? = nil,
-        autoUpdate: TrayAutoUpdateDisplay? = nil
+        autoUpdate: TrayAutoUpdateDisplay? = nil,
+        updateCheck: TrayUpdateCheck? = nil
     ) -> TrayView {
         let display = MenuBarDisplay.make(for: state, mode: mode, now: now)
         return TrayView(
             labelText: labelText(for: display),
             spokenLabelText: labelText(for: display, withMarkers: false),
             icon: TrayIconAggregation.icon(for: display),
-            menu: menu(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate)
+            menu: menu(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck)
         )
     }
 
@@ -140,12 +141,13 @@ public enum TrayPresentation {
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
     /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
     /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
-    /// | Update-Block (`:208-278`) | drin — `CM-37` | „Automatic updates" ankreuzbar, spiegelt `is-enabled` des Timers (``TrayAutoUpdateDisplay``). „Check for updates now" folgt im selben Block. Sparkle selbst bleibt macOS-only |
+    /// | Update-Block (`:208-278`) | drin — `CM-37` | „Automatic updates" ankreuzbar, spiegelt `is-enabled` des Timers (``TrayAutoUpdateDisplay``); „Check for updates now" startet `--update` als Kindprozess, das Ergebnis steht als eine Zeile darunter (``TrayUpdateCheck``). Sparkle selbst bleibt macOS-only |
     static func menu(
         for state: MonitorViewState,
         now: Date,
         autostart: TrayAutostartDisplay? = nil,
-        autoUpdate: TrayAutoUpdateDisplay? = nil
+        autoUpdate: TrayAutoUpdateDisplay? = nil,
+        updateCheck: TrayUpdateCheck? = nil
     ) -> [TrayMenuItem] {
         var items: [TrayMenuItem] = [
             .information(key: "header", label: TrayTexts.header),
@@ -204,6 +206,9 @@ public enum TrayPresentation {
             if let hint = autoUpdate.hint {
                 items.append(.information(key: "automaticUpdates.hint", label: hint))
             }
+        }
+        if let updateCheck {
+            items += updateCheck.menuItems
         }
         if let capturedAt = state.snapshot?.capturedAt,
            let age = TrayAgeFormat.text(for: now.timeIntervalSince(capturedAt)) {

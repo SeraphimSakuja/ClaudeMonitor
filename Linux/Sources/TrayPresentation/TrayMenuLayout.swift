@@ -30,7 +30,7 @@ public enum TrayMenuLayout {
                 DBusDictionaryEntry("enabled", .bool(false)),
                 DBusDictionaryEntry("visible", .bool(true))
             ]
-        case .information, .refresh, .quit:
+        case .information, .refresh, .quit, .checkForUpdates:
             return [
                 DBusDictionaryEntry("label", .string(escapeLabel(item.label))),
                 DBusDictionaryEntry("enabled", .bool(item.isEnabled)),
