@@ -192,8 +192,9 @@ be checked", "update refused", "could not run", or that a newer version is insta
 are what the same command prints in a terminal. ⚠️ It does not only check: **a newer version found is
 installed at once**, replacing the binary. If the tray runs as the autostart unit set up for exactly
 this binary, it then **restarts itself** (the icon disappears briefly and comes back as the new
-version, without a result line); otherwise the line asks you to restart the tray. Quitting the tray —
-or Ctrl-C when it runs in a terminal — ends a running check with it.
+version, without a result line); otherwise the line asks you to restart the tray. If the tray runs as
+the autostart unit, quitting it ends a running check; in a terminal, Ctrl-C does — Quit from the
+menu lets the check finish on its own.
 
 ## Exit codes
 
