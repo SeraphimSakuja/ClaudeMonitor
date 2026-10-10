@@ -376,6 +376,56 @@ struct TrayBusBehaviourTests {
         #expect(menue.indices.contains(index + 1) && menue[index + 1].label?.contains("up to date") == true,
                 "Zeile unter dem Eintrag: \(menue)")
         #expect(!menue.contains { $0.label?.contains("refused") == true }, "Menü: \(menue)")
+
+        // (5) CM-36 · Suche ab Werk, eigener Tray bei ausgeschaltetem Timer (FE-15):
+        // erste Suche nach 15 min, Exit 12 still mit einem Nachversuch, Exit 14 zeigt die Zeile.
+        let t0 = Date()
+        let sucheStarter = StarterAttrappe()
+        let suche = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: t0,
+            environment: ["HOME": home.path],
+            runner: SystemctlAttrappe(isEnabled: "disabled"),
+            starter: sucheStarter
+        )
+        func suchStarts() -> [(executable: String, arguments: [String])] {
+            sucheStarter.starts.filter { $0.arguments == ["--check-update"] }
+        }
+        menue = try layoutLesen(bus, verbindung, suche)
+        let sucheEintrag = try #require(menue.first { $0.label == "Check for updates now" }, "Menü: \(menue)")
+
+        suche.pollAutomaticCheck(now: t0.addingTimeInterval(899))
+        #expect(suchStarts().isEmpty, "Start vor 15 min: \(sucheStarter.starts)")
+        suche.pollAutomaticCheck(now: t0.addingTimeInterval(900))
+        #expect(suchStarts().count == 1, "Starts: \(sucheStarter.starts)")
+        menue = try layoutLesen(bus, verbindung, suche)
+        let laeuft = try #require(menue.first { $0.id == sucheEintrag.id }, "Menü: \(menue)")
+        #expect(laeuft.eigenschaften["enabled"] == .bool(false), "während der Suche: \(laeuft)")
+
+        // Exit 12: nichts gemessen ⇒ keine Zeile, Eintrag wieder bedienbar.
+        sucheStarter.pollErgebnis = .exited(12)
+        suche.pollUpdateCheck()
+        menue = try layoutLesen(bus, verbindung, suche)
+        let nachZwoelf = try #require(menue.first { $0.id == sucheEintrag.id }, "Menü: \(menue)")
+        #expect(nachZwoelf.eigenschaften["enabled"] == .bool(true), "nach Exit 12: \(nachZwoelf)")
+        #expect(!menue.contains { $0.label?.contains("Last check") == true }, "Menü: \(menue)")
+
+        // Genau ein Nachversuch 15 min nach dem Start der Suche.
+        suche.pollAutomaticCheck(now: t0.addingTimeInterval(900 + 899))
+        #expect(suchStarts().count == 1, "Starts: \(sucheStarter.starts)")
+        suche.pollAutomaticCheck(now: t0.addingTimeInterval(1800))
+        #expect(suchStarts().count == 2, "Starts: \(sucheStarter.starts)")
+
+        // Exit 14: neuere Fassung ⇒ Zeile unter dem Eintrag.
+        sucheStarter.pollErgebnis = .exited(14)
+        suche.pollUpdateCheck()
+        menue = try layoutLesen(bus, verbindung, suche)
+        let nachVierzehn = try #require(menue.firstIndex { $0.id == sucheEintrag.id }, "Menü: \(menue)")
+        #expect(menue.indices.contains(nachVierzehn + 1)
+                && menue[nachVierzehn + 1].label?.contains("newer version is available") == true,
+                "Zeile unter dem Eintrag: \(menue)")
     }
 
     /// T2 — maskiert: gesperrt, mit unmask-Hinweis, Klick ohne Wirkung.

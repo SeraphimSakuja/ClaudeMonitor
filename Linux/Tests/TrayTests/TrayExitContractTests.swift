@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 import Autostart
+import Crypto
+import Update
+@testable import claude_monitor_tray
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -1199,14 +1202,55 @@ struct TrayExitContractTests {
         return (tarball, skript, String(summe.prefix(64)), groesse.intValue)
     }
 
-    /// Das Manifest `linux-latest.json` für Version 9.9.9.
-    static func manifest(build: Int, glibc: String, sha256: String, groesse: Int) -> Data {
-        Data("""
+    /// Das mit `schluessel` signierte Manifest `linux-latest.json` für Version 9.9.9
+    /// (CM-36): Dokument `D` endet auf `"\n}\n"`, der Trailer ersetzt dieses Ende.
+    static func manifest(
+        build: Int, glibc: String, sha256: String, groesse: Int,
+        signiertMit schluessel: Curve25519.Signing.PrivateKey
+    ) throws -> Data {
+        let dokument = Data("""
             {"schemaVersion": 1, "product": "claude-monitor-tray", "platform": "linux-x86_64",
              "version": "9.9.9", "buildVersion": \(build),
              "url": "https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v9.9.9/claude-monitor-tray-9.9.9-linux-x86_64.tar.gz",
-             "sha256": "\(sha256)", "size": \(groesse), "minimum": {"glibc": "\(glibc)"}}
+             "sha256": "\(sha256)", "size": \(groesse), "minimum": {"glibc": "\(glibc)"}
+            }
+
             """.utf8)
+        let signatur = try schluessel.signature(for: dokument)
+        return Data(dokument.dropLast(3)) + UpdateSignature.trailer(signature: signatur)
+    }
+
+    /// Sammelt die Ausgabe eines in-process laufenden `UpdateClient`.
+    final class Ausgabe {
+        var zeilen: [String] = []
+        var text: String { zeilen.joined(separator: "\n") }
+    }
+
+    /// Bildet `curl`, `wget` und `systemctl` auf die Attrappen-Skripte ab (absoluter
+    /// Pfad, denn `posix_spawnp` sucht über den PATH des Testprozesses).
+    struct AttrappenRunner: CommandRunner {
+        let binVerzeichnis: URL
+        let umgebung: [String: String]
+
+        func run(executable: String, arguments: [String]) -> CommandOutcome {
+            let pfad = ["curl", "wget", "systemctl"].contains(executable)
+                ? binVerzeichnis.appendingPathComponent(executable).path : executable
+            return PosixCommandRunner(environment: umgebung).run(executable: pfad, arguments: arguments)
+        }
+    }
+
+    /// Ein `UpdateClient` über die Testnaht: Testschlüssel, Binary-Pfad im Temp-Home.
+    static func client(
+        umgebung: [String: String], attrappe: AutostartSystemctlStub, kopie: URL,
+        schluessel: Curve25519.Signing.PrivateKey, ausgabe: Ausgabe
+    ) -> UpdateClient {
+        UpdateClient(
+            environment: umgebung,
+            runner: AttrappenRunner(binVerzeichnis: attrappe.binVerzeichnis, umgebung: umgebung),
+            emit: { ausgabe.zeilen.append($0) },
+            trustedKey: schluessel.publicKey.rawRepresentation.base64EncodedString(),
+            executable: { .usable(kopie.path) }
+        )
     }
 
     // MARK: - Fall 13 (CM-29 · T1)
@@ -1330,10 +1374,16 @@ struct TrayExitContractTests {
             in: home.appendingPathComponent("falsch", isDirectory: true),
             versionsZeile: "claude-monitor-tray 9.9.8 (build 999)"
         )
+        let schluessel = Curve25519.Signing.PrivateKey()
         let tarballName = "claude-monitor-tray-9.9.9-linux-x86_64.tar.gz"
 
         func laufen(_ schritt: String) throws -> (code: Int32, ausgabe: String) {
-            let lauf = try Self.autostartLauf(["--update"], umgebung: umgebung, binaer: kopie.path)
+            let ausgabe = Ausgabe()
+            let lauf = (
+                code: Self.client(umgebung: umgebung, attrappe: attrappe, kopie: kopie, schluessel: schluessel, ausgabe: ausgabe)
+                    .run().rawValue,
+                ausgabe: ausgabe.text
+            )
             #expect(try Data(contentsOf: kopie) == ausgangsstand, "\(schritt): Binary verändert")
             #expect(
                 Self.pfadVorhanden(kopie.deletingLastPathComponent().appendingPathComponent(".claude-monitor-tray.update-new").path) == false,
@@ -1352,8 +1402,9 @@ struct TrayExitContractTests {
 
         // (b) Manifest nennt die eigene Build-Nummer ⇒ aktuell, genau ein Abruf.
         try abruf.zuruecksetzen()
-        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
-            build: 3, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
+        try abruf.liefert("linux-latest.json", inhalt: try Self.manifest(
+            build: 3, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse,
+            signiertMit: schluessel
         ))
         let b = try laufen("b")
         #expect(b.code == 0, "Meldung: \(b.ausgabe)")
@@ -1362,8 +1413,9 @@ struct TrayExitContractTests {
 
         // (c) Neuere Fassung, der Tarball-Abruf endet mit curl 63 ⇒ abgelehnt.
         try abruf.zuruecksetzen()
-        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
-            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
+        try abruf.liefert("linux-latest.json", inhalt: try Self.manifest(
+            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse,
+            signiertMit: schluessel
         ))
         try abruf.scheitert(tarballName, mitCode: 63)
         let c = try laufen("c")
@@ -1371,8 +1423,9 @@ struct TrayExitContractTests {
 
         // (d) Gültiger Tarball, aber das Binary meldet eine andere Version ⇒ abgelehnt.
         try abruf.zuruecksetzen()
-        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
-            build: 999, glibc: "2.17", sha256: falsch.sha256, groesse: falsch.groesse
+        try abruf.liefert("linux-latest.json", inhalt: try Self.manifest(
+            build: 999, glibc: "2.17", sha256: falsch.sha256, groesse: falsch.groesse,
+            signiertMit: schluessel
         ))
         try abruf.liefert(tarballName, inhalt: Data(contentsOf: falsch.datei))
         let d = try laufen("d")
@@ -1380,12 +1433,27 @@ struct TrayExitContractTests {
 
         // (e) Kompatibilitätsboden über dieser glibc ⇒ abgelehnt, kein Tarball-Abruf.
         try abruf.zuruecksetzen()
-        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
-            build: 999, glibc: "2.100", sha256: gut.sha256, groesse: gut.groesse
+        try abruf.liefert("linux-latest.json", inhalt: try Self.manifest(
+            build: 999, glibc: "2.100", sha256: gut.sha256, groesse: gut.groesse,
+            signiertMit: schluessel
         ))
         try abruf.liefert(tarballName, inhalt: Data(contentsOf: gut.datei))
         let e = try laufen("e")
         #expect(e.code == 13, "Meldung: \(e.ausgabe)")
+        #expect(abruf.curlAufrufe().contains { $0.contains(".tar.gz") } == false, "curl: \(abruf.curlAufrufe())")
+
+        // (f) CM-36: Ein Byte im signierten Dokumentteil geändert ⇒ abgelehnt, nichts geladen.
+        try abruf.zuruecksetzen()
+        let echt = try Self.manifest(
+            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse, signiertMit: schluessel
+        )
+        let verfaelscht = String(decoding: echt, as: UTF8.self)
+            .replacingOccurrences(of: "\"glibc\": \"2.17\"", with: "\"glibc\": \"2.16\"")
+        try #require(verfaelscht != String(decoding: echt, as: UTF8.self), "Fixture nicht verändert")
+        try abruf.liefert("linux-latest.json", inhalt: Data(verfaelscht.utf8))
+        try abruf.liefert(tarballName, inhalt: Data(contentsOf: gut.datei))
+        let f = try laufen("f")
+        #expect(f.code == TrayExit.updateRefused.rawValue, "Meldung: \(f.ausgabe)")
         #expect(abruf.curlAufrufe().contains { $0.contains(".tar.gz") } == false, "curl: \(abruf.curlAufrufe())")
     }
 
@@ -1423,12 +1491,58 @@ struct TrayExitContractTests {
             in: home.appendingPathComponent("gut", isDirectory: true),
             versionsZeile: "claude-monitor-tray 9.9.9 (build 999)"
         )
-        try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
-            build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse
-        ))
-        try abruf.liefert("claude-monitor-tray-9.9.9-linux-x86_64.tar.gz", inhalt: Data(contentsOf: gut.datei))
+        let schluessel = Curve25519.Signing.PrivateKey()
+        let ausgangsstand = try Data(contentsOf: kopie)
+        let tarballName = "claude-monitor-tray-9.9.9-linux-x86_64.tar.gz"
+        func neuesAngebot() throws {
+            try abruf.zuruecksetzen()
+            try abruf.liefert("linux-latest.json", inhalt: Self.manifest(
+                build: 999, glibc: "2.17", sha256: gut.sha256, groesse: gut.groesse, signiertMit: schluessel
+            ))
+            try abruf.liefert(tarballName, inhalt: Data(contentsOf: gut.datei))
+        }
+        func pruefen() -> (code: Int32, ausgabe: String) {
+            let ausgabe = Ausgabe()
+            let code = Self.client(umgebung: umgebung, attrappe: attrappe, kopie: kopie, schluessel: schluessel, ausgabe: ausgabe)
+                .check()
+            return (code.rawValue, ausgabe.text)
+        }
+        func nurGemessen(_ schritt: String) throws {
+            #expect(abruf.curlAufrufe().count == 1, "\(schritt) curl: \(abruf.curlAufrufe())")
+            #expect(abruf.curlAufrufe().contains { $0.contains(".tar.gz") } == false, "\(schritt) curl: \(abruf.curlAufrufe())")
+            #expect(try Data(contentsOf: kopie) == ausgangsstand, "\(schritt): Binary verändert")
+            #expect(try dateien.contentsOfDirectory(atPath: temp.path).isEmpty, "\(schritt): Temp nicht leer")
+        }
 
-        let lauf = try Self.autostartLauf(["--update"], umgebung: umgebung, binaer: kopie.path, umask077: true)
+        // (g) CM-36: Suche bei schreibbarem Verzeichnis ⇒ 14, nur das Manifest, Verweis auf --update.
+        try neuesAngebot()
+        let g = pruefen()
+        #expect(g.code == TrayExit.updateAvailable.rawValue, "Meldung: \(g.ausgabe)")
+        try nurGemessen("g")
+        #expect(g.ausgabe.contains("--update"), "Meldung: \(g.ausgabe)")
+
+        // (h) CM-36: dasselbe bei nicht schreibbarem Verzeichnis ⇒ 14, Handdownload statt --update.
+        // Unter root meldet `access(W_OK)` auch bei 0555 „schreibbar" — dann rot, nicht übersprungen.
+        try #require(getuid() != 0, "als root ist (h) nicht aussagekräftig")
+        try neuesAngebot()
+        do {
+            let verzeichnis = kopie.deletingLastPathComponent().path
+            chmod(verzeichnis, 0o555)
+            defer { chmod(verzeichnis, 0o755) }
+            let h = pruefen()
+            #expect(h.code == TrayExit.updateAvailable.rawValue, "Meldung: \(h.ausgabe)")
+            try nurGemessen("h")
+            #expect(h.ausgabe.contains("--update") == false, "Meldung: \(h.ausgabe)")
+            #expect(h.ausgabe.contains("by hand"), "Meldung: \(h.ausgabe)")
+        }
+
+        // Bestand: der Erfolgsweg von `--update`, jetzt über die Naht und signiert.
+        try neuesAngebot()
+        let ausgabe = Ausgabe()
+        let alteUmask = umask(0o077)
+        let code = Self.client(umgebung: umgebung, attrappe: attrappe, kopie: kopie, schluessel: schluessel, ausgabe: ausgabe).run()
+        umask(alteUmask)
+        let lauf = (code: code.rawValue, ausgabe: ausgabe.text)
 
         #expect(lauf.code == 0, "Meldung: \(lauf.ausgabe)")
         #expect(try Data(contentsOf: kopie) == gut.skript)
