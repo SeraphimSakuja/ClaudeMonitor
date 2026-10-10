@@ -248,7 +248,7 @@ cmd_verify() {
     mkdir "$work/bin" "$work/tmp"
     printf '%s\n' "$CURL_STUB" > "$work/bin/curl"
     chmod 755 "$work/bin/curl"
-    output="$(env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work" TMPDIR="$work/tmp" \
+    output="$(env PATH="$work/bin:/usr/bin:/bin" HOME="$work" TMPDIR="$work/tmp" \
       CM_CANDIDATE="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")" \
       "$binary" --check-update 2>&1)" || code=$?
   else
@@ -261,7 +261,7 @@ cmd_verify() {
       -e CURL_STUB="$CURL_STUB" \
       "$REF_IMAGE" bash -c 'mkdir -p /tmp/stub /tmp/t && printf "%s\n" "$CURL_STUB" > /tmp/stub/curl \
         && chmod 755 /tmp/stub/curl \
-        && env -i PATH=/tmp/stub:/usr/bin:/bin HOME=/tmp TMPDIR=/tmp/t CM_CANDIDATE=/in/candidate.json \
+        && env PATH=/tmp/stub:/usr/bin:/bin HOME=/tmp TMPDIR=/tmp/t CM_CANDIDATE=/in/candidate.json \
            /in/claude-monitor-tray --check-update' 2>&1)" || code=$?
   fi
   printf '%s\n' "$output" | sed 's/^/    /'
