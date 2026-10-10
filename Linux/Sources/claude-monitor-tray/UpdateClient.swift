@@ -27,12 +27,41 @@ struct UpdateClient {
     let runner: CommandRunner
     /// Der Ausgabekanal.
     let emit: (String) -> Void
+    /// Der Schlüssel, gegen den das Manifest geprüft wird (CM-36 · FE-4).
+    let trustedKey: String
+    /// Der Pfad des Binarys, das `--update` ersetzt und dessen Verzeichnis
+    /// `--check-update` auf Schreibrecht misst.
+    let executable: () -> AutostartExecutable.Resolution
+
+    /// - Parameters:
+    ///   - trustedKey, executable: **Testnaht** (CM-36 · 2b-Auflage 1, FE-5).
+    ///     Mit einem eigenen Testschlüsselpaar, einem Binary-Pfad im
+    ///     Temp-Verzeichnis und einem Runner, der `curl`/`wget` auf Attrappen
+    ///     abbildet, tragen ein signiertes Testmanifest `run()` und `check()`
+    ///     in-process bis Exit 0 — ohne dass das Testprogramm selbst ersetzt
+    ///     würde (`/proc/self/exe`) und ohne PATH-Suche des Testprozesses
+    ///     (`posix_spawnp`). Im Release-Binary gibt es keinen Laufzeitweg
+    ///     dorthin: weder Umgebungsvariable noch Argument, und `main.swift`
+    ///     übergibt beide Werte nie — es gelten die Vorgaben.
+    init(
+        environment: [String: String],
+        runner: CommandRunner,
+        emit: @escaping (String) -> Void,
+        trustedKey: String = UpdateEndpoints.manifestPublicKey,
+        executable: @escaping () -> AutostartExecutable.Resolution = AutostartExecutable.resolve
+    ) {
+        self.environment = environment
+        self.runner = runner
+        self.emit = emit
+        self.trustedKey = trustedKey
+        self.executable = executable
+    }
 
     /// `--update`
     func run() -> TrayExit {
         // (1) Eigener Pfad — derselbe Weg wie `ExecStart=` der Autostart-Unit.
         let binaryPath: String
-        switch AutostartExecutable.resolve() {
+        switch executable() {
         case .usable(let path):
             binaryPath = path
         case .unusable(let reason):
@@ -88,7 +117,7 @@ struct UpdateClient {
         switch fetch(
             UpdateEndpoints.manifestURL,
             to: manifestPath,
-            what: "update manifest",
+            download: .manifest,
             maxBytes: UpdateDecision.manifestByteLimit,
             seconds: UpdateDecision.manifestTimeoutSeconds,
             followRedirects: false,
@@ -113,7 +142,7 @@ struct UpdateClient {
             return .updateRefused
         }
         let offer: UpdateOffer
-        switch UpdateManifest.validate(manifestData) {
+        switch UpdateManifest.validate(manifestData, trustedKey: trustedKey) {
         case .success(let value): offer = value
         case .failure(let rejection):
             emit(UpdateTexts.manifestRejected(rejection))
@@ -139,7 +168,7 @@ struct UpdateClient {
         if case .failure(let exit) = fetch(
             offer.url,
             to: tarballPath,
-            what: "update",
+            download: .tarball,
             maxBytes: offer.size,
             seconds: UpdateDecision.tarballTimeoutSeconds,
             followRedirects: true,
@@ -281,7 +310,7 @@ struct UpdateClient {
     private func fetch(
         _ url: String,
         to destination: String,
-        what: String,
+        download: UpdateTexts.Download,
         maxBytes: Int,
         seconds: Int,
         followRedirects: Bool,
@@ -302,7 +331,8 @@ struct UpdateClient {
             arguments += ["-o", destination, url]
             let outcome = runner.run(executable: "curl", arguments: arguments)
             if outcome.didRun {
-                return evaluate(outcome, tool: .curl, toolName: "curl", what: what).map { _ in .curl }
+                return evaluate(outcome, tool: .curl, toolName: "curl", download: download, maxBytes: maxBytes)
+                    .map { _ in .curl }
             }
             guard outcome.spawnErrno == ENOENT, only == nil else {
                 emit(UpdateTexts.fetchToolNotRunnable(tool: "curl", reason: outcome.standardError))
@@ -328,24 +358,36 @@ struct UpdateClient {
             emit(UpdateTexts.noFetchTool)
             return .failure(Stop(code: .updateUnavailable))
         }
-        return evaluate(outcome, tool: .wget, toolName: "wget", what: what).map { _ in .wget }
+        return evaluate(outcome, tool: .wget, toolName: "wget", download: download, maxBytes: maxBytes)
+            .map { _ in .wget }
     }
 
     /// Ordnet einen Abruf-Rückgabecode 12 oder 13 zu (2b-Auflage 11).
+    ///
+    /// - Parameters:
+    ///   - download: Manifest oder Tarball — bestimmt den Ablehnungsgrund bei
+    ///     `curl` 63 (CM-36 · 2b-Mitnahme 14).
+    ///   - maxBytes: die Grenze, die der Abruf als `--max-filesize` trug.
     private func evaluate(
         _ outcome: CommandOutcome,
         tool: UpdateDecision.FetchTool,
         toolName: String,
-        what: String
+        download: UpdateTexts.Download,
+        maxBytes: Int
     ) -> Result<Void, Stop> {
         guard outcome.exitStatus != 0 else { return .success(()) }
         switch UpdateDecision.fetchFailure(tool: tool, exitStatus: outcome.exitStatus) {
         case .refused:
-            emit(UpdateTexts.refusedFetch(what: what, tool: toolName, exitStatus: outcome.exitStatus))
+            emit(UpdateTexts.refusedFetch(
+                download: download,
+                tool: toolName,
+                exitStatus: outcome.exitStatus,
+                limit: maxBytes
+            ))
             return .failure(Stop(code: .updateRefused))
         case .unavailable:
             emit(UpdateTexts.fetchFailed(
-                what: what,
+                download: download,
                 tool: toolName,
                 exitStatus: outcome.exitStatus,
                 detail: firstLine(outcome.standardError)

@@ -12,6 +12,11 @@ Package.resolved
 # Framework, das Code auf Nutzermaschinen installiert.
 !App/ClaudeMonitor.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
+# Ausnahme (CM-36): Das Linux-Paket bindet `swift-crypto` für die Prüfung des
+# Update-Manifests. `exact:` in Package.swift pinnt nur dieses Paket, nicht die
+# transitive `swift-asn1` — erst die versionierte Package.resolved pinnt beide.
+!Linux/Package.resolved
+
 # Xcode
 DerivedData/
 xcuserdata/

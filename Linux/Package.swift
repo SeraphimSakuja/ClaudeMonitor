@@ -13,7 +13,13 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Core"),
-        .package(path: "../Shared")
+        .package(path: "../Shared"),
+        // CM-36: die EINE Fremdabhängigkeit des Pakets — nur für die
+        // Ed25519-Prüfung des Update-Manifests im Ziel `Update`. Exakt
+        // gepinnt; die transitive `swift-asn1` pinnt `Package.resolved`
+        // (versioniert, `.gitignore`-Ausnahme). Statisch gebunden hält das
+        // Release-Binary die ldd-Sollmenge (gemessen, CM-36 Spec §7 M1–M3).
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.2")
     ],
     targets: [
         .executableTarget(
@@ -26,7 +32,8 @@ let package = Package(
 
         // CM-20 · Schicht 1: das D-Bus-Wire-Protokoll. Hängt an nichts außer
         // Foundation und Glibc — kein GTK, kein libdbus, keine
-        // Fremdabhängigkeit im Paket.
+        // Fremdabhängigkeit in diesem Ziel (die einzige des Pakets,
+        // `swift-crypto`, hängt nur an `Update`, CM-36).
         .target(name: "DBusWire"),
 
         // CM-20 · Schicht 2: der EINE Übersetzungspunkt von
@@ -72,9 +79,15 @@ let package = Package(
         // Kein Zyklus: `Autostart` hängt nur an `ClaudeMonitorShared`; die
         // Abhängigkeit trägt die EINE Quoting-Regel für `ExecStart=`
         // (`AutostartUnit.execStartValue`) — eine Kopie liefe auseinander.
+        //
+        // CM-36: dazu die Signaturprüfung des Manifests (`UpdateSignature`)
+        // über `Crypto` aus `swift-crypto` — Ed25519, ohne I/O.
         .target(
             name: "Update",
-            dependencies: ["Autostart"]
+            dependencies: [
+                "Autostart",
+                .product(name: "Crypto", package: "swift-crypto")
+            ]
         ),
 
         // CM-20 · Schicht 3: Socket, Registrierung, Ereignisschleife des

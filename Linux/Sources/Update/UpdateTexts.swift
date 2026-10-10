@@ -10,6 +10,22 @@ import Autostart
 /// Text hängt von der Spracheinstellung des Systems ab.
 public enum UpdateTexts {
 
+    /// Was abgerufen wird (CM-36, 2b-Mitnahme 14) — Grundlage von Nennwort und
+    /// Ablehnungsgrund. Manifest und Tarball werden hieran unterschieden, nie
+    /// am Text.
+    public enum Download: Equatable, Sendable {
+        case manifest
+        case tarball
+
+        /// Das Nennwort in den Meldungen.
+        public var noun: String {
+            switch self {
+            case .manifest: return "update manifest"
+            case .tarball: return "update"
+            }
+        }
+    }
+
     // MARK: - `--update`: Ergebnis
 
     /// Kein neueres Angebot — nur nach einem gültig gelesenen Manifest.
@@ -47,9 +63,9 @@ public enum UpdateTexts {
     ///
     /// Ausdrücklich NICHT „up to date": Ohne gültig gelesenes Manifest ist
     /// nichts gemessen.
-    public static func fetchFailed(what: String, tool: String, exitStatus: Int32, detail: String) -> String {
+    public static func fetchFailed(download: Download, tool: String, exitStatus: Int32, detail: String) -> String {
         let suffix = detail.isEmpty ? "" : ": \(detail)"
-        return "Could not download the \(what) (\(tool) exit \(exitStatus)\(suffix)).\n"
+        return "Could not download the \(download.noun) (\(tool) exit \(exitStatus)\(suffix)).\n"
             + "Whether an update exists is unknown; nothing was changed."
     }
 
@@ -79,11 +95,17 @@ public enum UpdateTexts {
         "Could not lock the binary's directory (\(reason)). Nothing was changed."
     }
 
-    public static func refusedFetch(what: String, tool: String, exitStatus: Int32) -> String {
-        let reason = exitStatus == 63
-            ? "it is larger than announced"
-            : "it was redirected to a non-https address"
-        return "The \(what) was refused (\(tool) exit \(exitStatus)): \(reason). Nothing was changed."
+    /// - Parameter limit: die Größengrenze des Abrufs (`--max-filesize`). Nur
+    ///   beim Tarball kündigt etwas eine Größe an (das Manifest); beim Manifest
+    ///   ist es die feste Grenze (CM-29 3b Fund 3).
+    public static func refusedFetch(download: Download, tool: String, exitStatus: Int32, limit: Int) -> String {
+        let reason: String
+        if exitStatus == 63 {
+            reason = download == .manifest ? "it is larger than \(limit) bytes" : "it is larger than announced"
+        } else {
+            reason = "it was redirected to a non-https address"
+        }
+        return "The \(download.noun) was refused (\(tool) exit \(exitStatus)): \(reason). Nothing was changed."
     }
 
     public static func manifestTooLarge(limit: Int) -> String {
@@ -117,6 +139,10 @@ public enum UpdateTexts {
             reason = "size is not a positive number"
         case .invalidFloor(let value):
             reason = "minimum.glibc \"\(value)\" is not a plain version number"
+        case .signatureMissing:
+            reason = "it carries no signature"
+        case .signatureInvalid:
+            reason = "its signature does not match this program's key"
         }
         return "The update manifest was refused: \(reason). Nothing was downloaded or changed."
     }

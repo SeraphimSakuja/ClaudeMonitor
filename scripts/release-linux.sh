@@ -9,6 +9,9 @@
 #     -e HOME=/hometmp -e TMPDIR=/worktmp \
 #     swift:6.3.3 bash -lc './scripts/release-linux.sh'
 #
+# Der Lauf braucht Netz zu github.com (CM-36): SwiftPM klont `swift-crypto` in
+# das tmpfs-HOME, gepinnt über Linux/Package.resolved.
+#
 # Das Skript ist der ZWILLING von `scripts/release.sh` (macOS/DMG/Sparkle) und
 # fasst jenes bewusst nicht an: `release.sh` bleibt Null-Diff. Gemeinsame
 # Identitätswerte — Download-Basis, Feed-Adresse, Projektadresse — werden
@@ -17,9 +20,12 @@
 # nächsten Umzug übersehen wird.
 #
 # Es lädt NICHTS hoch, legt kein Tag an und veröffentlicht nichts. Ergebnis sind
-# drei Dateien: der Tarball und die Prüfsummendatei unter build/linux/ sowie das
-# Manifest docs/linux-latest.json im Repo. Die Veröffentlichung ist ein eigener,
-# von Hand ausgeführter Schritt; die Reihenfolge steht in der Schlussmeldung.
+# drei Dateien unter build/linux/: der Tarball, die Prüfsummendatei und das
+# UNSIGNIERTE Manifest linux-latest.unsigned.json. docs/linux-latest.json
+# schreibt dieses Skript NICHT mehr (CM-36) — das tut erst
+# `scripts/sign-linux-manifest.sh`, nach Signatur und beiden Gegenproben. Die
+# Veröffentlichung ist ein eigener, von Hand ausgeführter Schritt; die
+# Reihenfolge steht in der Schlussmeldung.
 #
 # ---------------------------------------------------------------------------
 # WARUM TARBALL UND NICHT .deb, PPA ODER APPIMAGE
@@ -53,16 +59,19 @@
 # Zeitstempel des letzten Commits hergeleitet (Schritt 0).
 #
 # ---------------------------------------------------------------------------
-# SIGNATUR: BEWUSST NOCH KEINE
+# SIGNATUR (CM-36)
 #
-# Das Manifest führt `"signature": null`. Die macOS-Linie signiert ihren Feed
-# per EdDSA, weil Sparkle einen Client mitbringt, der prüft. Auf Linux gibt es
-# diesen Client noch nicht — er entsteht mit `CM-21`. Eine Signatur-Identität
-# hier schon festzulegen hieße, sie einzufrieren, bevor der prüfende Teil
-# existiert; `CM-21` friert sie ein, nicht diese Karte. Bis dahin ist die
-# sha256-Summe neben dem Download die Zusage, und der Netzverkehr eines
-# künftigen Update-Clients bleibt auf zwei Anfragen beschränkt: Manifest holen,
-# Datei holen.
+# Das Manifest ist Ed25519-signiert, mit demselben Schlüssel wie der
+# Sparkle-Feed der macOS-Linie (`SPARKLE_PUBLIC_KEY` in scripts/release.sh).
+# Jeder Client prüft die Signatur über die Bytes, BEVOR er ein Feld liest
+# (`UpdateSignature`, `UpdateManifest.validate`); fehlt sie oder passt sie
+# nicht, lehnt er mit 13 ab — einen Rückfall auf die Prüfsumme allein gibt es
+# nicht. Der private Schlüssel betritt diesen Bau-Container NIE: Dieses Skript
+# schreibt das Manifest unsigniert nach build/linux/, signiert wird danach
+# außerhalb des Containers mit `scripts/sign-linux-manifest.sh` — auf dem
+# Rechner, auf dem der Schlüssel liegt. Erst jenes Skript schreibt
+# docs/linux-latest.json. Der Netzverkehr des Clients bleibt bei zwei
+# Anfragen: Manifest holen, Datei holen.
 
 set -euo pipefail
 
@@ -85,7 +94,12 @@ RELEASE_SH="$PROJECT_DIR/scripts/release.sh"
 PBXPROJ="$PROJECT_DIR/App/ClaudeMonitor.xcodeproj/project.pbxproj"
 TRAY_TEXTS="$PROJECT_DIR/Linux/Sources/TrayPresentation/TrayTexts.swift"
 UPDATE_ENDPOINTS="$PROJECT_DIR/Linux/Sources/Update/UpdateEndpoints.swift"
+# Das veröffentlichte, signierte Manifest — hier nur noch GELESEN (Wächter über
+# die Build-Nummer, Adresse in der Schlussmeldung). Geschrieben wird es von
+# scripts/sign-linux-manifest.sh (CM-36).
 MANIFEST="$PROJECT_DIR/docs/linux-latest.json"
+# Das Ergebnis von Schritt 7/7: unsigniert, Eingabe des Signierskripts.
+UNSIGNED_MANIFEST="$BUILD_DIR/linux-latest.unsigned.json"
 INSTALL_DOC="$PROJECT_DIR/Linux/INSTALL.md"
 LINUX_README="$PROJECT_DIR/Linux/README.md"
 ROOT_README="$PROJECT_DIR/README.md"
@@ -381,7 +395,12 @@ read_identity() {
 DOWNLOAD_URL_BASE="$(read_identity DOWNLOAD_URL_BASE)"
 PROJECT_URL="$(read_identity PROJECT_URL)"
 FEED_URL="$(read_identity FEED_URL)"
-for pair in "DOWNLOAD_URL_BASE=$DOWNLOAD_URL_BASE" "PROJECT_URL=$PROJECT_URL" "FEED_URL=$FEED_URL"; do
+# CM-36: der eingefrorene Vertrauensanker (Leitplanke L9) — derselbe Schlüssel
+# prüft das Linux-Manifest. Aus release.sh gelesen, nicht aus App/Info.plist:
+# dort steht der von der Plist UNABHÄNGIGE Anker.
+SPARKLE_PUBLIC_KEY="$(read_identity SPARKLE_PUBLIC_KEY)"
+for pair in "DOWNLOAD_URL_BASE=$DOWNLOAD_URL_BASE" "PROJECT_URL=$PROJECT_URL" "FEED_URL=$FEED_URL" \
+  "SPARKLE_PUBLIC_KEY=$SPARKLE_PUBLIC_KEY"; do
   [ -n "${pair#*=}" ] \
     || fail "Aus $RELEASE_SH ließ sich ${pair%%=*} nicht lesen.
   Dort wurde die Zuweisung umbenannt oder umformatiert. Bitte die Ableitung in
@@ -389,7 +408,7 @@ for pair in "DOWNLOAD_URL_BASE=$DOWNLOAD_URL_BASE" "PROJECT_URL=$PROJECT_URL" "F
   derselben Adresse ist die Fundstelle, die beim nächsten Umzug übersehen wird."
 done
 FEED_BASE="$(dirname "$FEED_URL")"
-echo "  ✓ Identitätswerte aus scripts/release.sh abgeleitet (keine Zweitkopie)"
+echo "  ✓ Identitätswerte aus scripts/release.sh abgeleitet (keine Zweitkopie, Schlüssel eingeschlossen)"
 
 # VERSIONSQUELLE: das Xcode-Projekt. Es gibt keine zweite.
 [ -r "$PBXPROJ" ] || fail "project.pbxproj nicht lesbar: $PBXPROJ"
@@ -439,13 +458,15 @@ TRAY_BUILD="$(sed -n 's/^[[:space:]]*public static let buildVersion = \([0-9]*\)
     public static let buildVersion = $BUILD_VERSION"
 echo "  ✓ TrayTexts.buildVersion = $TRAY_BUILD stimmt überein"
 
-# ZWILLINGSWÄCHTER: die Adressen des Update-Clients (CM-29).
+# ZWILLINGSWÄCHTER: die Adressen und der Schlüssel des Update-Clients (CM-29,
+# CM-36).
 #
-# Der Client trägt Manifest-Adresse, Download-Basis, Produkt und Plattform als
-# Konstanten im Binary (`UpdateEndpoints`) — eine Umgebungsvariable dafür gibt
-# es bewusst nicht. Diese Zweitkopie muss gleich dem sein, was dieses Skript
-# erzeugt; sonst holte jeder Client ein Manifest, das es nicht gibt, oder
-# lehnte jede Download-Adresse ab.
+# Der Client trägt Manifest-Adresse, Download-Basis, Produkt, Plattform und den
+# Public Key des Manifests als Konstanten im Binary (`UpdateEndpoints`) — eine
+# Umgebungsvariable dafür gibt es bewusst nicht. Diese Zweitkopie muss gleich
+# dem sein, was dieses Skript erzeugt bzw. womit signiert wird; sonst holte
+# jeder Client ein Manifest, das es nicht gibt, lehnte jede Download-Adresse ab
+# oder jede Signatur.
 read_endpoint() {
   sed -n "s/^[[:space:]]*public static let $1 = \"\(.*\)\"\$/\1/p" "$UPDATE_ENDPOINTS" | head -n 1
 }
@@ -454,7 +475,8 @@ for pair in \
   "manifestURL=$FEED_BASE/$(basename "$MANIFEST")" \
   "downloadURLBase=$DOWNLOAD_URL_BASE" \
   "product=$PRODUCT" \
-  "platform=$PLATFORM"; do
+  "platform=$PLATFORM" \
+  "manifestPublicKey=$SPARKLE_PUBLIC_KEY"; do
   name="${pair%%=*}"; want="${pair#*=}"; have="$(read_endpoint "$name")"
   [ -n "$have" ] \
     || fail "In $UPDATE_ENDPOINTS ließ sich „public static let $name\" nicht lesen.
@@ -464,7 +486,7 @@ for pair in \
   Installierte Clients suchen dort, wo das Binary es sagt. Abhilfe: in $UPDATE_ENDPOINTS
     public static let $name = \"$want\""
 done
-echo "  ✓ UpdateEndpoints stimmt mit Feed-, Download-Adresse, Produkt und Plattform überein"
+echo "  ✓ UpdateEndpoints stimmt mit Feed-, Download-Adresse, Produkt, Plattform und Schlüssel überein"
 
 # WÄCHTER: Build-Nummer gegen das vorhandene Manifest.
 #
@@ -554,7 +576,11 @@ step "1/7  Bestandstests (Core, Shared, Linux)"
 # $1 = Verzeichnis, $2 = Name, $3 = Untergrenze; Ergebnis in TEST_COUNT.
 run_suite() {
   local dir="$1" name="$2" floor="$3" out count
-  out="$( ( cd "$dir" && swift test 2>&1 ) )" \
+  # `--force-resolved-versions` (CM-36): Linux/Package.resolved ist der Pin
+  # von `swift-crypto` samt transitiver `swift-asn1`. Ohne den Schalter löste
+  # SwiftPM bei Abweichung still neu auf; mit ihm bricht der Lauf ab. Core und
+  # Shared haben keine Abhängigkeit — dort wirkt er nicht (gemessen).
+  out="$( ( cd "$dir" && swift test --force-resolved-versions 2>&1 ) )" \
     || fail "$name-Tests rot. Letzte Zeilen:
 $(printf '%s\n' "$out" | tail -n 20 | sed 's/^/    /')"
   count="$(printf '%s\n' "$out" | grep -oE 'Test run with [0-9]+ tests' | grep -oE '[0-9]+' | tail -n 1)"
@@ -580,7 +606,7 @@ run_suite "$LINUX_DIR"  "Linux"  "$BASELINE_LINUX";  COUNT_LINUX="$TEST_COUNT"
 # Release- und Debug-Bau teilen sich sonst einen Modulcache, und der nächste
 # `swift test` baut ohne erkennbaren Grund alles neu.
 step "2/7  Release-Build (statisch gebundene Swift-Laufzeit)"
-( cd "$LINUX_DIR" && swift build -c release --static-swift-stdlib \
+( cd "$LINUX_DIR" && swift build -c release --static-swift-stdlib --force-resolved-versions \
     --product "$PRODUCT" --scratch-path "$SCRATCH_DIR" ) \
   || fail "Release-Build fehlgeschlagen."
 
@@ -610,8 +636,35 @@ mkdir -p "$PAYLOAD"
 cp "$BIN" "$PAYLOAD/$PRODUCT"
 cp "$INSTALL_DOC" "$PAYLOAD/INSTALL.md"
 cp "$LICENSE_FILE" "$PAYLOAD/LICENSE"
+
+# THIRD-PARTY-NOTICES (CM-36): `swift-crypto` samt dem mitgebauten BoringSSL ist
+# statisch ins Binary gebunden und steht unter Apache-2.0. §4 (a)/(d) verlangt
+# bei Weitergabe in Objektform eine Kopie der Lizenz und der NOTICE-Hinweise.
+# Quelle ist der Checkout DIESES Release-Builds — fehlt eine der beiden Dateien,
+# bricht der Lauf ab, statt ein Paket ohne Hinweise zu schnüren.
+CRYPTO_CHECKOUT="$SCRATCH_DIR/checkouts/swift-crypto"
+NOTICES="$PAYLOAD/THIRD-PARTY-NOTICES"
+for source in "$CRYPTO_CHECKOUT/LICENSE.txt" "$CRYPTO_CHECKOUT/NOTICE.txt"; do
+  [ -r "$source" ] || fail "Lizenzquelle fehlt: $source
+  Das Binary bindet swift-crypto statisch; ohne Lizenz- und NOTICE-Text darf es nicht
+  ausgeliefert werden (Apache-2.0 §4). Liegt der Checkout woanders, den Pfad
+  CRYPTO_CHECKOUT nachziehen — nicht den Wächter entfernen."
+done
+{
+  echo "claude-monitor-tray statically links swift-crypto (https://github.com/apple/swift-crypto),"
+  echo "which includes BoringSSL. Its license and notices follow."
+  echo
+  echo "==> swift-crypto: NOTICE.txt <=="
+  echo
+  cat "$CRYPTO_CHECKOUT/NOTICE.txt"
+  echo
+  echo "==> swift-crypto: LICENSE.txt <=="
+  echo
+  cat "$CRYPTO_CHECKOUT/LICENSE.txt"
+} > "$NOTICES"
+
 chmod 755 "$PAYLOAD/$PRODUCT"
-chmod 644 "$PAYLOAD/INSTALL.md" "$PAYLOAD/LICENSE"
+chmod 644 "$PAYLOAD/INSTALL.md" "$PAYLOAD/LICENSE" "$NOTICES"
 
 # --sort=name friert die Reihenfolge ein, --owner/--group/--numeric-owner die
 # Eigentümer, --mtime die Zeitstempel. `gzip -9n` lässt den Dateinamen und den
@@ -652,6 +705,8 @@ cmp -s "$BIN" "$UNPACKED" \
 check_binary "$UNPACKED" "ausgepacktes Binary"
 load_probe "$UNPACKED" "ausgepacktes Binary"
 version_probe "$UNPACKED" "ausgepacktes Binary"
+[ -s "$VERIFY_DIR/$PRODUCT-$SHORT_VERSION/THIRD-PARTY-NOTICES" ] \
+  || fail "Im Tarball fehlt THIRD-PARTY-NOTICES (Lizenz und NOTICE von swift-crypto)."
 ( cd "$BUILD_DIR" && sha256sum -c "$(basename "$SHA_FILE")" ) >/dev/null \
   || fail "Die Prüfsummendatei passt nicht zum Tarball."
 echo "  ✓ Prüfsummendatei bestätigt, ausgepackt nach $VERIFY_DIR"
@@ -667,10 +722,16 @@ echo "  ✓ Prüfsummendatei bestätigt, ausgepackt nach $VERIFY_DIR"
 # (`UpdateManifest.supportedSchemaVersion`); jedes andere Schema lehnen sie mit
 # 13 ab. Ein Schemawechsel braucht deshalb ein PARALLELES v1-Manifest an diesem
 # alten Pfad, solange es Clients gibt, die nur v1 lesen.
-step "7/7  Manifest docs/linux-latest.json"
+#
+# ⚠️ EBENSO EINGEFROREN (CM-36): das Dateiende. Diese Datei endet auf
+# `"projectUrl": "…"\n}\n` — kein Feld `signature`, kein Komma dahinter. Genau
+# diese Bytes signiert `scripts/sign-linux-manifest.sh`; es ersetzt die letzten
+# drei Bytes durch den Trailer `,\n  "signature": "<Base64>"\n}\n`
+# (`UpdateSignature`), und jeder Client misst ihn vom Dateiende. Ein anderes
+# Ende hier lässt das Signierskript abbrechen.
+step "7/7  Manifest (unsigniert) $UNSIGNED_MANIFEST"
 DOWNLOAD_URL="$DOWNLOAD_URL_BASE/v$SHORT_VERSION/$TAR_NAME"
-mkdir -p "$(dirname "$MANIFEST")"
-cat > "$MANIFEST" <<JSON
+cat > "$UNSIGNED_MANIFEST" <<JSON
 {
   "schemaVersion": 1,
   "product": "$PRODUCT",
@@ -692,16 +753,19 @@ cat > "$MANIFEST" <<JSON
     "binarySize": $MEASURED_SIZE,
     "builtOn": "$HOST_OS_ID $HOST_OS_VERSION, glibc $HOST_GLIBC, Swift $HOST_SWIFT"
   },
-  "projectUrl": "$PROJECT_URL",
-  "signature": null
+  "projectUrl": "$PROJECT_URL"
 }
 JSON
-echo "  ✓ $MANIFEST"
+echo "  ✓ $UNSIGNED_MANIFEST"
 
 printf '\n\033[32m✔ Fertig: %s\033[0m\n' "$TARBALL"
 echo "  Prüfsumme: $SHA_FILE"
-echo "  Manifest:  $MANIFEST"
+echo "  Manifest:  $UNSIGNED_MANIFEST (unsigniert)"
 echo "  Tests:     Core $COUNT_CORE · Shared $COUNT_SHARED · Linux $COUNT_LINUX"
+echo
+echo "  Vorher signieren: scripts/sign-linux-manifest.sh — erst dieses Skript schreibt"
+echo "  docs/linux-latest.json (signieren dort, wo der Schlüssel liegt; Gegenprobe mit"
+echo "  dem gebauten Binary; Aufruf je Rechner im Kopf des Skripts)."
 echo
 echo "  Veröffentlichen — die Reihenfolge ist bindend:"
 echo "    1. GitHub-Release v$SHORT_VERSION anlegen (oder das vorhandene öffnen) und"

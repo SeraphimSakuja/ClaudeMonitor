@@ -28,8 +28,10 @@ public struct UpdateOffer: Equatable, Sendable {
 /// Das Manifest `linux-latest.json` (Erzeuger: `scripts/release-linux.sh`,
 /// Schritt 7/7) und seine Prüfung (FE 4–6).
 ///
-/// Unbekannte Felder werden ignoriert — auch `measured`, `projectUrl` und
-/// `signature`.
+/// CM-36: Die Datei ist Ed25519-signiert (``UpdateSignature``). Geprüft wird
+/// die Signatur über die Bytes **vor** jedem Feld; gelesen wird danach nur das
+/// signierte Dokument, nie die ausgelieferte Datei. Unbekannte Felder darin
+/// werden ignoriert — auch `measured` und `projectUrl`.
 public enum UpdateManifest {
 
     /// Die einzige Schemafassung, die dieser Client liest (FE 4).
@@ -57,12 +59,35 @@ public enum UpdateManifest {
         case invalidSize
         /// `minimum.glibc` ist keine reine Punkt-Zahl.
         case invalidFloor(String)
+        /// CM-36 · FE-1/FE-2: kein Signatur-Trailer am Dateiende (auch
+        /// `"signature": null`).
+        case signatureMissing
+        /// CM-36 · FE-1/FE-2: Trailer vorhanden, die Signatur passt nicht zum
+        /// Schlüssel dieses Programms.
+        case signatureInvalid
     }
 
-    /// Prüft die Rohdaten. Reihenfolge: Schema zuerst — ein anderes Format
-    /// wird als solches benannt, nicht als „Feld fehlt".
-    public static func validate(_ data: Data) -> Result<UpdateOffer, Rejection> {
-        guard let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return .failure(.notJSON) }
+    /// Prüft die Rohdaten — der EINE Einstieg für `--update` und
+    /// `--check-update`; eine Dekodierung ohne Signaturprüfung gibt es nach
+    /// außen nicht.
+    ///
+    /// Reihenfolge: Signatur zuerst (CM-36 · FE-1) — ein Manifest mit
+    /// ungültiger Signatur meldet nie ein Feld. Danach Schema — ein anderes
+    /// Format wird als solches benannt, nicht als „Feld fehlt".
+    ///
+    /// - Parameter trustedKey: Base64 des Ed25519-Public-Keys. Im Programm
+    ///   immer der eingebaute ``UpdateEndpoints/manifestPublicKey`` (FE-5);
+    ///   ein anderer Wert kommt nur aus einem Test.
+    public static func validate(
+        _ data: Data,
+        trustedKey: String = UpdateEndpoints.manifestPublicKey
+    ) -> Result<UpdateOffer, Rejection> {
+        let document: Data
+        switch UpdateSignature.signedDocument(of: data, trustedKey: trustedKey) {
+        case .success(let signed): document = signed
+        case .failure(let rejection): return .failure(rejection)
+        }
+        guard let wire = try? JSONDecoder().decode(Wire.self, from: document) else { return .failure(.notJSON) }
 
         guard let schema = wire.schemaVersion else {
             return .failure(wire.hasSchemaVersionKey ? .formatChanged(found: "not an integer") : .missingField("schemaVersion"))
