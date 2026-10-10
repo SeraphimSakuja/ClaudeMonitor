@@ -275,7 +275,7 @@ public enum AutostartTexts {
 
     /// Mehr als ein Unterbefehl auf einmal.
     public static let conflictingOptions = "Use only one of --install-autostart, --uninstall-autostart, --autostart-status, "
-        + "--version, --update, --install-auto-update, --uninstall-auto-update, --auto-update-status.\n\(usage)"
+        + "--version, --update, --check-update, --install-auto-update, --uninstall-auto-update, --auto-update-status.\n\(usage)"
 
     public static let usage = """
         Usage:
@@ -286,6 +286,7 @@ public enum AutostartTexts {
           claude-monitor-tray --autostart-status       report whether it is set up
           claude-monitor-tray --version                print the version and exit
           claude-monitor-tray --update                 check for an update and install it now
+          claude-monitor-tray --check-update           check for an update, install nothing
           claude-monitor-tray --install-auto-update    check for updates once a day (systemd timer)
           claude-monitor-tray --uninstall-auto-update  turn that off again
           claude-monitor-tray --auto-update-status     report whether it is set up

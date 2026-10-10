@@ -99,6 +99,13 @@ public enum TrayTexts {
     /// Ergebniszeilen (FE 9). Vergangenheitsform, damit der Satz auch Tage
     /// später wahr ist (FE 10). Details liefert derselbe Befehl im Terminal.
     public static let lastCheckUpToDate = "Last check: up to date"
+    /// CM-36: Ergebnis der Suche (`--check-update`, Exit 14) — nur bei
+    /// schreibbarem Verzeichnis des Binarys mit Installationsversprechen
+    /// (2b-Auflage 2).
+    public static let lastCheckUpdateAvailable =
+        "Last check: a newer version is available — Check for updates now installs it"
+    public static let lastCheckUpdateAvailableByHand =
+        "Last check: a newer version is available — download it by hand (see INSTALL.md)"
     public static let lastCheckReplaced =
         "Last check: a newer version is installed — restart the tray to use it"
     public static let lastCheckNothingChecked =

@@ -7,7 +7,8 @@ import TrayPresentation
 import Update
 
 /// Die I/O-Seite von `--update` (CM-29): Manifest holen, vergleichen, Tarball
-/// laden, prüfen, Binary ersetzen, Tray-Dienst neu starten.
+/// laden, prüfen, Binary ersetzen, Tray-Dienst neu starten — und von
+/// `--check-update` (CM-36): nur Manifest holen, prüfen, vergleichen.
 ///
 /// Die **Regeln** stehen im Ziel `Update` (`UpdateManifest`, `UpdateDecision`,
 /// `UpdateTexts`). Hier steht nur, was Netz, Dateisystem und Prozessstart
@@ -16,9 +17,13 @@ import Update
 /// statische Binary, die die ldd-Sollmenge von `release-linux.sh` nicht
 /// erlaubt.
 ///
-/// ⚠️ **Ohne Aufruf kein Netz (FE 1).** Dieser Typ wird nur von `--update`
-/// erzeugt — aus der Kommandozeile oder aus dem Service, den
-/// `--install-auto-update` einrichtet.
+/// ⚠️ **Netz nur über diese zwei Unterbefehle.** Dieser Typ wird nur von
+/// `--update` und `--check-update` erzeugt. `--update` startet die
+/// Kommandozeile, der Service von `--install-auto-update` oder „Check for
+/// updates now"; `--check-update` startet zusätzlich der Tray **ab Werk selbst**
+/// — 15 min nach dem Start, danach alle 24 h, abschaltbar mit
+/// `CLAUDE_MONITOR_NO_UPDATE_CHECK=1` (CM-36 · FE-8, FE-9). Die Suche lädt nur
+/// das Manifest und installiert nie (FE-13).
 struct UpdateClient {
 
     /// Die Umgebung der Kindprozesse und Quelle von `TMPDIR`.
@@ -107,46 +112,81 @@ struct UpdateClient {
                       temporary: temporary)
     }
 
+    /// `--check-update` (CM-36 · FE-6, FE-7): Manifest holen, prüfen,
+    /// vergleichen — sonst nichts. Kein Schreibrecht am Binary-Verzeichnis
+    /// nötig, keine Sperre (läuft neben einem `--update`), nie der Tarball.
+    ///
+    /// Exit 0 = aktuell (nur nach gültig gelesenem Manifest), 14 = neuere
+    /// Fassung, nichts geladen, 12 = nichts gemessen, 13 = abgelehnt — auch,
+    /// wenn die neuere Fassung den glibc-Boden dieses Rechners verfehlt: 14
+    /// heißt „gibt es und passt". Ob sie sich **selbst** installieren lässt,
+    /// sagt der Text (2b-Auflage 2): nur bei schreibbarem Verzeichnis der
+    /// Verweis auf `--update`, sonst der Handdownload.
+    func check() -> TrayExit {
+        let temporary: String
+        switch makeTemporaryDirectory() {
+        case .success(let path):
+            temporary = path
+        case .failure(let reason):
+            emit(UpdateTexts.temporaryDirectoryFailed(reason: reason.text))
+            return .updateUnavailable
+        }
+        defer { try? FileManager.default.removeItem(atPath: temporary) }
+
+        let offer: UpdateOffer
+        switch fetchOffer(temporary: temporary) {
+        case .success(let found): offer = found.offer
+        case .failure(let stop): return stop.code
+        }
+        guard UpdateDecision.decide(offer: offer, ownBuild: TrayTexts.buildVersion) == .update else {
+            emit(UpdateTexts.upToDate(version: TrayTexts.version, buildVersion: TrayTexts.buildVersion))
+            return .ok
+        }
+        if let stop = refuseBelowFloor(offer) { return stop.code }
+
+        // 2b-Auflage 2: nur messen — keine Sperre, nichts schreiben.
+        let installable: Bool
+        var blockedDirectory: String?
+        switch executable() {
+        case .usable(let path):
+            let directory = parentDirectory(of: path)
+            installable = access(directory, W_OK) == 0
+            blockedDirectory = installable ? nil : directory
+        case .unusable:
+            installable = false
+        }
+        if installable {
+            emit(UpdateTexts.updateAvailable(
+                version: offer.version,
+                buildVersion: offer.buildVersion,
+                ownVersion: TrayTexts.version,
+                ownBuildVersion: TrayTexts.buildVersion
+            ))
+        } else {
+            emit(UpdateTexts.updateAvailableByHand(
+                version: offer.version,
+                buildVersion: offer.buildVersion,
+                ownVersion: TrayTexts.version,
+                ownBuildVersion: TrayTexts.buildVersion,
+                directory: blockedDirectory
+            ))
+        }
+        return .updateAvailable
+    }
+
     // MARK: - Ablauf
 
     private func update(binaryPath: String, directory: String, directoryDescriptor: Int32,
                         temporary: String) -> TrayExit {
-        // (4) Manifest holen.
-        let manifestPath = temporary + "/manifest.json"
-        let tool: UpdateDecision.FetchTool
-        switch fetch(
-            UpdateEndpoints.manifestURL,
-            to: manifestPath,
-            download: .manifest,
-            maxBytes: UpdateDecision.manifestByteLimit,
-            seconds: UpdateDecision.manifestTimeoutSeconds,
-            followRedirects: false,
-            only: nil,
-            temporary: temporary
-        ) {
-        case .success(let used): tool = used
-        case .failure(let exit): return exit.code
-        }
-
-        // (5) Größe vor dem Parsen, dann prüfen und entscheiden.
-        guard let manifestSize = fileSize(manifestPath) else {
-            emit(UpdateTexts.manifestUnreadable(reason: "no file was written"))
-            return .updateRefused
-        }
-        guard manifestSize <= UpdateDecision.manifestByteLimit else {
-            emit(UpdateTexts.manifestTooLarge(limit: UpdateDecision.manifestByteLimit))
-            return .updateRefused
-        }
-        guard let manifestData = FileManager.default.contents(atPath: manifestPath) else {
-            emit(UpdateTexts.manifestUnreadable(reason: "the downloaded file could not be read"))
-            return .updateRefused
-        }
+        // (4)–(5) Manifest holen, prüfen, entscheiden.
         let offer: UpdateOffer
-        switch UpdateManifest.validate(manifestData, trustedKey: trustedKey) {
-        case .success(let value): offer = value
-        case .failure(let rejection):
-            emit(UpdateTexts.manifestRejected(rejection))
-            return .updateRefused
+        let tool: UpdateDecision.FetchTool
+        switch fetchOffer(temporary: temporary) {
+        case .success(let found):
+            offer = found.offer
+            tool = found.tool
+        case .failure(let stop):
+            return stop.code
         }
         guard UpdateDecision.decide(offer: offer, ownBuild: TrayTexts.buildVersion) == .update else {
             emit(UpdateTexts.upToDate(version: TrayTexts.version, buildVersion: TrayTexts.buildVersion))
@@ -154,14 +194,7 @@ struct UpdateClient {
         }
 
         // (6) FE 7: Kompatibilitätsboden vor dem Download.
-        guard let glibc = localGlibcVersion() else {
-            emit(UpdateTexts.glibcUnknown)
-            return .updateRefused
-        }
-        guard UpdateDecision.meetsFloor(local: glibc, minimum: offer.minimumGlibc) else {
-            emit(UpdateTexts.belowFloor(local: glibc, minimum: offer.minimumGlibc))
-            return .updateRefused
-        }
+        if let stop = refuseBelowFloor(offer) { return stop.code }
 
         // (7) Tarball laden — mit demselben Werkzeug wie das Manifest.
         let tarballPath = temporary + "/" + UpdateDecision.tarballName(version: offer.version)
@@ -284,6 +317,64 @@ struct UpdateClient {
         }
         emit(UpdateTexts.restartTheTray(version: offer.version))
         return .ok
+    }
+
+    // MARK: - Manifest (gemeinsam für `--update` und `--check-update`)
+
+    /// Schritte (4)–(5): Manifest holen, Größe vor dem Parsen, Signatur und
+    /// Felder prüfen (`UpdateManifest.validate` — der EINE Prüfeinstieg).
+    /// Jeder Abbruch hat seine Meldung schon ausgegeben.
+    private func fetchOffer(temporary: String) -> Result<(offer: UpdateOffer, tool: UpdateDecision.FetchTool), Stop> {
+        let manifestPath = temporary + "/manifest.json"
+        let tool: UpdateDecision.FetchTool
+        switch fetch(
+            UpdateEndpoints.manifestURL,
+            to: manifestPath,
+            download: .manifest,
+            maxBytes: UpdateDecision.manifestByteLimit,
+            seconds: UpdateDecision.manifestTimeoutSeconds,
+            followRedirects: false,
+            only: nil,
+            temporary: temporary
+        ) {
+        case .success(let used): tool = used
+        case .failure(let stop): return .failure(stop)
+        }
+
+        // FE-3 (CM-36): Größengrenze vor der Signatur.
+        guard let manifestSize = fileSize(manifestPath) else {
+            emit(UpdateTexts.manifestUnreadable(reason: "no file was written"))
+            return .failure(Stop(code: .updateRefused))
+        }
+        guard manifestSize <= UpdateDecision.manifestByteLimit else {
+            emit(UpdateTexts.manifestTooLarge(limit: UpdateDecision.manifestByteLimit))
+            return .failure(Stop(code: .updateRefused))
+        }
+        guard let manifestData = FileManager.default.contents(atPath: manifestPath) else {
+            emit(UpdateTexts.manifestUnreadable(reason: "the downloaded file could not be read"))
+            return .failure(Stop(code: .updateRefused))
+        }
+        switch UpdateManifest.validate(manifestData, trustedKey: trustedKey) {
+        case .success(let offer):
+            return .success((offer, tool))
+        case .failure(let rejection):
+            emit(UpdateTexts.manifestRejected(rejection))
+            return .failure(Stop(code: .updateRefused))
+        }
+    }
+
+    /// FE 7: Ein Angebot unter dem glibc-Boden dieses Rechners ist abgelehnt
+    /// (13) — bei `--update` vor dem Download, bei `--check-update` statt 14.
+    private func refuseBelowFloor(_ offer: UpdateOffer) -> Stop? {
+        guard let glibc = localGlibcVersion() else {
+            emit(UpdateTexts.glibcUnknown)
+            return Stop(code: .updateRefused)
+        }
+        guard UpdateDecision.meetsFloor(local: glibc, minimum: offer.minimumGlibc) else {
+            emit(UpdateTexts.belowFloor(local: glibc, minimum: offer.minimumGlibc))
+            return Stop(code: .updateRefused)
+        }
+        return nil
     }
 
     // MARK: - Abruf (2b-Auflage 3, 11)

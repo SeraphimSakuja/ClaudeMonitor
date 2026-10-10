@@ -26,7 +26,7 @@ public enum UpdateTexts {
         }
     }
 
-    // MARK: - `--update`: Ergebnis
+    // MARK: - `--update`/`--check-update`: Ergebnis
 
     /// Kein neueres Angebot — nur nach einem gültig gelesenen Manifest.
     public static func upToDate(version: String, buildVersion: Int) -> String {
@@ -48,6 +48,35 @@ public enum UpdateTexts {
     /// Kein Neustart — der Nutzer startet den Tray selbst neu.
     public static func restartTheTray(version: String) -> String {
         "Restart the tray to use \(version) — a tray that is running right now keeps the old version until then."
+    }
+
+    // MARK: - `--check-update`: Exit 14 (CM-36 · FE-7, FE-13)
+
+    /// Neuere Fassung gefunden, das Verzeichnis des Binarys ist schreibbar —
+    /// `--update` kann sie installieren. Geladen wurde nichts.
+    public static func updateAvailable(version: String, buildVersion: Int, ownVersion: String, ownBuildVersion: Int) -> String {
+        "Version \(version) (build \(buildVersion)) is available; this is \(ownVersion) (build \(ownBuildVersion)).\n"
+            + "Nothing was downloaded. Install it with: claude-monitor-tray --update"
+    }
+
+    /// Neuere Fassung gefunden, aber dieses Binary kann sich nicht selbst
+    /// ersetzen (2b-Auflage 2) — kein Installationsversprechen, nur der
+    /// Handdownload.
+    ///
+    /// - Parameter directory: das nicht schreibbare Verzeichnis; `nil`, wenn
+    ///   der eigene Pfad nicht bestimmbar war.
+    public static func updateAvailableByHand(
+        version: String,
+        buildVersion: Int,
+        ownVersion: String,
+        ownBuildVersion: Int,
+        directory: String?
+    ) -> String {
+        let why = directory.map { "The directory \($0) is not writable for you, so this binary cannot replace itself" }
+            ?? "The path of this program cannot be determined, so it cannot replace itself"
+        return "Version \(version) (build \(buildVersion)) is available; this is \(ownVersion) (build \(ownBuildVersion)).\n"
+            + "Nothing was downloaded. \(why) — download the new version by hand "
+            + "(see \"Download and verify\" in INSTALL.md)."
     }
 
     // MARK: - `--update`: Exit 12 (nichts gemessen)

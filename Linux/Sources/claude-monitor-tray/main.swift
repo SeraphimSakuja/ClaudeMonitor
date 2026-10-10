@@ -20,8 +20,14 @@ import Update
 // Ausnahmen sind die Unterbefehle, und nur sie (CM-21, CM-29): Die
 // Unit-Befehle schreiben ihre Units (`--install-autostart`,
 // `--install-auto-update` — Timer und Service), und `--update` ersetzt das
-// eigene Binary und sperrt dazu dessen Verzeichnis per `flock`. Keiner davon
-// berührt `usage.json`.
+// eigene Binary und sperrt dazu dessen Verzeichnis per `flock`.
+// `--check-update` (CM-36) schreibt nur in sein privates Temp-Verzeichnis.
+// Keiner davon berührt `usage.json`.
+//
+// Ins Netz geht der residente Tray nur über Kindprozesse: `--update` auf
+// Klick („Check for updates now") und `--check-update` ab Werk selbst —
+// 15 min nach dem Start, dann alle 24 h, abschaltbar mit
+// `CLAUDE_MONITOR_NO_UPDATE_CHECK=1` (CM-36, `pollAutomaticCheck(now:)`).
 //
 // Für den Druckvertrag (was dieser Prozess NIE ausgibt) siehe `TrayLog`.
 
@@ -66,18 +72,27 @@ enum TrayExit: Int32 {
     /// „nicht eingerichtet": Das wäre eine Aussage über eine Messung, die nicht
     /// stattgefunden hat.
     case autostartUnavailable = 11
-    /// Nur `--update` (CM-29): **nichts gemessen** — kein `curl`/`wget`,
-    /// Netz- oder HTTP-Fehler, Zeitüberschreitung, auch **kein Manifest**.
+    /// Nur `--update` und `--check-update` (CM-29, CM-36): **nichts
+    /// gemessen** — kein `curl`/`wget`, Netz- oder HTTP-Fehler,
+    /// Zeitüberschreitung, auch **kein Manifest**.
     /// Ausdrücklich NICHT „aktuell": Das darf nur nach einem gültig gelesenen
     /// Manifest gemeldet werden.
     case updateUnavailable = 12
-    /// Nur `--update` (CM-29): **abgelehnt** — Manifest ungültig oder in
-    /// anderem Format, Größe oder Prüfsumme falsch, unter dem
-    /// Kompatibilitätsboden, Ladeprobe gescheitert, Verzeichnis nicht
-    /// schreibbar, ein anderes Update läuft. Das installierte Binary ist
-    /// unverändert. Der residente Tray endet nie mit 12/13 — darum bleibt
-    /// `RestartPreventExitStatus` der Autostart-Unit unverändert.
+    /// Nur `--update` und `--check-update` (CM-29, CM-36): **abgelehnt** —
+    /// Signatur fehlt oder passt nicht, Manifest ungültig oder in anderem
+    /// Format, Größe oder Prüfsumme falsch, unter dem Kompatibilitätsboden,
+    /// Ladeprobe gescheitert, Verzeichnis nicht schreibbar, ein anderes Update
+    /// läuft (die letzten drei nur `--update`). Das installierte Binary ist
+    /// unverändert.
     case updateRefused = 13
+    /// Nur `--check-update` (CM-36 · FE-7): ein gültig gelesenes Manifest
+    /// bietet eine neuere Fassung an, die den glibc-Boden dieses Rechners
+    /// erfüllt; **nichts wurde geladen**. Ob sie sich selbst installieren lässt
+    /// (Verzeichnis schreibbar), sagt der Text, nicht der Code.
+    ///
+    /// Der residente Tray endet nie mit 12, 13 oder 14 — darum bleibt
+    /// `RestartPreventExitStatus` der Autostart-Unit unverändert.
+    case updateAvailable = 14
 
     /// Ein **fester** Bezeichner je Verbindungsfehler.
     ///
@@ -185,10 +200,26 @@ final class TrayProcess {
     private var autostart: TrayAutostartDisplay
     /// „Automatic updates" — der Timer des Auto-Updates (CM-37).
     private var autoUpdate: TrayAutoUpdateDisplay
-    /// „Check for updates now" (CM-37).
+    /// „Check for updates now" (CM-37) und die Suche ab Werk (CM-36).
     private var updateCheck = TrayUpdateCheck.idle
-    /// Das laufende Kind der Prüfung samt dem Pfad, den es ersetzen kann.
-    private var updateChild: (pid: pid_t, path: String)?
+    /// Was das laufende Kind ist.
+    private enum UpdateChildKind {
+        /// `--update` auf Klick (CM-37).
+        case install
+        /// `--check-update` ab Werk (CM-36), mit Startzeit und ob es der
+        /// eine Nachversuch nach Exit 12 ist.
+        case automaticCheck(startedAt: Date, isRetry: Bool)
+    }
+    /// Das laufende Kind samt dem Pfad, den es ersetzen kann bzw. prüft.
+    /// Höchstens eines zur Zeit (CM-36 · FE-12).
+    private var updateChild: (pid: pid_t, path: String, kind: UpdateChildKind)?
+    /// CM-36 · FE-8: der nächste Start der Suche ab Werk; `nil`, wenn sie
+    /// abgeschaltet ist (FE-9). Nur im Speicher — keine Zeitstempeldatei.
+    private var nextAutomaticCheck: Date?
+    /// 2b-Auflage 11: Der nächste Start ist der eine Nachversuch nach Exit 12.
+    private var automaticRetryPending = false
+    /// FE-10: der Menüzustand vor der laufenden automatischen Suche.
+    private var updateCheckBeforeAutomatic = TrayUpdateCheck.idle
     private let starter: BackgroundStarter
     private var nextRead: Date
     private var registeredWithWatcher = false
@@ -200,9 +231,11 @@ final class TrayProcess {
     ///     **aufrufenden** Prozesses sucht, nicht über das übergebene
     ///     Environment — eine PATH-Attrappe wirkt in-process nicht
     ///     (2b-Auflage 4).
-    ///   - starter: Zugang zu `--update` als Kindprozess; `nil` ⇒
-    ///     ``PosixBackgroundStarter``. Tests injizieren immer einen Starter;
-    ///     ohne ihn startet ein Klick das Testbinary mit `--update`.
+    ///   - starter: Zugang zu `--update` und `--check-update` als
+    ///     Kindprozess; `nil` ⇒ ``PosixBackgroundStarter``. Tests injizieren
+    ///     immer einen Starter; ohne ihn startet ein Klick das Testbinary mit
+    ///     `--update`.
+    ///   - now: auch der Bezug der ersten Suche ab Werk (`now` + 15 min).
     init(
         connection: DBusConnection,
         homeDirectory: URL,
@@ -220,6 +253,11 @@ final class TrayProcess {
         let result = UsageStoreReader().read(homeDirectory: homeDirectory, now: now)
         state = MonitorViewState().reduced(with: result)
         nextRead = now.addingTimeInterval(Self.pollInterval)
+        if TrayUpdateCheck.automaticChecksEnabled(environment: environment) {
+            nextAutomaticCheck = now.addingTimeInterval(TrayUpdateCheck.automaticFirstDelay)
+        } else {
+            log.always("update=autocheck disabled by \(TrayUpdateCheck.disableVariable)=1")
+        }
 
         // Die Installer-Meldungen tragen Unit-Pfade aus `$HOME`
         // (`AutostartPaths.swift:74-76`) — der Redaktionspräfix muss derselbe
@@ -312,6 +350,8 @@ final class TrayProcess {
 
             if let exit = handleMenuEvents() { return exit }
             pollUpdateCheck()
+            // FE-8: `--selftest` löst nie eine Suche aus.
+            if selftestDeadline == nil { pollAutomaticCheck(now: Date()) }
 
             if Date() >= nextRead { refresh(now: Date()) }
         }
@@ -375,7 +415,7 @@ final class TrayProcess {
             log.always("update=check starting")
             if let pid = starter.start(executable: path, arguments: ["--update"]) {
                 log.always("update=check started pid=\(pid)")
-                updateChild = (pid, path)
+                updateChild = (pid, path, .install)
                 updateCheck = .running
             } else {
                 log.always("update=check spawn failed")
@@ -388,14 +428,64 @@ final class TrayProcess {
         publish(makeView(now: Date()))
     }
 
-    /// Holt das Kind von „Check for updates now" ab, falls es beendet ist —
-    /// je Schleifendurchlauf (≤ 1 s, FE 11). Nicht privat, damit der Pfad ohne
-    /// `run(selftestDeadline:)` fahrbar ist.
+    /// Die Suche ab Werk (CM-36): startet `--check-update` als Kind, wenn sie
+    /// fällig ist. Je Schleifendurchlauf aus `run` aufgerufen; nicht privat und
+    /// mit Zeitparameter, damit Takt, Abschalter und Wartepflicht ohne
+    /// `run(selftestDeadline:)` fahrbar sind (2b-Auflage 6).
+    ///
+    /// * FE-8: erste Fälligkeit `now` des Initialisierers + 15 min, danach
+    ///   24 h ab dem Start der vorigen Suche; nach Exit 12 genau ein
+    ///   Nachversuch 15 min nach deren Start (2b-Auflage 11,
+    ///   `TrayUpdateCheck.nextAutomaticCheck`).
+    /// * FE-9: abgeschaltet ⇒ `nextAutomaticCheck == nil`, nie ein Start.
+    /// * FE-12: Läuft schon ein Kind, wartet die Suche, bis es abgeholt ist;
+    ///   während sie läuft, zeigt das Menü die gesperrte Laufzeile.
+    /// * FE-15 (2b-Auflage 10): Die Suche läuft **unabhängig** vom Opt-in-Timer
+    ///   „Automatic updates" — auch wenn er eingeschaltet ist (dann gibt es
+    ///   zwei Abrufe am Tag, nur der des Timers installiert). Der Tray kennt
+    ///   den Timerzustand ohnehin nur aus der Abfrage beim Öffnen des Menüs
+    ///   (`handleMenuEvents`) und richtet die Suche nicht danach aus.
+    /// * FE-10 (2b-Auflage 5): Je Suche schreibt der Tray dieselben drei
+    ///   Zeilen wie bei „Check for updates now", mit `autocheck`
+    ///   (`starting`, `started pid=`, beim Abholen `exit= outcome=`); die
+    ///   Meldung des Kindes steht zusätzlich im Journal (es erbt stderr).
+    ///   „Kein Fehlerschwall" heißt: keine Menüänderung bei 12 oder „konnte
+    ///   nicht laufen", kein Wiederholversuch außer dem einen Nachversuch.
+    func pollAutomaticCheck(now: Date) {
+        guard let due = nextAutomaticCheck, now >= due, updateChild == nil else { return }
+        let isRetry = automaticRetryPending
+        automaticRetryPending = false
+        // Gilt, wenn kein Kind zustande kommt; beim Abholen neu gesetzt.
+        nextAutomaticCheck = now.addingTimeInterval(TrayUpdateCheck.automaticInterval)
+
+        switch AutostartExecutable.resolve() {
+        case .usable(let path):
+            log.always("update=autocheck starting")
+            if let pid = starter.start(executable: path, arguments: ["--check-update"]) {
+                log.always("update=autocheck started pid=\(pid)")
+                updateCheckBeforeAutomatic = updateCheck
+                updateChild = (pid, path, .automaticCheck(startedAt: now, isRetry: isRetry))
+                updateCheck = .running
+                publish(makeView(now: now))
+            } else {
+                log.always("update=autocheck spawn failed")
+            }
+        case .unusable(let reason):
+            log.always("update=autocheck unusable — \(reason)")
+        }
+    }
+
+    /// Holt das Kind von „Check for updates now" bzw. der Suche ab Werk ab,
+    /// falls es beendet ist — je Schleifendurchlauf (≤ 1 s, FE 11). Nicht
+    /// privat, damit der Pfad ohne `run(selftestDeadline:)` fahrbar ist.
     ///
     /// Bei Exit 0 trennt die **Dateiidentität** „aktuell" von „ersetzt"
     /// (2b-Auflage 1): Identität(Pfad) ≠ Identität(`/proc/self/exe`). Der Pfad
     /// kann schon VOR dem Klick ersetzt gewesen sein (früherer Lauf ohne
-    /// Neustart); ein Vorher/Nachher-Vergleich verfehlte das.
+    /// Neustart); ein Vorher/Nachher-Vergleich verfehlte das. Das gilt auch
+    /// für die Suche (CM-36 · FE-11). Bei Exit 14 entscheidet das Schreibrecht
+    /// am Verzeichnis des Pfads, ob die Zeile Installation verspricht
+    /// (2b-Auflage 2) — gemessen, nicht gesperrt.
     func pollUpdateCheck() {
         guard let child = updateChild else { return }
         guard case .exited(let code) = starter.poll(child.pid) else { return }
@@ -403,6 +493,10 @@ final class TrayProcess {
 
         var exitStatus: Int32? = code
         var replaced = false
+        var writable = true
+        if code == 14 {
+            writable = access(Self.parentDirectory(of: child.path), W_OK) == 0
+        }
         if code == 0 {
             if let onDisk = AutostartExecutable.fileIdentity(followingLinks: child.path),
                let running = AutostartExecutable.fileIdentity(followingLinks: "/proc/self/exe") {
@@ -412,10 +506,30 @@ final class TrayProcess {
                 exitStatus = nil
             }
         }
-        let outcome = TrayUpdateCheck.outcome(exitStatus: exitStatus, binaryReplaced: replaced)
-        log.always("update=check exit=\(code) outcome=\(outcome)")
-        updateCheck = .finished(outcome)
+        let outcome = TrayUpdateCheck.outcome(
+            exitStatus: exitStatus, binaryReplaced: replaced, directoryWritable: writable
+        )
+        switch child.kind {
+        case .install:
+            log.always("update=check exit=\(code) outcome=\(outcome)")
+            updateCheck = .finished(outcome)
+        case .automaticCheck(let startedAt, let isRetry):
+            log.always("update=autocheck exit=\(code) outcome=\(outcome)")
+            updateCheck = TrayUpdateCheck.afterAutomaticCheck(outcome, previous: updateCheckBeforeAutomatic)
+            if nextAutomaticCheck != nil {
+                let next = TrayUpdateCheck.nextAutomaticCheck(startedAt: startedAt, outcome: outcome, wasRetry: isRetry)
+                nextAutomaticCheck = next.date
+                automaticRetryPending = next.isRetry
+            }
+        }
         publish(makeView(now: Date()))
+    }
+
+    /// Das Verzeichnis eines absoluten Pfads (wie `UpdateClient`).
+    private static func parentDirectory(of path: String) -> String {
+        guard let slash = path.lastIndex(of: "/") else { return "." }
+        let parent = String(path[..<slash])
+        return parent.isEmpty ? "/" : parent
     }
 
     /// Ein Klick auf „Start at login": Umkehr des beim Klick angezeigten
@@ -800,6 +914,8 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
         "--install-autostart", "--uninstall-autostart", "--autostart-status",
         // CM-29
         "--version", "--update",
+        // CM-36
+        "--check-update",
         "--install-auto-update", "--uninstall-auto-update", "--auto-update-status"
     ]
 
@@ -823,6 +939,9 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
     let runner = PosixCommandRunner(environment: environment)
     if subcommand == "--update" {
         return UpdateClient(environment: environment, runner: runner, emit: { log.always($0) }).run()
+    }
+    if subcommand == "--check-update" {
+        return UpdateClient(environment: environment, runner: runner, emit: { log.always($0) }).check()
     }
 
     let installer = AutostartInstaller(
