@@ -135,7 +135,9 @@ Unlike the smoke tool above, this **is** a user-facing artefact: a resident proc
 same numbers in the GNOME panel that the macOS build shows in the menu bar. It speaks
 `org.kde.StatusNotifierItem` and `com.canonical.dbusmenu` directly, over a D-Bus client written in
 plain Swift (Foundation + Glibc sockets). No GTK, no libayatana-appindicator, no libdbus, no
-GObject introspection, no pkg-config, no `-dev` headers, no SwiftPM dependency.
+GObject introspection, no pkg-config, no `-dev` headers. Exactly one SwiftPM dependency:
+`swift-crypto` (pinned to 4.5.2, statically linked), and only for the Ed25519 check of the update
+manifest (CM-36). Its license and notices ship in the tarball as `THIRD-PARTY-NOTICES`.
 
 The reason for that route is not purity, it is the **self-contained single binary** that `CM-22`
 packages. A release binary links against `libm`, `libstdc++`, `libgcc_s`, `libc`, `ld-linux` and the
@@ -149,9 +151,11 @@ every run because of ASLR) against exactly those six.
 
 ## Packaging (CM-22)
 
-`scripts/release-linux.sh` turns this binary into a downloadable tarball with a checksum and the
-manifest `docs/linux-latest.json`. It is the twin of `scripts/release.sh` and, like it, uploads
-nothing.
+`scripts/release-linux.sh` turns this binary into a downloadable tarball with a checksum and an
+**unsigned** manifest under `build/linux/`. It is the twin of `scripts/release.sh` and, like it,
+uploads nothing. The signing key never enters the build container: `scripts/sign-linux-manifest.sh
+sign` signs the manifest on the machine that holds the key, `… verify` lets the built binary accept
+it (`--check-update`, exit 0) and only then writes `docs/linux-latest.json` (CM-36).
 
 The compatibility floor it promises is **`glibc ≥ 2.38`** and **`GLIBCXX ≥ 3.4.32`** — the highest
 symbol versions the release binary actually requires, measured, not estimated. That floor is a
@@ -170,7 +174,7 @@ who downloaded it, not for this repository.
 | `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
 | `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the checkmark transitions (`TrayUnitToggle`) of "Start at login" and "Automatic updates" and the result line of "Check for updates now" (`TrayUpdateCheck`) |
 | `Autostart` | library | the rules of the systemd user service: paths from an injected environment, unit text, `is-enabled` mapping, set-up/removal decision tables, texts |
-| `Update` | library | the rules of the Linux auto-update (CM-29): fixed addresses, manifest check, build comparison, glibc floor, `--version` contract, mapping of `curl`/`wget` exit codes, timer/service unit texts, texts. Depends on `Autostart` for the one `ExecStart=` quoting rule |
+| `Update` | library | the rules of the Linux auto-update (CM-29): fixed addresses, Ed25519 check of the manifest over its bytes (`UpdateSignature`, CM-36), manifest check, build comparison, glibc floor, `--version` contract, mapping of `curl`/`wget` exit codes, timer/service unit texts, texts. Depends on `Autostart` for the one `ExecStart=` quoting rule |
 | `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
 | `TrayTests` | test | the proof slot for the libraries |
 
@@ -201,7 +205,8 @@ calls `SnapshotStore.write` — the tray targets do not even link `SnapshotStore
 cannot be broken by accident. That holds for `--selftest` too. The only writers are the
 subcommands: the unit commands write their units (`--install-autostart`; `--install-auto-update`,
 timer and service), and `--update` replaces the binary itself and locks its directory with `flock`
-while doing so. None of them touches `usage.json`.
+while doing so; `--check-update` writes only its private temporary directory. None of them touches
+`usage.json`.
 
 ## Exit contract
 
@@ -215,11 +220,12 @@ while doing so. None of them touches `usage.json`.
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
 | 10 | autostart and auto-update commands: the request could not be carried out (unknown option, foreign file or symlink at the target path, masked unit, systemd uses another unit file of the same name; auto-update: binary directory not writable). Nothing was overwritten or removed |
 | 11 | autostart and auto-update commands: nothing could be **measured** — no user manager reachable, no home directory, unusable `systemctl` answer, the unit file systemd uses could not be determined |
-| 12 | `--update` only: nothing could be **checked** — no `curl`/`wget`, network or HTTP error, timeout, no manifest. Never "up to date" |
-| 13 | `--update` only: **refused** — manifest invalid or another schema, size/sha256 mismatch, below the glibc floor, load test failed, directory not writable, another update running. The binary is unchanged |
+| 12 | `--update` and `--check-update`: nothing could be **checked** — no `curl`/`wget`, network or HTTP error, timeout, no manifest. Never "up to date" |
+| 13 | `--update` and `--check-update`: **refused** — signature missing or wrong, manifest invalid or another schema, below the glibc floor; `--update` also: size/sha256 mismatch, load test failed, directory not writable, another update running. The binary is unchanged |
+| 14 | `--check-update` only: a newer version is available and fits this machine; nothing was downloaded |
 
-12 and 13 come only from `--update`; the resident tray never ends with them, so
-`RestartPreventExitStatus` of the autostart unit stays as it is.
+12, 13 and 14 come only from `--update` and `--check-update`; the resident tray never ends with
+them, so `RestartPreventExitStatus` of the autostart unit stays as it is.
 
 Exit 8 is the single-instance guard. Without it, an autostart instance plus a hand start — the
 normal case once autostart is set up — would put **two** entries in the panel, because the watcher
@@ -229,7 +235,8 @@ keys items by `busName@objectPath`.
 
 Front-door subcommands, all of them evaluated **before** the bus is touched, because none of them
 needs a bus: `--install-autostart`, `--uninstall-autostart`, `--autostart-status` and, since CM-29,
-`--version`, `--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`.
+`--version`, `--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`
+and, since CM-36, `--check-update`.
 Each one only on its own. Any other `--` argument is refused with exit 10 instead of silently
 falling through into the resident tray — a typo must not look like a successful setup.
 
@@ -336,8 +343,8 @@ ExecStart=/absolute/path/to/claude-monitor-tray --update
 TimeoutStartSec=30min
 ```
 
-* **Only the timer is enabled**, without `--now`: the first check comes 15 min after the user
-  manager starts, then daily. **No `Persistent=`** — it would make systemd keep a timestamp file.
+* **Only the timer is enabled**, without `--now`: the first update run (check and install) comes
+  15 min after the user manager starts, then daily. **No `Persistent=`** — it would make systemd keep a timestamp file.
 * **The service is static** (no `[Install]`): `is-enabled` answers `static`, which the installer
   reads as "present, not masked" (`masked` = mask, `not-found` = absent) instead of an unexpected
   word. Both files are measured and planned (symlink, mask, foreign file, unreadable, other unit
@@ -345,7 +352,7 @@ TimeoutStartSec=30min
 * **`TimeoutStartSec=30min`** — a `oneshot` has no start limit otherwise; a hanging download would
   leave the service "activating" and the timer would never fire it again. The value is above the
   sum of the single limits (manifest 120 s, tarball 600 s, load test 30 s).
-* **Removal** disables **and stops** the timer — no check runs in this session any more — and
+* **Removal** disables **and stops** the timer — no update run comes in this session any more — and
   removes both files. `--auto-update-status` reports the timer's `is-enabled` and, when the last
   run of the service ended with 12 or 13 (`show -p Result,ExecMainStatus,ExecMainExitTimestamp`),
   that run with its code and time; the exit stays 0.
@@ -368,6 +375,26 @@ tested with `--version` and moved into place with `rename`. A restart (`systemct
 try-restart claude-monitor-tray.service`) only happens after the same `daemon-reload` + `show -p
 FragmentPath` check as above, when systemd loads the own autostart unit, it carries the marker and
 it equals the unit rendered for the replaced path; otherwise the message asks to restart the tray.
+
+**Signature (CM-36).** `linux-latest.json` ends in a fixed 110-byte trailer
+`,\n  "signature": "<88 Base64 chars>"\n}\n`, measured from the end of the file. The signed bytes are
+the file without that trailer plus `"\n}\n"` — exactly the unsigned file `release-linux.sh` writes —
+and only those bytes are parsed afterwards. The key is the Sparkle key of the macOS line
+(`UpdateEndpoints.manifestPublicKey`, guarded against `SPARKLE_PUBLIC_KEY` in `scripts/release.sh`).
+Missing or wrong ⇒ 13, before any field is read; there is no fallback to the sha256 alone. Key and
+trailer are frozen in every installed client. Tests get their own key pair and binary path through
+`UpdateClient.init(trustedKey:executable:)`; the program never passes either.
+
+**Daily look-up (CM-36).** `--check-update` fetches and checks the manifest only — no write access,
+no lock, never the tarball — and exits 0 (up to date), 14 (newer, nothing downloaded), 12 or 13. The
+resident tray starts it itself as a child through the same starter as "Check for updates now"
+(`TrayProcess.pollAutomaticCheck(now:)`): 15 min after start, then every 24 h from the start of the
+previous look-up, one retry 15 min after an exit 12, never in `--selftest`, never while another
+child runs. `CLAUDE_MONITOR_NO_UPDATE_CHECK=1` in the tray's environment switches it off. It runs
+independently of the auto-update timer. On exit 14 the tray checks `access(dir, W_OK)` on the
+binary's directory and promises installation only if it is writable. Exit 12 and "could not run"
+leave the menu as it was; the tray logs `update=autocheck starting|started pid=|exit= outcome=`,
+the child's own message goes to the same journal. No timestamp is stored.
 
 `--version` prints `claude-monitor-tray <version> (build <n>)` on **stdout** and exits 0. That line
 and its channel are a frozen contract between versions: every installed client compares it

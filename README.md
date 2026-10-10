@@ -80,9 +80,10 @@ install -m 755 claude-monitor-tray-<version>/claude-monitor-tray ~/.local/bin/
 Requirements are two checkable numbers rather than distribution names — `glibc ≥ 2.38` and
 `GLIBCXX ≥ 3.4.32`, plus a panel that shows `org.kde.StatusNotifierItem` items. Distribution names
 would be the wrong unit here: two releases of the same distribution can sit on either side of that
-line. Updates are off until you turn them on: `claude-monitor-tray --update` checks once,
-`--install-auto-update` once a day. The full walkthrough, including the self-tests, updates and the
-exit codes, is in [`Linux/INSTALL.md`](Linux/INSTALL.md).
+line. The tray looks for a newer version once a day and tells you in its menu; it installs only when
+you say so — `claude-monitor-tray --update` once, `--install-auto-update` once a day. The full
+walkthrough, including the self-tests, updates, switching the daily look-up off and the exit codes,
+is in [`Linux/INSTALL.md`](Linux/INSTALL.md).
 
 ## Updates
 
@@ -107,6 +108,10 @@ of the logs.
 
 Updating contacts two hosts: the appcast on `seraphimsakuja.github.io`, and GitHub's release asset
 host for the download itself.
+
+The same holds on Linux: the tray's daily look-up reads one Ed25519-signed file from
+`seraphimsakuja.github.io`, and only an update you asked for downloads from GitHub's release asset
+host — the same two hosts.
 
 ## Project layout
 
@@ -158,8 +163,9 @@ back to widgets, is commented in `App/Signing.xcconfig`.
 `release-linux.sh` runs **inside the pinned build image** (`swift:6.3.3`, Ubuntu 24.04) and refuses
 to run anywhere else: the compatibility floor it promises is a property of the build environment,
 so a build on a newer host would raise it silently and still come out green. It writes the tarball
-and its checksum to `build/linux/` and the manifest to `docs/linux-latest.json`, and — like its
-macOS twin — uploads nothing.
+and its checksum to `build/linux/` together with the **unsigned** manifest, and — like its macOS
+twin — uploads nothing. `scripts/sign-linux-manifest.sh` signs that manifest where the signing key
+lives (`sign`) and, after a check with the built binary (`verify`), writes `docs/linux-latest.json`.
 
 The script builds locally into `build/` and **uploads nothing**. Publishing to GitHub Releases is a
 deliberate, separate step. One-time setup — notarisation credentials in the keychain and a Sparkle

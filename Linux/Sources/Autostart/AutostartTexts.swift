@@ -287,7 +287,7 @@ public enum AutostartTexts {
           claude-monitor-tray --version                print the version and exit
           claude-monitor-tray --update                 check for an update and install it now
           claude-monitor-tray --check-update           check for an update, install nothing
-          claude-monitor-tray --install-auto-update    check for updates once a day (systemd timer)
+          claude-monitor-tray --install-auto-update    install updates by itself once a day (systemd timer)
           claude-monitor-tray --uninstall-auto-update  turn that off again
           claude-monitor-tray --auto-update-status     report whether it is set up
         """

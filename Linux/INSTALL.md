@@ -2,7 +2,10 @@
 
 `claude-monitor-tray` is a single self-contained binary. It shows the same account numbers in the
 GNOME panel that the macOS build shows in the menu bar, and it reads only `claude-swap`'s local
-cache — it never writes to it and makes no network requests of its own.
+cache — it never writes to it. Its only use of the network is the update check: about once a day —
+15 minutes after the tray starts, then every 24 hours — it fetches one small signed file from this
+project's GitHub Pages. It sends no account data and no identifiers, and it downloads or installs
+nothing unless you tell it to (see *Updates*).
 
 It ships as a **tarball you download and put somewhere yourself**. There is no package repository
 and no `.deb`: a package wants a repository behind it, and a repository is a foreign account, a
@@ -42,9 +45,10 @@ Take `claude-monitor-tray-<version>-linux-x86_64.tar.gz` and the matching `.sha2
 sha256sum -c claude-monitor-tray-<version>-linux-x86_64.tar.gz.sha256
 ```
 
-The output must end in `OK`. There is no cryptographic signature yet — the update client that would
-verify one does not exist, and pinning a signing identity before anything checks it would freeze the
-wrong thing. Until then the checksum published next to the download is the promise.
+The output must end in `OK`. The tarball itself carries no signature. What is signed (Ed25519, with
+the same key as the macOS update feed) is the update manifest, and that names the tarball's size and
+sha256 — so every update the program fetches itself is covered by the signature, and a first
+download by hand by the checksum published next to it.
 
 ## Install
 
@@ -135,14 +139,57 @@ that file.
 
 ## Updates
 
-Updates are **off until you turn them on**. Without that step — or until you click **Check for
-updates now** in the tray menu — the binary starts no download of any kind. Check once by hand:
+The tray **looks for a newer version about once a day** — 15 minutes after it starts, then every
+24 hours. That reads the signed manifest and nothing else; if a newer version exists, one line in
+the menu says so. If it could not check anything (no network, neither `curl` nor `wget`), it tries
+once more 15 minutes later and otherwise stays silent until the next day. **Nothing is downloaded or
+installed until you say so:** click **Check for updates now**, run `--update`, or turn on
+**Automatic updates**. If the binary lies in a directory you cannot write to (for example
+`/usr/local/bin`), the line says so and points to the download by hand instead (see *Download and
+verify*).
+
+To switch the daily look-up off, give the tray `CLAUDE_MONITOR_NO_UPDATE_CHECK=1` in its
+environment — exactly `1`; any other value leaves it on. It is the only switch; there is no menu
+entry and no file for it, and it affects nothing but the look-up. When the tray runs from a
+terminal:
+
+```sh
+CLAUDE_MONITOR_NO_UPDATE_CHECK=1 claude-monitor-tray
+```
+
+When it runs as the autostart unit, add the variable with a systemd drop-in instead of editing the
+unit this program writes:
+
+```sh
+printf '[Service]\nEnvironment=CLAUDE_MONITOR_NO_UPDATE_CHECK=1\n' \
+  | systemctl --user edit --stdin claude-monitor-tray.service
+systemctl --user show claude-monitor-tray.service -p Environment   # "Environment=CLAUDE_MONITOR_NO_UPDATE_CHECK=1"
+```
+
+(`systemctl --user edit claude-monitor-tray.service` without `--stdin` opens an editor for the same
+two lines.) The drop-in lies next to the unit, under
+`~/.config/systemd/user/claude-monitor-tray.service.d/`, so `--install-autostart`, ticking **Start
+at login** and updates leave it alone, and the program does not take it for a foreign unit file.
+It takes effect when the tray starts next. `systemctl --user revert claude-monitor-tray.service`
+removes it again. The tray says it in its log when the look-up is off.
+
+Check once by hand:
 
 ```sh
 ~/.local/bin/claude-monitor-tray --update
 ```
 
-Or let it check once a day:
+That installs a newer version at once. To only look, without installing anything:
+
+```sh
+~/.local/bin/claude-monitor-tray --check-update
+```
+
+It reads the manifest, checks its signature and compares the build number: exit 0 means up to date,
+14 means a newer version is available and nothing was downloaded. It needs no write access and
+runs alongside an update.
+
+Or let it install updates by itself once a day:
 
 ```sh
 ~/.local/bin/claude-monitor-tray --install-auto-update
@@ -153,20 +200,24 @@ claude-monitor-tray --uninstall-auto-update   # turn it off again; takes effect 
 `--install-auto-update` writes two systemd **user** units next to the autostart unit —
 `~/.local/share/systemd/user/claude-monitor-tray-update.timer` and
 `claude-monitor-tray-update.service` — and enables the timer for `timers.target`. Nothing is
-started right away: the first check runs 15 minutes after your next login, then once a day. The same
-safety rules as for the autostart unit apply to both files (symbolic link, foreign file, mask,
-another unit file of the same name). `--uninstall-auto-update` disables and stops the timer and
-removes both files, so no further check runs in this session.
+started right away: the first update run comes 15 minutes after your next login, then once a day,
+and installs what it finds. The same safety rules as for the autostart unit apply to both files
+(symbolic link, foreign file, mask, another unit file of the same name). `--uninstall-auto-update`
+disables and stops the timer and removes both files, so no further update run comes in this
+session. The daily look-up of the tray is independent of the timer and runs either way.
 
 What an update does, in this order: it reads the manifest `linux-latest.json` from this project's
-GitHub Pages, compares its build number with the running one (never a downgrade), checks the
+GitHub Pages, checks its Ed25519 signature before reading any field (missing or wrong: refused with
+13, no fallback to the checksum alone), compares its build number with the running one (never a
+downgrade), checks the
 compatibility floor of this machine, downloads the tarball from this project's GitHub Releases —
 the address is fixed in the program, not taken from the manifest —, checks its size and its sha256
 from the manifest, unpacks only the binary, starts it once with `--version` as a load test and
 then puts it in place of the old one with a single `rename`. If the autostart unit is set up for
 exactly this binary, the tray service is restarted; otherwise you are told to restart the tray.
 
-It needs `curl` or, failing that, `wget`, and the directory the binary lies in must be writable
+It needs `curl` or, failing that, `wget` — the daily look-up and `--check-update` too; without
+either, the look-up stays silent. For installing, the directory the binary lies in must be writable
 for you — `~/.local/bin` is, `/usr/local/bin` is not. Otherwise `--install-auto-update` refuses
 with 10 and `--update` with 13, before anything is downloaded. While it runs, `--update` locks that
 directory, so a second update at the same time stops with 13.
@@ -180,8 +231,9 @@ written when you set them up.
 In the tray menu, **Automatic updates** carries a checkmark that mirrors
 `systemctl --user is-enabled claude-monitor-tray-update.timer`. Ticking it runs
 `--install-auto-update`, unticking it runs `--uninstall-auto-update`; the state is read again after
-every attempt and whenever you open the menu. Ticking starts nothing right away: the first check
-runs 15 minutes after your next login. Unticking takes effect at once. If the timer is masked or its
+every attempt and whenever you open the menu. Ticking starts nothing right away: the first update
+run comes 15 minutes after your next login, and it installs what it finds. Unticking takes effect at
+once and leaves the daily look-up as it is. If the timer is masked or its
 state cannot be read, the entry is greyed out and the line below it names the command that helps; if
 an attempt fails, that line names the command that prints the details.
 
@@ -195,6 +247,14 @@ this binary, it then **restarts itself** (the icon disappears briefly and comes 
 version, without a result line); otherwise the line asks you to restart the tray. If the tray runs as
 the autostart unit, quitting it ends a running check; in a terminal, Ctrl-C does — Quit from the
 menu lets the check finish on its own.
+
+The daily look-up runs `claude-monitor-tray --check-update` the same way, as a child of the tray.
+While it runs, the entry reads "Checking for updates…" and is greyed out for those few seconds.
+Afterwards the line below it says "up to date", "update refused", that a newer version is
+installed, or "a newer version is available" — with "Check for updates now installs it" when the
+binary's directory is writable for you, otherwise with a pointer to the download by hand. When
+the look-up could not check anything, the menu stays as it was; the reason is in the log. The
+look-up never installs anything.
 
 ## Exit codes
 
@@ -210,8 +270,9 @@ The process is judged by its exit code, not by "it printed nothing".
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
 | 10 | autostart and auto-update commands: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), systemd uses another unit file of the same name, or (auto-update) the binary's directory is not writable. Nothing was overwritten or removed |
 | 11 | autostart and auto-update commands: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, or which unit file systemd uses could not be determined. Explicitly not "not set up" |
-| 12 | `--update` only: **nothing could be checked** — neither `curl` nor `wget`, a network or HTTP error, a timeout, or no manifest at all. Explicitly not "up to date" |
-| 13 | `--update` only: the update was **refused** — the manifest is invalid or in another format, size or checksum do not match, the machine is below the floor, the load test failed, the directory is not writable, or another update is running. The installed binary is unchanged |
+| 12 | `--update` and `--check-update`: **nothing could be checked** — neither `curl` nor `wget`, a network or HTTP error, a timeout, or no manifest at all. Explicitly not "up to date" |
+| 13 | `--update` and `--check-update`: the update was **refused** — the manifest's signature is missing or does not match, the manifest is invalid or in another format, the machine is below the floor; for `--update` also: size or checksum do not match, the load test failed, the directory is not writable, or another update is running. The installed binary is unchanged |
+| 14 | `--check-update` only: a **newer version is available** and fits this machine; nothing was downloaded. Whether `--update` can install it here (writable directory) is in the message |
 
 Exit 5 over SSH or in a container is normal and correct: there is no session bus to talk to. So is
 exit 11 for the autostart and auto-update commands there — without a session there is no user
@@ -250,7 +311,11 @@ rm ~/.local/bin/claude-monitor-tray
 
 Deleting the binary alone would leave an enabled service behind that points at a missing file and
 fails at every login — and, with automatic updates on, a timer whose service fails once a day.
+If you switched the daily look-up off with a drop-in, remove it with
+`systemctl --user revert claude-monitor-tray.service`.
+
 Apart from those units nothing is left behind: no configuration file, no cache, no log file. The
-tray process writes to stderr and nowhere else; only `--update` writes, and only the binary
-itself (plus a temporary directory it removes again — unless the process is killed from
-outside, for example by `TimeoutStartSec`; then `claude-monitor-tray-update.*` can stay in `$TMPDIR`).
+tray process writes to stderr and nowhere else; only `--update` and `--check-update` write.
+`--update` writes the binary itself, and both write a temporary directory they remove again —
+unless the process is killed from outside, for example by `TimeoutStartSec` or by quitting the
+tray while its look-up runs; then `claude-monitor-tray-update.*` can stay in `$TMPDIR`.
