@@ -68,11 +68,12 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-ClaudeMonitor-Notary}"
 # eine Version übersprungen hat — ein Fehler, der Monate später auftritt und
 # aus dem Skript heraus nicht mehr erkennbar ist.
 #
-# Deshalb: außerhalb des Repos, wird nie gelöscht, das DMG wird dorthin KOPIERT
+# Deshalb: im Repo unter releases/, per .gitignore ausgeschlossen (nie ins git,
+# nie löschen), NICHT unter build/, das DMG wird dorthin KOPIERT
 # (build/ bleibt das Arbeitsergebnis), generate_appcast läuft OHNE -o auf diesem
 # Verzeichnis, und erst danach wird das Ergebnis nach docs/appcast.xml kopiert.
 # ---------------------------------------------------------------------------
-RELEASES_DIR="${CLAUDEMONITOR_RELEASES_DIR:-$HOME/MF-Projects/ClaudeMonitor-Releases}"
+RELEASES_DIR="${CLAUDEMONITOR_RELEASES_DIR:-$PROJECT_DIR/releases}"
 APPCAST="$RELEASES_DIR/appcast.xml"
 DOCS_APPCAST="$PROJECT_DIR/docs/appcast.xml"
 

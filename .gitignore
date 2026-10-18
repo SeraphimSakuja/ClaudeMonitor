@@ -28,3 +28,7 @@ build/
 # App/Signing.xcconfig und ist kein Geheimnis — sie steckt in jeder
 # ausgelieferten App-Signatur.
 *.local.xcconfig
+
+# Release-Archiv für generate_appcast (scripts/release.sh): beständig, nie
+# löschen, DMGs nie ins git (die GitHub-Releases sichern sie).
+/releases/
