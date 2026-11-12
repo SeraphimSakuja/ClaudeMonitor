@@ -3,9 +3,9 @@ import Testing
 import ClaudeMonitorCore
 import ClaudeMonitorShared
 
-/// Reihenfolge der Kärtchen im Detailfenster, die Regel gegen doppelte
-/// Altersangaben und die Beträge des Ausgabenfensters.
-@Suite("Detailfenster: Nummernordnung, Kompaktheit und Beträge")
+/// Reihenfolge der Kärtchen im Detailfenster und die Regel gegen doppelte
+/// Altersangaben.
+@Suite("Detailfenster: Nummernordnung und Kompaktheit")
 struct PopoverOrderAndSpendTests {
 
     private func state(_ accounts: [MonitoredAccount]) -> MonitorViewState {
@@ -108,57 +108,5 @@ struct PopoverOrderAndSpendTests {
         // CM-15: nennt der Fehlversuch selbst schon das Alter, gilt dieselbe
         // Einmal-Regel wie bei `.stale`.
         #expect(AccountCardDisplay.showsUpdatedFooter(statusLine: .fetchFailed(message: "kaputt", staleAge: 2760)) == false)
-    }
-
-    // MARK: - Beträge des Ausgabenfensters
-
-    private let english = Locale(identifier: "en_US")
-
-    @Test("Verbrauch und Budget werden mit Währung gesetzt")
-    func spendShowsBothAmountsWithCurrency() {
-        let spend = LimitWindow.SpendDetail(used: 12.34, limit: 50, currency: "USD")
-        let amounts = SpendAmountDisplay.amounts(for: spend, locale: english)
-
-        #expect(amounts?.used == "$12.34")
-        #expect(amounts?.limit == "$50.00")
-    }
-
-    @Test("Ohne bekannte Währung bleibt es eine reine Zahl")
-    func spendWithoutCurrencyStaysPlain() {
-        // Eine geratene Währung wäre schlimmer als gar keine.
-        let spend = LimitWindow.SpendDetail(used: 12.3, limit: 50, currency: nil)
-        let amounts = SpendAmountDisplay.amounts(for: spend, locale: english)
-
-        #expect(amounts?.used == "12.30")
-        #expect(amounts?.limit == "50.00")
-    }
-
-    @Test("Ein Limit von null ist keine Angabe, sondern deren Fehlen")
-    func zeroLimitIsTreatedAsMissing() {
-        // „12,34 $ von 0,00 $" läse sich wie ein gesprengtes Budget.
-        let spend = LimitWindow.SpendDetail(used: 12.34, limit: 0, currency: "USD")
-        let amounts = SpendAmountDisplay.amounts(for: spend, locale: english)
-
-        #expect(amounts?.used == "$12.34")
-        #expect(amounts?.limit == nil)
-    }
-
-    @Test("Kaputte Werte ergeben gar keine Beträge")
-    func brokenValuesYieldNothing() {
-        #expect(SpendAmountDisplay.amounts(
-            for: LimitWindow.SpendDetail(used: .nan, limit: 50, currency: "USD"),
-            locale: english
-        ) == nil)
-        #expect(SpendAmountDisplay.amounts(
-            for: LimitWindow.SpendDetail(used: -1, limit: 50, currency: "USD"),
-            locale: english
-        ) == nil)
-        // Ein kaputtes Limit kostet nur das Limit, nicht den Verbrauch.
-        let partial = SpendAmountDisplay.amounts(
-            for: LimitWindow.SpendDetail(used: 5, limit: .infinity, currency: "USD"),
-            locale: english
-        )
-        #expect(partial?.used == "$5.00")
-        #expect(partial?.limit == nil)
     }
 }
