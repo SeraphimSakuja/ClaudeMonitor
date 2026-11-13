@@ -59,6 +59,10 @@ public final class DBusConnection {
     private var serial: UInt32 = 0
     private var inbox: [UInt8] = []
     private var objects: [String: any DBusObject] = [:]
+    /// Was ``callBlocking(destination:path:interface:member:arguments:timeout:)``
+    /// beim Warten empfing und nicht die gesuchte Antwort war; der nächste
+    /// ``pump(timeoutMilliseconds:)`` gibt es zuerst zurück.
+    private var deferred: [DBusMessage] = []
 
     /// Der eindeutige Name dieser Verbindung (`:1.42`), nach `Hello`.
     public private(set) var uniqueName = ""
@@ -244,10 +248,22 @@ public final class DBusConnection {
         )
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            for message in try pump(timeoutMilliseconds: 100)
-            where message.replySerial == serial {
-                if message.type == .error { throw ConnectError.errorReply }
-                return message
+            var reply: DBusMessage?
+            for message in try pump(timeoutMilliseconds: 100) {
+                if reply == nil, message.replySerial == serial {
+                    reply = message
+                } else {
+                    // Weder verwerfen noch umsortieren: Ein Signal, das
+                    // während des Wartens eintrifft — auch hinter der Antwort
+                    // im selben Stapel —, gehört dem nächsten `pump`. Eine
+                    // Reihenfolge der Startaufrufe schlösse nur einem von
+                    // zwei Namen das Fenster.
+                    deferred.append(message)
+                }
+            }
+            if let reply {
+                if reply.type == .error { throw ConnectError.errorReply }
+                return reply
             }
         }
         throw ConnectError.timedOut
@@ -313,7 +329,9 @@ public final class DBusConnection {
 
     /// Wartet bis zu `timeoutMilliseconds` auf den Bus, beantwortet alle
     /// eingegangenen Methodenaufrufe und gibt alles übrige zurück
-    /// (Antworten, Fehler, Signale).
+    /// (Antworten, Fehler, Signale) — vorn die Nachrichten, die
+    /// ``callBlocking(destination:path:interface:member:arguments:timeout:)``
+    /// beim Warten beiseitegelegt hat.
     public func pump(timeoutMilliseconds: Int32) throws -> [DBusMessage] {
         var descriptorSet = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
         let ready = poll(&descriptorSet, 1, timeoutMilliseconds)
@@ -336,7 +354,8 @@ public final class DBusConnection {
             inbox += buffer[0..<count]
         }
 
-        var rest: [DBusMessage] = []
+        var rest = deferred
+        deferred = []
         while let decoded = try DBusMessage.decode(from: inbox) {
             inbox.removeFirst(decoded.consumed)
             let message = decoded.message
@@ -438,6 +457,7 @@ private final class RootIntrospectableObject: DBusObject {
             <method name="Introspect"><arg name="xml" type="s" direction="out"/></method>
           </interface>
           <node name="StatusNotifierItem"/>
+          <node name="Popover"/>
         </node>
         """
 }
