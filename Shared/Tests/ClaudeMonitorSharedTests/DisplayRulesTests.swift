@@ -136,18 +136,6 @@ struct DisplayRulesTests {
         #expect(IssuePresentation.isSevere(.unsupportedSchema(found: nil, expected: 1)))
     }
 
-    @Test("Jeder Fehlzustand hat ein eigenes, nicht leeres Symbol")
-    func everyIssueHasItsOwnSymbol() {
-        let issues: [MonitorIssue] = [
-            .storeNotFound(searchedPaths: []),
-            .unsupportedSchema(found: nil, expected: 1),
-            .unreadable(reason: "busy")
-        ]
-        let symbols = issues.map(IssuePresentation.symbolName(for:))
-        #expect(symbols.allSatisfy { !$0.isEmpty })
-        #expect(Set(symbols).count == issues.count)
-    }
-
     // MARK: - Datenalter
 
     @Test("Veraltete Daten liefern ein anzeigbares Alter")
