@@ -61,9 +61,10 @@ final class StatusNotifierItemObject: DBusObject {
             return .value(.string(""))
 
         default:
-            // Deckt `Activate`, `SecondaryActivate`, `Scroll`, `ContextMenu`,
-            // `Peer.Ping` und alles Unbekannte ab. Ein Klick öffnet dank
-            // `ItemIsMenu` ohnehin das Menü und landet nie hier.
+            // Deckt `SecondaryActivate`, `Scroll`, `ContextMenu`, `Peer.Ping`
+            // und alles Unbekannte ab. `Activate` steht seit CM-41 nicht in
+            // der Introspektion. Ruft ein Host es trotzdem, kommt eine leere
+            // Antwort. Unbekannte Methoden werden leer beantwortet.
             return .empty
         }
     }

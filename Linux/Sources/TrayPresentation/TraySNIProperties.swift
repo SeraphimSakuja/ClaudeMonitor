@@ -28,9 +28,10 @@ public enum TraySNIProperties {
             DBusDictionaryEntry("WindowId", .int32(0)),
             DBusDictionaryEntry("IconThemePath", .string("")),
             DBusDictionaryEntry("Menu", .objectPath(menuPath)),
-            // `true`: Ein Klick soll das Menü öffnen und nicht als
-            // `Activate` beim Prozess landen — es gibt kein Fenster, das sich
-            // dort aktivieren ließe, der Klick verpuffte sonst wirkungslos.
+            // `true` für Hosts, die ihn auswerten. gnome-shell-appindicator
+            // liest `ItemIsMenu` nicht: Dort öffnet ein Klick das Menü sofort,
+            // weil `Activate` in der Introspektion fehlt (`appIndicator.js:474`,
+            // `indicatorStatusIcon.js:382,440-443`).
             DBusDictionaryEntry("ItemIsMenu", .bool(true)),
             DBusDictionaryEntry("IconName", .string("")),
             DBusDictionaryEntry("IconPixmap", TrayIconPixmap.dbusValue(for: view.icon)),
@@ -162,10 +163,6 @@ public enum TrayIntrospection {
             <property name="XAyatanaLabel" type="s" access="read"/>
             <property name="XAyatanaLabelGuide" type="s" access="read"/>
             <property name="XAyatanaOrderingIndex" type="u" access="read"/>
-            <method name="Activate">
-              <arg name="x" type="i" direction="in"/>
-              <arg name="y" type="i" direction="in"/>
-            </method>
             <method name="SecondaryActivate">
               <arg name="x" type="i" direction="in"/>
               <arg name="y" type="i" direction="in"/>
