@@ -190,6 +190,80 @@ struct TrayBusBehaviourTests {
         #expect(bus.wachhundSchlug == false)
     }
 
+    // MARK: - CM-41 · Popover-Extension
+
+    /// CM-41 T1 — sichert, dass der Tray sein Symbol neben dem Popover ausblendet,
+    /// nach dessen Ende zurückholt und die Bedienung aus dem Popover wirkt.
+    @Test("CM-41: Popover-Extension kommt ⇒ Item Passive, GetState liefert Protokoll 1, Invoke(quit) beendet; Extension geht ⇒ Active")
+    func popoverExtension_passiveGetStateInvokeQuit_dannWiederActive() throws {
+        let bus = try FakeSessionBus()
+        defer { bus.stop() }
+        try bus.start()
+        let verbindung = try DBusConnection(socketPath: bus.socketPfad)
+        defer { verbindung.close() }
+        let home = try temporaeresHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try schreibeEinenAccount(in: home, fetchedAt: Date())
+
+        let attrappe = SystemctlAttrappe(isEnabled: "disabled")
+        let prozess = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: Date(),
+            environment: attrappe.umgebung(home: home),
+            runner: attrappe
+        )
+        prozess.observePopoverExtension()
+        #expect(warteBis { bus.abgelegteRegeln.count == 1 })
+        prozess.notePopoverExtension(present: false, atStart: true)
+
+        func itemStatus() throws -> String? {
+            let nummer = bus.aufrufen(
+                pfad: TrayProcess.itemPath,
+                interface: "org.freedesktop.DBus.Properties",
+                member: "Get",
+                argumente: [.string("org.kde.StatusNotifierItem"), .string("Status")]
+            )
+            try pumpen(verbindung, prozess, durchgaenge: 30, bis: { bus.antwort(auf: nummer) != nil })
+            return bus.antwort(auf: nummer)?.variantString
+        }
+
+        // Extension kommt.
+        bus.einspeisenNameOwnerChanged(name: "org.claudemonitor.Popover", alterEigentuemer: "", neuerEigentuemer: ":1.7")
+        try pumpen(verbindung, prozess, durchgaenge: 20, bis: { false })
+        // (a)
+        #expect(try itemStatus() == "Passive")
+
+        // (b)
+        let stand = bus.aufrufen(
+            pfad: "/Popover", interface: "org.claudemonitor.Tray.Popover1", member: "GetState", argumente: []
+        )
+        try pumpen(verbindung, prozess, durchgaenge: 30, bis: { bus.antwort(auf: stand) != nil })
+        let standAntwort = try #require(bus.antwort(auf: stand), "keine Antwort auf GetState")
+        var standLeser = standAntwort.bodyReader()
+        let json = try JSONSerialization.jsonObject(with: Data(try standLeser.readString().utf8)) as? [String: Any]
+        #expect(json?["protocol"] as? Int == 1)
+        let keys = (json?["controls"] as? [[String: Any]])?.compactMap { $0["key"] as? String } ?? []
+        #expect(keys.contains("action.quit"), "controls: \(keys)")
+
+        // (c)
+        let aufruf = bus.aufrufen(
+            pfad: "/Popover", interface: "org.claudemonitor.Tray.Popover1", member: "Invoke",
+            argumente: [.string("action.quit")]
+        )
+        try pumpen(verbindung, prozess, durchgaenge: 30, bis: { bus.antwort(auf: aufruf) != nil })
+        let invokeAntwort = try #require(bus.antwort(auf: aufruf), "keine Antwort auf Invoke")
+        var invokeLeser = invokeAntwort.bodyReader()
+        #expect((try? invokeLeser.readBool()) == true)
+        #expect(prozess.handleMenuEvents() == .ok)
+
+        // (d) Extension geht.
+        bus.einspeisenNameOwnerChanged(name: "org.claudemonitor.Popover", alterEigentuemer: ":1.7", neuerEigentuemer: "")
+        try pumpen(verbindung, prozess, durchgaenge: 20, bis: { false })
+        #expect(try itemStatus() == "Active")
+    }
+
     // MARK: - CM-30 · „Start at login" im Menü
 
     /// T1 — Terminal-Änderung wird beim Öffnen sichtbar, Abwählen entfernt.

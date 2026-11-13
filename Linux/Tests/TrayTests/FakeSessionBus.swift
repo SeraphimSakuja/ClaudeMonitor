@@ -1007,3 +1007,13 @@ private final class Verbindung: @unchecked Sendable {
         FakeSessionBus.abbauen(deskriptor)
     }
 }
+
+extension DBusMessage {
+    /// Der String in einer Variant-Antwort (`v` mit `s`), etwa auf `Properties.Get`.
+    /// `nil`, wenn der Rumpf anders aufgebaut ist.
+    var variantString: String? {
+        var leser = bodyReader()
+        guard (try? leser.readSignature()) == "s" else { return nil }
+        return try? leser.readString()
+    }
+}

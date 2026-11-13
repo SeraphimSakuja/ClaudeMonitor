@@ -426,13 +426,15 @@ struct TrayExitContractTests {
 
     // MARK: - Fall 4
 
-    /// Ist die Antwort auf `NameHasOwner` unlesbar, endet der Tray mit 6 —
-    /// und **nicht** als `watcherMissing` (9).
+    /// Ist die Antwort auf die erste `NameHasOwner`-Abfrage — seit CM-41 die
+    /// nach der Popover-Extension — unlesbar, endet der Tray mit 6 und
+    /// **nicht** als `watcherMissing` (9).
     ///
     /// Geprüft wird ausdrücklich der Normalbetrieb (ohne `--selftest`): Der
     /// allgemeine `ConnectError`-Zweig gilt unabhängig von `isSelftest`, nur
-    /// der reine Zeitablauf wird dort unterschieden.
-    @Test("Unlesbarer NameHasOwner-Rumpf endet mit Exit 6, nicht als watcherMissing")
+    /// der reine Zeitablauf wird dort unterschieden. Der Watcher-Schritt
+    /// dahinter ist mit diesem Fall nicht mehr erreicht.
+    @Test("Unlesbarer NameHasOwner-Rumpf (Popover-Abfrage) endet mit Exit 6, nicht als watcherMissing")
     func CM27C_nameHasOwnerLeererRumpf_endetMitExit6_nichtWatcherMissing() throws {
         let bus = try FakeSessionBus()
         defer { bus.stop() }
@@ -466,7 +468,11 @@ struct TrayExitContractTests {
     /// Ein bloßer Zeitablauf ist keine Antwort des Busses. Vor dem CM-27-Fix
     /// beendete sich der Prozess hier; unter CM-21 hieße das: Der Tray stirbt
     /// bei jedem langsamen Sitzungsstart, bevor der Watcher überhaupt da ist.
-    @Test("Unbeantwortetes NameHasOwner beendet den Tray im Normalbetrieb nicht")
+    ///
+    /// CM-41 · Auflage #2: Erscheint die Popover-Extension, während der Tray im
+    /// `NameHasOwner` des Watchers wartet, geht ihr `NameOwnerChanged` nicht
+    /// verloren — nach dem Warten steht das Item auf `Passive`.
+    @Test("Unbeantwortetes NameHasOwner beendet den Tray im Normalbetrieb nicht; ein währenddessen eintreffendes NameOwnerChanged der Popover-Extension geht nicht verloren (Passive)")
     func CM27B_nameHasOwnerUnbeantwortet_beendetTrayImNormalbetriebNicht() throws {
         let bus = try FakeSessionBus()
         defer { bus.stop() }
@@ -476,18 +482,51 @@ struct TrayExitContractTests {
         let home = try Self.temporaeresHome()
         defer { try? FileManager.default.removeItem(at: home) }
 
+        let start = Date()
         let kind = try Self.starteMitStderrPipe(umgebung: Self.umgebung(bus: bus, home: home))
         // Das Schreibende bleibt hier im Testprozess OFFEN: Es gibt kein EOF,
         // weil das Kind gerade nicht enden soll. Gelesen wird deshalb
         // nicht-blockierend bis zur Frist.
-        // 6 s liegen über dem 5-s-Zeitlimit von `callBlocking` — vorher ist
-        // die Zusicherung nicht messbar.
-        let beobachtung = Self.beobachten(kind.kind, leseEnde: kind.leseEnde, fristSekunden: 6)
+        // Erst warten, bis das Kind im Watcher-Schritt steht (Popover-Regel
+        // abgelegt, Popover-Abfrage beantwortet), dann die Extension erscheinen
+        // lassen — das Signal trifft das wartende `callBlocking`.
+        var ausgabe = ""
+        var status: Int32?
+        while Date().timeIntervalSince(start) < 4 {
+            let teil = Self.beobachten(kind.kind, leseEnde: kind.leseEnde, fristSekunden: 0.2)
+            ausgabe += teil.ausgabe
+            status = teil.status
+            if status != nil { break }
+            if bus.abgelegteRegeln.contains(where: { $0.contains("arg0='org.claudemonitor.Popover'") })
+                && ausgabe.contains("popover=extension absent") { break }
+        }
+        #expect(ausgabe.contains("popover=extension absent"), "Ausgabe: \(ausgabe)")
+        bus.einspeisenNameOwnerChanged(
+            name: "org.claudemonitor.Popover", alterEigentuemer: "", neuerEigentuemer: ":1.7"
+        )
+        // 6 s seit Start liegen über dem 5-s-Zeitlimit von `callBlocking` —
+        // vorher ist die Zusicherung nicht messbar.
+        let rest = Self.beobachten(
+            kind.kind, leseEnde: kind.leseEnde,
+            fristSekunden: max(0.5, 6.5 - Date().timeIntervalSince(start))
+        )
+        ausgabe += rest.ausgabe
+        status = status ?? rest.status
 
-        #expect(beobachtung.status == nil, "Tray endete, obwohl er hätte weiterlaufen müssen")
-        #expect(beobachtung.ausgabe.contains("watcher=absent — waiting for org.kde.StatusNotifierWatcher"))
-        #expect(beobachtung.ausgabe.contains("bus=") == false)
-        #expect(beobachtung.ausgabe.contains("watcher=absent name=") == false)
+        #expect(status == nil, "Tray endete, obwohl er hätte weiterlaufen müssen")
+        #expect(ausgabe.contains("watcher=absent — waiting for org.kde.StatusNotifierWatcher"))
+        #expect(ausgabe.contains("bus=") == false)
+        #expect(ausgabe.contains("watcher=absent name=") == false)
+
+        // Das nach dem Warten zugestellte Signal hat das Item ausgeblendet.
+        let nummer = bus.aufrufen(
+            pfad: "/StatusNotifierItem",
+            interface: "org.freedesktop.DBus.Properties",
+            member: "Get",
+            argumente: [.string("org.kde.StatusNotifierItem"), .string("Status")]
+        )
+        _ = Self.wartenBis { bus.antwort(auf: nummer) != nil }
+        #expect(bus.antwort(auf: nummer)?.variantString == "Passive", "Ausgabe: \(ausgabe)")
 
         kill(kind.kind, SIGKILL)
         var verworfen: Int32 = 0

@@ -266,7 +266,10 @@ struct TrayPresentationContractTests {
     /// einem Wert — unbekannte mit einem typgerechten Leerwert, nie mit einem
     /// Fehler. Eine `Unknown*`-Fehlerantwort zerstört das Item in der
     /// `ubuntu-appindicators`-Extension.
-    @Test("Jede Eigenschaftsanfrage bekommt einen Wert, keine Fehlerantwort")
+    ///
+    /// CM-41: Die Introspektion bietet kein `Activate` an, damit ein Linksklick
+    /// das Menü sofort öffnet (sonst fragt die Extension erst `Activate`).
+    @Test("Jede Eigenschaftsanfrage bekommt einen Wert, keine Fehlerantwort; die Introspektion bietet kein Activate")
     func propertyDispatcherAlwaysAnswersWithAValue() {
         let now = TrayFixture.now
         let account = TrayFixture.account(
@@ -281,7 +284,7 @@ struct TrayPresentationContractTests {
         let view = TrayPresentation.make(for: TrayFixture.state([account]), now: now)
         let table = TraySNIProperties.itemTable(for: view, menuPath: "/StatusNotifierItem/Menu")
 
-        // Fachentscheid 5.2: immer „Active", auch im Fehlerfall.
+        // Active ohne Popover-Extension (CM-41), auch im Fehlerfall.
         #expect(TraySNIProperties.value(named: "Status", in: table) == .string("Active"))
 
         // Auflage 2: das eigene Symbol ist nie leer.
@@ -303,5 +306,66 @@ struct TrayPresentationContractTests {
         // nicht optional — „kein Wert" ist an dieser Stelle nicht darstellbar,
         // und ein Fehlername als Wert wäre genau die verbotene Antwort.
         #expect(TraySNIProperties.value(named: "AnythingUnknown", in: table) == .string(""))
+
+        // CM-41: kein `Activate`, nur `SecondaryActivate`.
+        let xml = TrayIntrospection.itemXML(menuPath: "/StatusNotifierItem/Menu")
+        #expect(xml.contains("name=\"SecondaryActivate\""))
+        #expect(!xml.contains("name=\"Activate\""))
+    }
+
+    // MARK: - CM-41 · Popover-JSON
+
+    /// CM-41 T3 — sichert, dass das Popover jeden Account ohne `undefined`
+    /// darstellt und dieselben Texte zeigt wie das Menü.
+    @Test("Popover-JSON: jeder Schlüssel ist da, ein fehlender Wert ist null; Kopf und Fenster stimmen mit dem Menü überein")
+    func popoverJSON_jederSchluesselDa_fehlenderWertNull_kopfUndFensterWieMenue() throws {
+        let now = TrayFixture.now
+        let aktiv = TrayFixture.account(
+            id: "1",
+            name: "account-1",
+            windows: [TrayFixture.window(.fiveHour, percent: 74, resetsAt: now.addingTimeInterval(7440))],
+            isActive: true
+        )
+        let inaktiv = TrayFixture.account(id: "2", name: "account-2", windows: [])
+        let view = TrayPresentation.make(for: TrayFixture.state([aktiv, inaktiv]), now: now)
+
+        let wurzel = try #require(
+            try JSONSerialization.jsonObject(with: Data(view.popover.json().utf8)) as? [String: Any]
+        )
+        #expect(wurzel["protocol"] as? Int == 1)
+        #expect(wurzel["issue"] is NSNull, "issue: \(String(describing: wurzel["issue"]))")
+
+        let konten = try #require(wurzel["accounts"] as? [[String: Any]])
+        #expect(konten.compactMap { $0["id"] as? String } == ["1", "2"])
+        let zwei = try #require(konten.last)
+        #expect(zwei["marker"] is NSNull, "marker: \(String(describing: zwei["marker"]))")
+
+        let steuerung = try #require(wurzel["controls"] as? [[String: Any]])
+        for eintrag in steuerung where ["refresh", "quit"].contains(eintrag["role"] as? String) {
+            #expect(eintrag["checked"] is NSNull, "checked: \(eintrag)")
+        }
+
+        // Menü ↔ Popover (FE-5)
+        let menueKonten = view.menu.map(\.key).filter {
+            $0.hasPrefix("account.") && $0.split(separator: ".").count == 2
+        }
+        #expect(menueKonten == konten.compactMap { "account.\($0["id"] as? String ?? "?")" })
+
+        let eins = try #require(konten.first)
+        let menueKopf = try #require(view.menu.first { $0.key == "account.1" })
+        let kopf = [
+            "\(eins["marker"] as? String ?? "?") \(eins["name"] as? String ?? "?")",
+            eins["number"] as? String ?? "?",
+            eins["binding"] as? String ?? "?"
+        ].joined(separator: "  ")
+        #expect(kopf == menueKopf.label)
+
+        let fenster = try #require((eins["windows"] as? [[String: Any]])?.first)
+        let fensterId = try #require(fenster["id"] as? String)
+        let menueFenster = try #require(view.menu.first { $0.key == "account.1.window.\(fensterId)" })
+        let teile = ["name", "percentText", "resetText"].map { fenster[$0] as? String }
+        #expect(!teile.contains { $0 == nil }, "Fenster: \(fenster)")
+        #expect(teile.compactMap { $0 }.joined(separator: "  ")
+                == menueFenster.label.trimmingCharacters(in: .whitespaces))
     }
 }
