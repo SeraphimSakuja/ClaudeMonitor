@@ -473,6 +473,24 @@ What the panel shows is the one thing no machine check here covers. That `XAyata
 appears as text in the panel, and changes within 30 s of a change in `usage.json`, is a **manual**
 acceptance point and is recorded as one.
 
+Manual acceptance hint for the click (CM-41): a left click opens the menu immediately, because
+`Activate` is no longer in the introspection data. A double click opens and closes it again; that
+is expected, not a defect.
+
+## The popover interface (CM-41)
+
+A third object, `/Popover` (`org.claudemonitor.Tray.Popover1`), hands the popover state to the
+GNOME extension: `GetState` returns one JSON string (protocol 1, every key always present, a missing
+value is `null`), `StateChanged(s)` carries the same string when it changed, `Invoke(key)` presses
+a menu entry through the same pending list as a menu click (returns `false` for an unknown or
+disabled key), `Opened` equals opening the menu. While `org.claudemonitor.Popover` has an owner the
+item reports `Status = Passive` (never under `--selftest`). The duties of the extension are in the
+doc comment of `TrayPopoverInterface`.
+
+```sh
+busctl --user call org.claudemonitor.Tray /Popover org.claudemonitor.Tray.Popover1 GetState
+```
+
 ## What the tray process never prints
 
 The same print contract as the smoke tool, with one addition and one tightening.

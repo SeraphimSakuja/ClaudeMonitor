@@ -17,12 +17,26 @@ public struct TrayView: Equatable, Sendable {
     public let icon: TrayIconStatus
     /// Die Einträge des Menüs, flach, in Anzeigereihenfolge.
     public let menu: [TrayMenuItem]
+    /// `Status` des Items: `Active`, außer die Popover-Extension lebt (CM-41),
+    /// dann `Passive`.
+    public let itemStatus: String
+    /// Der Popover-Zustand (CM-41), aus denselben Typen wie ``menu``.
+    public let popover: TrayPopoverState
 
-    public init(labelText: String, spokenLabelText: String, icon: TrayIconStatus, menu: [TrayMenuItem]) {
+    public init(
+        labelText: String,
+        spokenLabelText: String,
+        icon: TrayIconStatus,
+        menu: [TrayMenuItem],
+        itemStatus: String,
+        popover: TrayPopoverState
+    ) {
         self.labelText = labelText
         self.spokenLabelText = spokenLabelText
         self.icon = icon
         self.menu = menu
+        self.itemStatus = itemStatus
+        self.popover = popover
     }
 }
 
@@ -44,9 +58,11 @@ public enum TrayPresentation {
 
     /// Der Modus der Leiste ist auf Linux **fest** ``MenuBarMode/overview``.
     ///
-    /// Der Umschalter (`MonitorPopoverView.swift:143-146`) ist ausdrücklich
+    /// Der Umschalter (`MonitorPopoverView.swift:143-146`) bleibt im Menü
     /// abgetrennt (§3.1): Er bräuchte eine Persistenz, und der Tray-Prozess hat
-    /// zugesagt, nie zu schreiben.
+    /// zugesagt, nie zu schreiben. Das Popover (CM-41) bekommt beide
+    /// Segmentsätze (``TrayPopoverState/panel``) und schaltet selbst um; der
+    /// Tray speichert nichts, und das Leistenlabel bleibt `overview`.
     public static let mode = MenuBarMode.overview
 
     /// Zwischen zwei Account-Segmenten im Panel-Text.
@@ -60,19 +76,28 @@ public enum TrayPresentation {
     /// `autostart == nil` heißt „kein Autostart-Block" — nur für Aufrufer
     /// ohne Autostart-Quelle (Tests). Der Tray-Prozess übergibt immer einen
     /// Wert (`TrayProcess.makeView`).
+    ///
+    /// `popoverExtensionPresent` (CM-41): Die Popover-Extension besitzt ihren
+    /// Bus-Namen; das Item meldet dann `Passive`. Der Default `false` lässt
+    /// jeden Aufrufer ohne Extension auf `Active`.
     public static func make(
         for state: MonitorViewState,
         now: Date = Date(),
         autostart: TrayAutostartDisplay? = nil,
         autoUpdate: TrayAutoUpdateDisplay? = nil,
-        updateCheck: TrayUpdateCheck? = nil
+        updateCheck: TrayUpdateCheck? = nil,
+        popoverExtensionPresent: Bool = false
     ) -> TrayView {
         let display = MenuBarDisplay.make(for: state, mode: mode, now: now)
         return TrayView(
             labelText: labelText(for: display),
             spokenLabelText: labelText(for: display, withMarkers: false),
             icon: TrayIconAggregation.icon(for: display),
-            menu: menu(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck)
+            menu: menu(for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck),
+            itemStatus: popoverExtensionPresent ? "Passive" : "Active",
+            popover: TrayPopoverState.make(
+                for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck
+            )
         )
     }
 
@@ -139,7 +164,7 @@ public enum TrayPresentation {
     /// | „Loading…"/„No accounts" (`:96-103`) | drin | sonst wäre ein leeres Menü mehrdeutig |
     /// | Globale Fußzeile „Checked … ago" (`:284-288`) | drin | Einordnung des Datenalters |
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
-    /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** | abgetrennte Randmenge §3.1, bräuchte Persistenz |
+    /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** (Menü) | abgetrennte Randmenge §3.1, bräuchte Persistenz; das Popover bekommt beide Segmentsätze (CM-41) und schaltet selbst |
     /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
     /// | Update-Block (`:208-278`) | drin — `CM-37` | „Automatic updates" ankreuzbar, spiegelt `is-enabled` des Timers (``TrayAutoUpdateDisplay``); „Check for updates now" startet `--update` als Kindprozess, das Ergebnis steht als eine Zeile darunter (``TrayUpdateCheck``). Sparkle selbst bleibt macOS-only |
     static func menu(
@@ -183,6 +208,23 @@ public enum TrayPresentation {
         }
 
         items.append(.separator(key: "footer.separator"))
+        items += settingsItems(autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck)
+        if let text = checkedText(for: state, now: now) {
+            items.append(.information(key: "footer.checked", label: text))
+        }
+        items.append(refreshItem)
+        items.append(quitItem)
+        return items
+    }
+
+    /// Der Einstellungsblock zwischen Inhalt und Fußzeile — Menü und Popover
+    /// (``TrayPopoverState/controls``) bauen ihn aus dieser einen Stelle.
+    static func settingsItems(
+        autostart: TrayAutostartDisplay?,
+        autoUpdate: TrayAutoUpdateDisplay?,
+        updateCheck: TrayUpdateCheck?
+    ) -> [TrayMenuItem] {
+        var items: [TrayMenuItem] = []
         // CM-30 · F8: Einstellungszeile zwischen Inhalt und Fußzeile, wie
         // auf macOS (`MonitorPopoverView.swift:40-47`).
         if let autostart {
@@ -210,23 +252,27 @@ public enum TrayPresentation {
         if let updateCheck {
             items += updateCheck.menuItems
         }
-        if let capturedAt = state.snapshot?.capturedAt,
-           let age = TrayAgeFormat.text(for: now.timeIntervalSince(capturedAt)) {
-            items.append(.information(key: "footer.checked", label: TrayTexts.checked(ago: age)))
-        }
-        items.append(TrayMenuItem(key: "action.refresh", role: .refresh, label: TrayTexts.refresh))
-        items.append(TrayMenuItem(key: "action.quit", role: .quit, label: TrayTexts.quit))
         return items
+    }
+
+    static let refreshItem = TrayMenuItem(key: "action.refresh", role: .refresh, label: TrayTexts.refresh)
+    static let quitItem = TrayMenuItem(key: "action.quit", role: .quit, label: TrayTexts.quit)
+
+    /// Die globale Fußzeile „Checked … ago"; `nil` ohne Lesestand.
+    static func checkedText(for state: MonitorViewState, now: Date) -> String? {
+        guard let capturedAt = state.snapshot?.capturedAt,
+              let age = TrayAgeFormat.text(for: now.timeIntervalSince(capturedAt))
+        else { return nil }
+        return TrayTexts.checked(ago: age)
     }
 
     /// Ein Account-Kärtchen als Folge flacher Einträge.
     static func card(for account: MonitoredAccount, now: Date) -> [TrayMenuItem] {
-        let statusLine = AccountStatusLine.make(for: account, now: now)
         var items: [TrayMenuItem] = [
             .information(key: "account.\(account.id)", label: headerText(for: account))
         ]
 
-        if statusLine.isWarning, let text = TrayTexts.statusText(for: statusLine, now: now) {
+        if let text = statusText(for: account, now: now) {
             items.append(.information(key: "account.\(account.id).status", label: indent + text))
         }
 
@@ -245,17 +291,30 @@ public enum TrayPresentation {
             }
         }
 
-        // Nicht doppelt: Nennt die Statuszeile das Alter schon, entfällt diese
-        // Zeile. Die Regel steht geprüft in `Shared/`.
-        if let fetchedAt = account.fetchedAt,
-           AccountCardDisplay.showsUpdatedFooter(statusLine: statusLine),
-           let age = TrayAgeFormat.text(for: now.timeIntervalSince(fetchedAt)) {
-            items.append(.information(
-                key: "account.\(account.id).updated",
-                label: indent + TrayTexts.updated(ago: age)
-            ))
+        if let text = updatedText(for: account, now: now) {
+            items.append(.information(key: "account.\(account.id).updated", label: indent + text))
         }
         return items
+    }
+
+    /// Die Statuszeile eines Kärtchens; `nil`, wenn es keine Warnung gibt.
+    static func statusText(for account: MonitoredAccount, now: Date) -> String? {
+        let statusLine = AccountStatusLine.make(for: account, now: now)
+        guard statusLine.isWarning else { return nil }
+        return TrayTexts.statusText(for: statusLine, now: now)
+    }
+
+    /// Die Kärtchen-Fußzeile „Updated … ago".
+    ///
+    /// Nicht doppelt: Nennt die Statuszeile das Alter schon, entfällt sie. Die
+    /// Regel steht geprüft in `Shared/`.
+    static func updatedText(for account: MonitoredAccount, now: Date) -> String? {
+        let statusLine = AccountStatusLine.make(for: account, now: now)
+        guard let fetchedAt = account.fetchedAt,
+              AccountCardDisplay.showsUpdatedFooter(statusLine: statusLine),
+              let age = TrayAgeFormat.text(for: now.timeIntervalSince(fetchedAt))
+        else { return nil }
+        return TrayTexts.updated(ago: age)
     }
 
     /// Kopfzeile eines Kärtchens: `▸ Alias  #12  74%`.
@@ -267,15 +326,26 @@ public enum TrayPresentation {
     /// es das auf macOS im Kärtchenkopf ohnehin schon tut
     /// (`AccountCardView.swift:56-60`).
     static func headerText(for account: MonitoredAccount) -> String {
+        let parts = headerParts(for: account)
         // Der Marker klebt am Namen, statt eine eigene Spalte zu bilden: Er
         // zeichnet den Account aus und ist keine eigene Angabe.
-        let marker = ActiveAccountDisplay.marker(isActive: account.isActive).map { $0 + " " } ?? ""
-        var parts: [String] = [marker + account.displayName]
-        parts.append("#\(account.id)")
-        // Kein Wert heißt kein Wert — hier steht bewusst nie „0 %"
-        // (`AccountCardView.swift:78-83`).
-        parts.append(AccountBindingDisplay.make(for: account).text ?? MenuBarDisplay.missingText)
-        return parts.joined(separator: "  ")
+        let name = (parts.marker.map { $0 + " " } ?? "") + parts.name
+        return [name, parts.number, parts.binding].joined(separator: "  ")
+    }
+
+    /// Die Bestandteile der Kopfzeile — Menü und Popover
+    /// (``TrayPopoverState/Account``) lesen sie hier.
+    static func headerParts(
+        for account: MonitoredAccount
+    ) -> (marker: String?, name: String, number: String, binding: String) {
+        (
+            marker: ActiveAccountDisplay.marker(isActive: account.isActive),
+            name: account.displayName,
+            number: "#\(account.id)",
+            // Kein Wert heißt kein Wert — hier steht bewusst nie „0 %"
+            // (`AccountCardView.swift:78-83`).
+            binding: AccountBindingDisplay.make(for: account).text ?? MenuBarDisplay.missingText
+        )
     }
 
     /// Eine Fensterzeile: `5 hours  42%  2h04`.
@@ -286,18 +356,21 @@ public enum TrayPresentation {
     static func windowText(for window: LimitWindow, now: Date) -> String {
         var parts = [WindowKindNaming.name(for: window.kind)]
         if let percent = PercentFormatting.compact(window.percent) { parts.append(percent) }
+        if let reset = resetText(for: window, now: now) { parts.append(reset) }
+        return parts.joined(separator: "  ")
+    }
+
+    /// Die Restzeit eines Fensters: `2h04`, `due` oder `nil`.
+    static func resetText(for window: LimitWindow, now: Date) -> String? {
         switch ResetDisplay.make(for: window, now: now) {
         case .unknown:
             // Ohne bekannten Reset steht hier nichts — die fehlende Angabe
             // sagt bereits alles (`LimitWindowRowView.swift:73-76`).
-            break
+            return nil
         case .due:
-            parts.append("due")
+            return "due"
         case .counting(let until):
-            if let text = ResetCountdownFormat.text(for: .remaining(until.timeIntervalSince(now))) {
-                parts.append(text)
-            }
+            return ResetCountdownFormat.text(for: .remaining(until.timeIntervalSince(now)))
         }
-        return parts.joined(separator: "  ")
     }
 }

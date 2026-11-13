@@ -16,15 +16,16 @@ public enum TraySNIProperties {
 
     /// Die Eigenschaften von `org.kde.StatusNotifierItem`.
     ///
-    /// `Status` ist **immer** `Active` (Fachentscheid 5.2). `Passive` blendet
-    /// das Item aus (`indicatorStatusIcon.js:322`) — ein leerer Text ist eine
-    /// Aussage, ein verschwundenes Item ist keine.
+    /// `Status` ist `Active`, außer die Popover-Extension lebt (CM-41,
+    /// Fachentscheid 5.2). `Passive` blendet das Item aus
+    /// (`indicatorStatusIcon.js:320-322`). Unter `--selftest` gilt immer
+    /// `Active`.
     public static func itemTable(for view: TrayView, menuPath: String) -> [DBusDictionaryEntry] {
         [
             DBusDictionaryEntry("Category", .string("SystemServices")),
             DBusDictionaryEntry("Id", .string(itemIdentifier)),
             DBusDictionaryEntry("Title", .string(TrayTexts.applicationName)),
-            DBusDictionaryEntry("Status", .string("Active")),
+            DBusDictionaryEntry("Status", .string(view.itemStatus)),
             DBusDictionaryEntry("WindowId", .int32(0)),
             DBusDictionaryEntry("IconThemePath", .string("")),
             DBusDictionaryEntry("Menu", .objectPath(menuPath)),
@@ -57,9 +58,14 @@ public enum TraySNIProperties {
     /// Vorlesetext des Symbols: Produktname plus markerfreier Panel-Text,
     /// falls einer da ist.
     static func accessibleDescription(for view: TrayView) -> String {
-        view.spokenLabelText.isEmpty
+        accessibleDescription(spokenLabelText: view.spokenLabelText)
+    }
+
+    /// Dieselbe Regel für einen Panel-Text ohne Marker (auch das Popover).
+    static func accessibleDescription(spokenLabelText: String) -> String {
+        spokenLabelText.isEmpty
             ? TrayTexts.applicationName
-            : "\(TrayTexts.applicationName) \(view.spokenLabelText)"
+            : "\(TrayTexts.applicationName) \(spokenLabelText)"
     }
 
     /// Die Eigenschaften von `com.canonical.dbusmenu`.

@@ -175,14 +175,30 @@ final class DBusMenuObject: DBusObject {
     /// (`dbusMenu.js:970`, Wurzel-ID 0 `:247`).
     private func record(identifier: Int32, kind: String) {
         if kind == "opened" && identifier == TrayMenuIdentifiers.root {
-            menuOpened = true
+            noteOpened()
             return
         }
-        guard kind == "clicked",
-              let key = identifiers.key(for: identifier),
-              let item = items.first(where: { $0.key == key }),
-              item.isEnabled
-        else { return }
+        guard kind == "clicked", let key = identifiers.key(for: identifier) else { return }
+        enqueue(key: key)
+    }
+
+    /// Das Menü wurde geöffnet — vom dbusmenu-`opened` der Wurzel und vom
+    /// `Opened` des Popovers (CM-41), über denselben Weg.
+    func noteOpened() {
+        menuOpened = true
+    }
+
+    /// Merkt einen Klick auf den Eintrag mit diesem Schlüssel im Stand
+    /// **beim Aufruf** vor — dbusmenu-Klick und `Invoke` des Popovers
+    /// (CM-41) gehen durch dieselbe Liste.
+    ///
+    /// - Returns: `false`, wenn der Schlüssel unbekannt oder der Eintrag
+    ///   gesperrt ist (Information, Trenner, gesperrtes Häkchen); dann
+    ///   geschieht nichts.
+    @discardableResult
+    func enqueue(key: String) -> Bool {
+        guard let item = items.first(where: { $0.key == key }), item.isEnabled else { return false }
         pending.append(item)
+        return true
     }
 }

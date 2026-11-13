@@ -192,6 +192,8 @@ final class TrayProcess {
     private let connection: DBusConnection
     private let item: StatusNotifierItemObject
     private let menu: DBusMenuObject
+    /// `/Popover` — die Datenschnittstelle der Popover-Extension (CM-41).
+    private let popover: TrayPopoverObject
 
     /// Der Autostart für den Menüeintrag „Start at login" (CM-30).
     private let installer: AutostartInstaller
@@ -223,6 +225,14 @@ final class TrayProcess {
     private let starter: BackgroundStarter
     private var nextRead: Date
     private var registeredWithWatcher = false
+    /// CM-41 · FE-9: Die Popover-Erkennung läuft nur, wenn
+    /// ``observePopoverExtension()`` sie angeschaltet hat — nie unter
+    /// `--selftest`. Ein eingespeistes `NameOwnerChanged` des Extension-Namens
+    /// ändert sonst nichts.
+    private var popoverDetection = false
+    /// CM-41 · FE-1: Die Extension besitzt ihren Bus-Namen; das Item meldet
+    /// dann `Passive`.
+    private(set) var popoverExtensionPresent = false
 
     /// - Parameters:
     ///   - environment: Quelle der Unit-Pfade und Umgebung von `systemctl`.
@@ -285,9 +295,12 @@ final class TrayProcess {
             menuPath: Self.menuPath,
             view: view
         )
-        menu = DBusMenuObject(objectPath: Self.menuPath, items: view.menu)
+        let menu = DBusMenuObject(objectPath: Self.menuPath, items: view.menu)
+        self.menu = menu
+        popover = TrayPopoverObject(state: view.popover, menu: menu)
         connection.register(item)
         connection.register(menu)
+        connection.register(popover)
         report(result)
     }
 
@@ -316,6 +329,36 @@ final class TrayProcess {
             + "interface='org.freedesktop.DBus',member='NameOwnerChanged',"
             + "arg0='\(Self.watcherName)'"
         )
+    }
+
+    /// Bestellt die Nachricht ab, dass die Popover-Extension kommt oder geht
+    /// (CM-41), und schaltet die Erkennung an. Ein zweiter Match neben dem des
+    /// Watchers; `observeWatcher()` bleibt bei genau einem.
+    func observePopoverExtension() {
+        connection.addMatch(
+            "type='signal',sender='org.freedesktop.DBus',"
+            + "interface='org.freedesktop.DBus',member='NameOwnerChanged',"
+            + "arg0='\(TrayPopoverInterface.extensionBusName)'"
+        )
+        popoverDetection = true
+    }
+
+    /// Übernimmt, ob die Extension lebt (CM-41 · FE-1/FE-2).
+    ///
+    /// - Parameter atStart: Die Abfrage beim Start. Sie schreibt immer eine
+    ///   Zeile (`absent`/`present`) — ohne Extension stünde sonst bei jedem
+    ///   Start ein `gone`, als wäre eine abgestürzt. Im Lauf geschieht nur bei
+    ///   einem echten Wechsel etwas: eine Zeile (`present`/`gone`) und die
+    ///   Veröffentlichung; ein Signal mit gleichem Ergebnis schreibt nichts.
+    func notePopoverExtension(present: Bool, atStart: Bool = false) {
+        if atStart {
+            log.always("popover=extension \(present ? "present" : "absent")")
+        } else {
+            guard present != popoverExtensionPresent else { return }
+            log.always("popover=extension \(present ? "present" : "gone")")
+        }
+        popoverExtensionPresent = present
+        publish(makeView(now: Date()))
     }
 
     // MARK: Schleife
@@ -594,7 +637,8 @@ final class TrayProcess {
     /// Prozess eine Ansicht baut, damit der Autostart-Block nie fehlt.
     private func makeView(now: Date) -> TrayView {
         Self.makeView(
-            state: state, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck, now: now
+            state: state, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck, now: now,
+            popoverExtensionPresent: popoverExtensionPresent
         )
     }
 
@@ -605,10 +649,12 @@ final class TrayProcess {
         autostart: TrayAutostartDisplay,
         autoUpdate: TrayAutoUpdateDisplay,
         updateCheck: TrayUpdateCheck,
-        now: Date
+        now: Date,
+        popoverExtensionPresent: Bool = false
     ) -> TrayView {
         TrayPresentation.make(
-            for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck
+            for: state, now: now, autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck,
+            popoverExtensionPresent: popoverExtensionPresent
         )
     }
 
@@ -625,21 +671,29 @@ final class TrayProcess {
         return askedProperties && served.contains("com.canonical.dbusmenu.GetLayout")
     }
 
-    /// Reagiert auf Bus-Signale — im Kern auf das Kommen des Watchers.
+    /// Reagiert auf Bus-Signale — das Kommen des Watchers und das der
+    /// Popover-Extension (nur wenn deren Erkennung läuft, CM-41).
     func handle(signal message: DBusMessage) {
         guard message.type == .signal,
               message.member == "NameOwnerChanged"
         else { return }
         var reader = message.bodyReader()
-        guard let name = try? reader.readString(), name == Self.watcherName else { return }
+        guard let name = try? reader.readString() else { return }
         _ = try? reader.readString()
         let newOwner = (try? reader.readString()) ?? ""
-        guard !newOwner.isEmpty else {
-            log.always("watcher=gone — waiting")
-            registeredWithWatcher = false
+        switch name {
+        case Self.watcherName:
+            guard !newOwner.isEmpty else {
+                log.always("watcher=gone — waiting")
+                registeredWithWatcher = false
+                return
+            }
+            registerWithWatcher()
+        case TrayPopoverInterface.extensionBusName where popoverDetection:
+            notePopoverExtension(present: !newOwner.isEmpty)
+        default:
             return
         }
-        registerWithWatcher()
     }
 
     // MARK: Lesen und Senden
@@ -667,6 +721,16 @@ final class TrayProcess {
                     .array(elementSignature: "s", elements: [])
                 ]
             )
+            // CM-41 · FE-2: Ein Wechsel `Active`/`Passive` geht sofort hinaus,
+            // dazu das alte Signal wie bei `NewIcon`.
+            if changes.contains(where: { $0.key == "Status" }) {
+                connection.emit(
+                    path: Self.itemPath,
+                    interface: TraySNIProperties.itemInterface,
+                    member: "NewStatus",
+                    arguments: [.string(view.itemStatus)]
+                )
+            }
             // Manche Panels hören auf das alte Signal statt auf
             // `PropertiesChanged`; es kostet nichts und deckt beide ab.
             if changes.contains(where: { $0.key == "IconPixmap" }) {
@@ -693,6 +757,17 @@ final class TrayProcess {
                 interface: TraySNIProperties.menuInterface,
                 member: "ItemsPropertiesUpdated",
                 arguments: [update.updated, update.removed]
+            )
+        }
+
+        // CM-41 · FE-8: `StateChanged` nur, wenn sich der JSON-String vom
+        // zuletzt gesendeten unterscheidet.
+        if let json = popover.apply(view.popover) {
+            connection.emit(
+                path: TrayPopoverInterface.objectPath,
+                interface: TrayPopoverInterface.interfaceName,
+                member: "StateChanged",
+                arguments: [.string(json)]
             )
         }
     }
@@ -818,6 +893,34 @@ func runTray(arguments: [String], environment: [String: String]) -> TrayExit {
         environment: environment
     )
     process.observeWatcher()
+
+    // CM-41 · FE-3: Die Popover-Erkennung steht **vor** der Anmeldung beim
+    // Watcher, damit ein Item bei lebender Extension nie als `Active`
+    // erscheint; der Match steht vor `NameHasOwner`. Unter `--selftest` gibt
+    // es sie nicht (FE-9). `timedOut` gilt als abwesend und ändert keinen
+    // Exit; jeder andere Fehler ist wie beim Watcher ein Verbindungsausgang.
+    if !isSelftest {
+        process.observePopoverExtension()
+        let extensionName = TrayPopoverInterface.extensionBusName
+        let extensionPresent: Bool
+        do {
+            extensionPresent = try connection.nameHasOwner(extensionName)
+        } catch DBusConnection.ConnectError.timedOut {
+            extensionPresent = false
+        } catch let error as DBusConnection.ConnectError {
+            log.always(
+                "bus=\(TrayExit.busState(for: error)) step=nameHasOwner name=\(extensionName) "
+                    + "reason=\(TrayExit.reason(for: error))"
+            )
+            process.shutDown()
+            return .connectionFailed
+        } catch {
+            log.always("bus=disconnected step=nameHasOwner name=\(extensionName)")
+            process.shutDown()
+            return .connectionFailed
+        }
+        process.notePopoverExtension(present: extensionPresent, atStart: true)
+    }
 
     // Auch hier gilt CM-27: Ein Abriss während `NameHasOwner` ist kein
     // „Watcher fehlt" (Exit 9), sondern ein Verbindungsausgang (Exit 6). Nur
