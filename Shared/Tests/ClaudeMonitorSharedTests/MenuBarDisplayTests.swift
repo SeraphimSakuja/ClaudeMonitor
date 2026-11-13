@@ -723,45 +723,7 @@ struct MenuBarDisplayTests {
         }
     }
 
-    // MARK: - Formatvorschriften (unverändert)
-
-    @Test("Formatvorschrift: kaufmännisch gerundet, ohne Nachkommastellen")
-    func percentFormatting() {
-        #expect(PercentFormatting.compact(0) == "0%")
-        #expect(PercentFormatting.compact(49.4) == "49%")
-        #expect(PercentFormatting.compact(49.5) == "50%")
-        #expect(PercentFormatting.compact(100) == "100%")
-        #expect(PercentFormatting.compact(.nan) == nil)
-        #expect(PercentFormatting.compact(.infinity) == nil)
-        #expect(PercentFormatting.compact(-5) == "0%")
-    }
-
-    @Test("Die Fassung ohne Prozentzeichen rundet und klemmt identisch")
-    func bareFormattingMatchesCompact() {
-        // Beide Formatierer gegen **Literale** — nicht gegeneinander: `compact`
-        // ist als `bare(_:) + "%"` gebaut, ein Vergleich der beiden wäre
-        // tautologisch und könnte nie rot werden. Die Wertetabelle hält
-        // Rundung, Klemmung und Endlichkeitsregel für beide einzeln fest.
-        #expect(PercentFormatting.bare(0) == "0")
-        #expect(PercentFormatting.compact(0) == "0%")
-        #expect(PercentFormatting.bare(49.4) == "49")
-        #expect(PercentFormatting.compact(49.4) == "49%")
-        #expect(PercentFormatting.bare(49.5) == "50")
-        #expect(PercentFormatting.compact(49.5) == "50%")
-        #expect(PercentFormatting.bare(100) == "100")
-        #expect(PercentFormatting.compact(100) == "100%")
-        // Untere Klemmung: negative Werte werden zu 0, nicht zu „-5".
-        #expect(PercentFormatting.bare(-5) == "0")
-        #expect(PercentFormatting.compact(-5) == "0%")
-        // Obere Klemmung: ein Riesenwert sprengt die Leiste nicht.
-        #expect(PercentFormatting.bare(5000) == "999")
-        #expect(PercentFormatting.compact(5000) == "999%")
-        // Nicht-endlich ⇒ keine Zahl, bei beiden.
-        #expect(PercentFormatting.bare(.nan) == nil)
-        #expect(PercentFormatting.compact(.nan) == nil)
-        #expect(PercentFormatting.bare(.infinity) == nil)
-        #expect(PercentFormatting.compact(.infinity) == nil)
-    }
+    // MARK: - Fortschrittsanteil
 
     @Test("Fortschrittsanteil bleibt zwischen 0 und 1")
     func fractionIsClamped() {

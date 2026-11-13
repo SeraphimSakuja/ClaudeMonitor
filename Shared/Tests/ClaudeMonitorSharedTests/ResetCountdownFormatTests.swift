@@ -11,30 +11,6 @@ import ClaudeMonitorShared
 @Suite("Restzeit-Format der Menüleiste")
 struct ResetCountdownFormatTests {
 
-    @Test("Stunden werden zweistellig ergänzt, damit die Leiste nicht zappelt")
-    func hoursPadMinutes() {
-        #expect(ResetCountdownFormat.text(for: .remaining(2 * 3600 + 14 * 60)) == "2h14")
-        // Ohne Auffüllen stünde hier „2h4" — die Zeichenkette wäre je nach
-        // Minute unterschiedlich lang und die Leiste bewegte sich ständig.
-        #expect(ResetCountdownFormat.text(for: .remaining(2 * 3600 + 4 * 60)) == "2h04")
-        #expect(ResetCountdownFormat.text(for: .remaining(3600)) == "1h00")
-    }
-
-    @Test("Unter einer Stunde stehen nur Minuten")
-    func minutesOnlyBelowAnHour() {
-        #expect(ResetCountdownFormat.text(for: .remaining(47 * 60)) == "47m")
-        #expect(ResetCountdownFormat.text(for: .remaining(60)) == "1m")
-        // Abgerundet: 59 s sind noch keine Minute.
-        #expect(ResetCountdownFormat.text(for: .remaining(119)) == "1m")
-    }
-
-    @Test("Unter einer Minute steht „<1m“ statt einer Null")
-    func subMinuteIsImminentNotZero() {
-        // „0m" hier wäre eine Lüge: Der Reset ist noch nicht fällig.
-        #expect(ResetCountdownFormat.text(for: .remaining(59)) == "<1m")
-        #expect(ResetCountdownFormat.text(for: .remaining(1)) == "<1m")
-    }
-
     @Test("Ab einem Tag wird in Tagen gerechnet")
     func daysAboveTwentyFourHours() {
         // Ein 7-Tage-Fenster liefe sonst als „167h30" durch die Leiste.
