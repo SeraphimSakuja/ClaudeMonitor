@@ -1,4 +1,5 @@
 import Foundation
+import GnomeExtension
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -44,7 +45,7 @@ import Update
 /// `AutostartUnit.restartPreventExitStatus`). Ein künftiger Fall hier darf
 /// keinen der beiden Werte tragen, sonst würde er stillschweigend nie neu
 /// gestartet.
-enum TrayExit: Int32 {
+enum TrayExit: Int32, Error {
     /// Normal beendet, oder `--selftest` erfolgreich.
     case ok = 0
     /// `DBUS_SESSION_BUS_ADDRESS` fehlt — es gibt keine Sitzung.
@@ -59,13 +60,16 @@ enum TrayExit: Int32 {
     /// (Auflage 13). Im Normalbetrieb ist das **kein** Abbruchgrund — dort
     /// wartet der Prozess auf den Watcher.
     case watcherMissing = 9
-    /// Nur die Autostart-Unterbefehle: Die Bitte ließ sich nicht ausführen —
+    /// Nur die Autostart-, Auto-Update- und Extension-Unterbefehle: Die Bitte
+    /// ließ sich nicht ausführen —
     /// etwas am Zielort steht dagegen (fremde Datei, Symlink, Maske), systemd
     /// lädt für den Namen eine andere Unit-Datei (CM-32), oder der Aufruf war
     /// nicht auswertbar (unbekanntes Argument). Der Zustand bleibt,
-    /// wie er war; es wurde nichts überschrieben.
+    /// wie er war; es wurde nichts überschrieben. Ausnahme (CM-43): scheitert
+    /// bei den Extension-Befehlen ein Einzel-`rename` nach dem ersten, ist der
+    /// Austausch „partly replaced" — der Befehl noch einmal fährt ihn zu Ende.
     case autostartBlocked = 10
-    /// Nur die Autostart-Unterbefehle: Es konnte **gar nichts gemessen** werden
+    /// Nur die Autostart- und Extension-Unterbefehle: Es konnte **gar nichts gemessen** werden
     /// — kein Nutzermanager erreichbar, kein Home ableitbar, `systemctl`
     /// antwortet mit einem Zustand, der keine Auskunft ist, oder welche
     /// Unit-Datei systemd lädt, ließ sich nicht bestimmen (CM-32). Ausdrücklich NICHT
@@ -1019,7 +1023,9 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
         "--version", "--update",
         // CM-36
         "--check-update",
-        "--install-auto-update", "--uninstall-auto-update", "--auto-update-status"
+        "--install-auto-update", "--uninstall-auto-update", "--auto-update-status",
+        // CM-43
+        GnomeExtensionTexts.install, GnomeExtensionTexts.uninstall, GnomeExtensionTexts.refresh
     ]
 
     if let unknown = autostartOptions.first(where: { !known.contains($0) }) {
@@ -1045,6 +1051,14 @@ func trayFrontDoor(arguments: [String], environment: [String: String]) -> TrayEx
     }
     if subcommand == "--check-update" {
         return UpdateClient(environment: environment, runner: runner, emit: { log.always($0) }).check()
+    }
+
+    // CM-43: vor dem `switch` — dessen `default` ist `status()`.
+    if [GnomeExtensionTexts.install, GnomeExtensionTexts.uninstall, GnomeExtensionTexts.refresh].contains(subcommand) {
+        let extensionInstaller = GnomeExtensionInstaller(environment: environment, runner: runner, emit: { log.always($0) })
+        if subcommand == GnomeExtensionTexts.install { return extensionInstaller.install() }
+        if subcommand == GnomeExtensionTexts.uninstall { return extensionInstaller.uninstall() }
+        return extensionInstaller.refresh()
     }
 
     let installer = AutostartInstaller(

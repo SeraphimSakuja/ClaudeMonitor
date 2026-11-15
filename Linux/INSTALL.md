@@ -1,6 +1,6 @@
 # Installing `claude-monitor-tray` on Linux
 
-`claude-monitor-tray` is a single self-contained binary. It shows the same account numbers in the
+`claude-monitor-tray` is a single self-contained binary; it also carries its GNOME panel extension. It shows the same account numbers in the
 GNOME panel that the macOS build shows in the menu bar, and it reads only `claude-swap`'s local
 cache — it never writes to it. Its only use of the network is the update check: about once a day —
 15 minutes after the tray starts, then every 24 hours — it fetches one small signed file from this
@@ -28,6 +28,9 @@ unknown".
 
 Plus a desktop that shows `org.kde.StatusNotifierItem` items. On GNOME that means the
 `ubuntu-appindicators` (or `appindicatorsupport`) extension; KDE Plasma shows them out of the box.
+On GNOME 50 the tray's own extension draws the panel display and the popover instead
+(`--install-gnome-extension`, see *The GNOME extension*); the appindicator extension stays the
+requirement for the tray icon that is used as a fallback.
 
 ```sh
 busctl --user list | grep StatusNotifierWatcher     # must print a line
@@ -137,6 +140,28 @@ than the one at the target path, in whatever directory it lies (for example a ha
 `~/.config/systemd/user/`): nothing is written, enabled, disabled or removed, and the message names
 that file.
 
+## The GNOME extension
+
+On GNOME 50 the binary can install its own panel extension, which draws the panel display and the
+popover. It needs `gsettings` and `glib-compile-schemas` (package `libglib2.0-bin`, a dependency of
+GNOME Shell).
+
+```sh
+claude-monitor-tray --install-gnome-extension
+```
+
+It writes the extension to `~/.local/share/gnome-shell/extensions/claudemonitor@markusfricke.at` and
+switches it on in `enabled-extensions`. **Log out and back in once** — GNOME Shell only looks for new
+extensions when it starts. Two warnings may follow: `disable-user-extensions` set to `true` keeps
+every user extension off (`gsettings set org.gnome.shell disable-user-extensions false`), and
+`allow-extension-installation` set to `false` makes the shell skip user extensions altogether
+(`gsettings set org.gnome.shell allow-extension-installation true`). The command never sets either.
+
+`--uninstall-gnome-extension` switches it off and removes it again; the tray icon is back at once.
+`--update` brings an installed extension up to date, it never installs one. After replacing the
+binary by hand, run `claude-monitor-tray --refresh-gnome-extension`. A symbolic link or foreign files
+at the target make all three commands stop with exit 10 and change nothing.
+
 ## Updates
 
 The tray **looks for a newer version about once a day** — 15 minutes after it starts, then every
@@ -225,8 +250,8 @@ directory, so a second update at the same time stops with 13.
 There is no way back: after the `rename` the previous binary is gone. To return to an older
 version, download it by hand as described above.
 
-An update replaces the binary only. It does not rewrite the unit files — they stay as they were
-written when you set them up.
+An update replaces the binary and brings an installed GNOME extension up to date. It does not
+rewrite the unit files — they stay as they were written when you set them up.
 
 In the tray menu, **Automatic updates** carries a checkmark that mirrors
 `systemctl --user is-enabled claude-monitor-tray-update.timer`. Ticking it runs
@@ -268,8 +293,8 @@ The process is judged by its exit code, not by "it printed nothing".
 | 7 | `--selftest` only: registered, but the query sequence never arrived |
 | 8 | another instance already owns `org.claudemonitor.Tray` |
 | 9 | `--selftest` only: no `org.kde.StatusNotifierWatcher` on the bus |
-| 10 | autostart and auto-update commands: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), systemd uses another unit file of the same name, or (auto-update) the binary's directory is not writable. Nothing was overwritten or removed |
-| 11 | autostart and auto-update commands: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, or which unit file systemd uses could not be determined. Explicitly not "not set up" |
+| 10 | autostart, auto-update and GNOME extension commands: the request could not be carried out — unknown option, something at the target path stands in the way (foreign file, symbolic link, mask), systemd uses another unit file of the same name, (auto-update) the binary's directory is not writable, or (extension) another extension command is running. Nothing was overwritten or removed — except one case: if a single file replace fails after the first, the extension is reported as *partly replaced*; run `--install-gnome-extension` again |
+| 11 | autostart, auto-update and GNOME extension commands: **nothing could be measured** — no systemd user manager reachable, no home directory, an unusable answer from `systemctl`, which unit file systemd uses could not be determined, or (extension) no GNOME settings store, a missing tool, or a setting that did not stick. Explicitly not "not set up" |
 | 12 | `--update` and `--check-update`: **nothing could be checked** — neither `curl` nor `wget`, a network or HTTP error, a timeout, or no manifest at all. Explicitly not "up to date" |
 | 13 | `--update` and `--check-update`: the update was **refused** — the manifest's signature is missing or does not match, the manifest is invalid or in another format, the machine is below the floor; for `--update` also: size or checksum do not match, the load test failed, the directory is not writable, or another update is running. The installed binary is unchanged |
 | 14 | `--check-update` only: a **newer version is available** and fits this machine; nothing was downloaded. Whether `--update` can install it here (writable directory) is in the message |
@@ -291,7 +316,13 @@ stays one file with nothing to install alongside it.
 
 ## Removing it
 
-First turn off automatic updates, if you set them up:
+First remove the GNOME extension, if you installed it:
+
+```sh
+~/.local/bin/claude-monitor-tray --uninstall-gnome-extension
+```
+
+Then turn off automatic updates, if you set them up:
 
 ```sh
 ~/.local/bin/claude-monitor-tray --uninstall-auto-update

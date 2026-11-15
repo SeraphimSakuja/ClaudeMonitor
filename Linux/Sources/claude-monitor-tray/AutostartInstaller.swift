@@ -441,7 +441,7 @@ struct AutostartInstaller {
             // Auflage 17: Scheitert schon das Verzeichnis, wird nicht
             // weitergelaufen — sonst folgte ein `enable` auf eine Unit, die es
             // nicht gibt, und die Meldung wäre erfunden.
-            if let reason = createDirectory(layout.unitDirectory) {
+            if let reason = Self.createDirectory(layout.unitDirectory) {
                 for path in createdThisRun { _ = unlink(path) }
                 emit(AutostartTexts.directoryNotCreated(path: layout.unitDirectory, reason: reason))
                 return .autostartUnavailable
@@ -864,10 +864,13 @@ struct AutostartInstaller {
         return lstat(path, &info) == 0
     }
 
-    /// Legt das Verzeichnis samt Elternteilen an.
+    /// Legt das Verzeichnis samt Elternteilen an (`0755`).
+    ///
+    /// Gemeinsame Hilfe von ``AutostartInstaller`` und
+    /// ``GnomeExtensionInstaller`` (CM-43) — keine zweite Kopie.
     ///
     /// - Returns: `nil` bei Erfolg, sonst der benannte Grund.
-    private func createDirectory(_ path: String) -> String? {
+    static func createDirectory(_ path: String) -> String? {
         var current = ""
         for component in path.split(separator: "/") {
             current += "/" + component
@@ -878,7 +881,7 @@ struct AutostartInstaller {
                 if stat(current, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR { continue }
                 return "\(current) exists and is not a directory"
             }
-            return "\(current): \(Self.errnoName(code))"
+            return "\(current): \(errnoName(code))"
         }
         return nil
     }
@@ -887,11 +890,18 @@ struct AutostartInstaller {
     ///
     /// - Returns: `nil` bei Erfolg, sonst `errno`.
     private func writeUnit(_ text: String, to path: String) -> Int32? {
-        let descriptor = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC, mode_t(0o644))
+        Self.writeBytes(Array(text.utf8), to: path, mode: 0o644)
+    }
+
+    /// Schreibt Bytes in eine Datei — **ohne** Symlink zu folgen (`O_NOFOLLOW`),
+    /// bestehende Datei wird abgeschnitten. Gemeinsame Hilfe (CM-43).
+    ///
+    /// - Returns: `nil` bei Erfolg, sonst `errno`.
+    static func writeBytes(_ bytes: [UInt8], to path: String, mode: mode_t) -> Int32? {
+        let descriptor = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC, mode)
         guard descriptor >= 0 else { return errno }
         defer { close(descriptor) }
 
-        let bytes = Array(text.utf8)
         var offset = 0
         var failure: Int32?
         bytes.withUnsafeBytes { raw in

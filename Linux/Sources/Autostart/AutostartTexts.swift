@@ -275,7 +275,8 @@ public enum AutostartTexts {
 
     /// Mehr als ein Unterbefehl auf einmal.
     public static let conflictingOptions = "Use only one of --install-autostart, --uninstall-autostart, --autostart-status, "
-        + "--version, --update, --check-update, --install-auto-update, --uninstall-auto-update, --auto-update-status.\n\(usage)"
+        + "--version, --update, --check-update, --install-auto-update, --uninstall-auto-update, --auto-update-status, "
+        + "--install-gnome-extension, --uninstall-gnome-extension, --refresh-gnome-extension.\n\(usage)"
 
     public static let usage = """
         Usage:
@@ -290,5 +291,8 @@ public enum AutostartTexts {
           claude-monitor-tray --install-auto-update    install updates by itself once a day (systemd timer)
           claude-monitor-tray --uninstall-auto-update  turn that off again
           claude-monitor-tray --auto-update-status     report whether it is set up
+          claude-monitor-tray --install-gnome-extension    install the GNOME panel extension carried in this binary and switch it on
+          claude-monitor-tray --uninstall-gnome-extension  remove it again
+          claude-monitor-tray --refresh-gnome-extension    bring an installed extension up to this binary; used by --update
         """
 }

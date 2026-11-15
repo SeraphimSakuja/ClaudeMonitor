@@ -174,6 +174,7 @@ who downloaded it, not for this repository.
 | `DBusWire` | library | values, marshalling, message framing, socket + SASL EXTERNAL + `Hello` + `poll()` dispatch, object protocol |
 | `TrayPresentation` | library | the **one** translation point `MonitorViewState` → (label, icon, menu), plus the layout/property mapping, the `ItemsPropertiesUpdated` diff and the checkmark transitions (`TrayUnitToggle`) of "Start at login" and "Automatic updates" and the result line of "Check for updates now" (`TrayUpdateCheck`) |
 | `Autostart` | library | the rules of the systemd user service: paths from an injected environment, unit text, `is-enabled` mapping, set-up/removal decision tables, texts |
+| `GnomeExtension` | library | the GNOME extension as payload (embedded files), its paths, the `gsettings` list rules (`parseStrv`/`renderStrv`, enable/disable plan) and texts (CM-43) |
 | `Update` | library | the rules of the Linux auto-update (CM-29): fixed addresses, Ed25519 check of the manifest over its bytes (`UpdateSignature`, CM-36), manifest check, build comparison, glibc floor, `--version` contract, mapping of `curl`/`wget` exit codes, timer/service unit texts, texts. Depends on `Autostart` for the one `ExecStart=` quoting rule |
 | `claude-monitor-tray` | executable | socket, registration, event loop, signals, exit contract, `--selftest` |
 | `TrayTests` | test | the proof slot for the libraries |
@@ -189,9 +190,11 @@ that it is reachable from the test slot; the executable keeps only what needs a 
 ./Linux/.build/release/claude-monitor-tray
 ```
 
+The binary also carries the GNOME extension (CM-43): the 7 files of `Linux/Extension/` are embedded with SwiftPM `.embedInCode`, no files next to the binary, and the `ldd` set stays unchanged.
+
 The process runs in the **foreground**, does not fork and does not daemonise — `--install-autostart`
 wraps it in a systemd user service (see below). `SIGTERM`/`SIGINT` tear it down cleanly; the watcher notices and drops the
-item from the panel. It re-registers by itself when `gnome-shell` restarts (`NameOwnerChanged`).
+item from the panel. It re-registers by itself when `gnome-shell` restarts (`NameOwnerChanged`). A freshly installed GNOME extension is only loaded after a log-out and log-in.
 
 `SIGPIPE` is ignored process-wide (`signal(SIGPIPE, SIG_IGN)`, first statement of `runTray`). The
 D-Bus socket is written with `write(2)`, which has no `MSG_NOSIGNAL` flag, so without that switch a
@@ -236,7 +239,8 @@ keys items by `busName@objectPath`.
 Front-door subcommands, all of them evaluated **before** the bus is touched, because none of them
 needs a bus: `--install-autostart`, `--uninstall-autostart`, `--autostart-status` and, since CM-29,
 `--version`, `--update`, `--install-auto-update`, `--uninstall-auto-update`, `--auto-update-status`
-and, since CM-36, `--check-update`.
+and, since CM-36, `--check-update`
+and, since CM-43, `--install-gnome-extension`, `--uninstall-gnome-extension`, `--refresh-gnome-extension`.
 Each one only on its own. Any other `--` argument is refused with exit 10 instead of silently
 falling through into the resident tray — a typo must not look like a successful setup.
 
@@ -351,7 +355,7 @@ TimeoutStartSec=30min
   file of the same name) **before** either is written; if one is refused, none is written.
 * **`TimeoutStartSec=30min`** — a `oneshot` has no start limit otherwise; a hanging download would
   leave the service "activating" and the timer would never fire it again. The value is above the
-  sum of the single limits (manifest 120 s, tarball 600 s, load test 30 s).
+  sum of the single limits (manifest 120 s, tarball 600 s, load test 30 s, extension refresh 30 s).
 * **Removal** disables **and stops** the timer — no update run comes in this session any more — and
   removes both files. `--auto-update-status` reports the timer's `is-enabled` and, when the last
   run of the service ended with 12 or 13 (`show -p Result,ExecMainStatus,ExecMainExitTimestamp`),
@@ -503,8 +507,22 @@ nothing itself. It claims `org.claudemonitor.Popover` only once the popover stan
 then on the tray hides its own icon. With the extension off, broken or the tray too old (no
 `/Popover`, unknown protocol) the name is free and the tray icon and menu are back.
 
-Install (the schema is compiled by `install`; a plain copy without `glib-compile-schemas` leaves the
-extension in `ERROR` and the tray icon stays visible):
+**Customers** get the extension from the binary (CM-43): `claude-monitor-tray --install-gnome-extension`
+writes the embedded files to `~/.local/share/gnome-shell/extensions/<uuid>`, compiles the schema with
+`glib-compile-schemas` and switches the extension on in `enabled-extensions` (read back after the
+`set`). `--uninstall-gnome-extension` switches it off and removes it; `--refresh-gnome-extension`
+brings an installed one up to the binary and is what `--update` runs after the `rename`, before
+`try-restart`. A symbolic link at the target (a developer link onto `Linux/Extension`), at
+`<target>/schemas` or foreign files there make all three commands stop with exit 10 and change
+nothing; a second command at the same time stops with 10 as well.
+
+**What takes effect when (FE-9).** On an update of a running session the stylesheets and
+`schemas/gschemas.compiled` are read again at the next unlock or colour-scheme change, while
+`extension.js` and `popoverState.js` only change at the next log-in. Developer rule: between two
+versions, schema keys and CSS classes are only **added**, never renamed or removed.
+
+**Developers** can still pack from the source tree (the schema is compiled by `install`; a plain copy
+without `glib-compile-schemas` leaves the extension in `ERROR` and the tray icon stays visible):
 
 ```sh
 gnome-extensions pack Linux/Extension --force \

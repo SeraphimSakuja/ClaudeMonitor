@@ -164,7 +164,7 @@ public enum TrayPresentation {
     /// | „Loading…"/„No accounts" (`:96-103`) | drin | sonst wäre ein leeres Menü mehrdeutig |
     /// | Globale Fußzeile „Checked … ago" (`:284-288`) | drin | Einordnung des Datenalters |
     /// | „Beenden" (`:292-297`) | drin | **Pflicht** — ein residenter Prozess ohne Programmmenü wäre sonst nicht beendbar |
-    /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** (Menü) | abgetrennte Randmenge §3.1, bräuchte Persistenz; das Popover bekommt beide Segmentsätze (CM-41) und schaltet selbst |
+    /// | Umschalter Aktiv/Überblick (`:143-146`) | **draußen** (Menü) | abgetrennte Randmenge §3.1, bräuchte Persistenz; das Popover bekommt beide Segmentsätze (CM-41) und schaltet selbst. Popover = Extension, eingebettet, `--install-gnome-extension` (CM-43) |
     /// | „Beim Anmelden starten" (`:170-200`) | drin — `CM-30` | ankreuzbar, spiegelt `systemctl --user is-enabled`; bei Maske oder nicht messbarem Zustand gesperrt mit einer Hinweiszeile (``TrayAutostartDisplay``) |
     /// | Update-Block (`:208-278`) | drin — `CM-37` | „Automatic updates" ankreuzbar, spiegelt `is-enabled` des Timers (``TrayAutoUpdateDisplay``); „Check for updates now" startet `--update` als Kindprozess, das Ergebnis steht als eine Zeile darunter (``TrayUpdateCheck``). Sparkle selbst bleibt macOS-only |
     static func menu(

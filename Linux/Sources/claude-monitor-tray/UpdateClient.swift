@@ -1,4 +1,5 @@
 import Foundation
+import GnomeExtension
 #if canImport(Glibc)
 import Glibc
 #endif
@@ -300,6 +301,13 @@ struct UpdateClient {
         // Entfernen ist ein No-op).
         try? FileManager.default.removeItem(atPath: temporary)
 
+        // CM-43 · FE-4: eine installierte GNOME-Extension mit dem NEUEN Binary
+        // abgleichen — **vor** `try-restart`, denn läuft `--update` als Kind der
+        // Tray-Unit, beendet der Neustart es (siehe oben); danach liefe der
+        // Abgleich nie. Ein Fehlschlag fügt nur eine Zeile hinzu, Exit und Text
+        // von `--update` bleiben.
+        refreshGnomeExtension(binaryPath: binaryPath)
+
         // (12) FE 11 + 2b-Auflage 5: Neustart nur, wenn systemd für den Namen
         // die eigene Autostart-Unit lädt und die genau dieses Binary startet.
         // Dieselbe Messung wie beim Einrichten (gemeinsamer Code); ihre
@@ -317,6 +325,27 @@ struct UpdateClient {
         }
         emit(UpdateTexts.restartTheTray(version: offer.version))
         return .ok
+    }
+
+    /// FE-4: `timeout 30 <neues Binary> --refresh-gnome-extension`. Bei Exit 0
+    /// gehen alle Zeilen von stderr durch, bei Exit ≠ 0 nur die erste nicht
+    /// leere (eine künftige Fassung ohne die Option gäbe sonst die ganze
+    /// `usage` aus), danach ``UpdateTexts/extensionRefreshFailed(exit:)``.
+    private func refreshGnomeExtension(binaryPath: String) {
+        let outcome = runner.run(
+            executable: "timeout",
+            arguments: [String(UpdateDecision.extensionRefreshTimeoutSeconds), binaryPath, GnomeExtensionTexts.refresh]
+        )
+        let lines = outcome.standardError
+            .split(whereSeparator: \.isNewline)
+            .map { String($0) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if outcome.didRun && outcome.exitStatus == 0 {
+            for line in lines { emit(line) }
+            return
+        }
+        if outcome.didRun, let first = lines.first { emit(first) }
+        emit(UpdateTexts.extensionRefreshFailed(exit: outcome.exitStatus))
     }
 
     // MARK: - Manifest (gemeinsam für `--update` und `--check-update`)

@@ -65,7 +65,7 @@ during the next tidy-up.
 
 ### Linux
 
-`claude-monitor-tray` is a single self-contained binary for the GNOME/KDE panel. It **will be
+`claude-monitor-tray` is a single self-contained binary for the GNOME/KDE panel. On GNOME 50 it installs its own panel extension with `--install-gnome-extension`. It **will be
 released as a downloadable tarball** (`.tar.gz`) with a `sha256` file next to it — no package
 repository and no `.deb`. Not for want of tooling, but because a package wants a repository behind
 it, and that means a foreign account, a maintenance duty and a promise that is hard to take back.

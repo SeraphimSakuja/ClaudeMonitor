@@ -45,6 +45,17 @@ public enum UpdateTexts {
     /// deshalb nicht, dass er lief.
     public static let trayRestarted = "The tray service was restarted with the new version if it was running."
 
+    /// CM-43 · FE-4: Der Abgleich einer installierten GNOME-Extension nach dem
+    /// Austausch lief nicht oder endete mit Exit ≠ 0. Das Update selbst gilt
+    /// weiter. Der Rat nennt `--refresh-gnome-extension` und nicht `--install-…`:
+    /// Einrichten schaltete die Extension ein und nähme eine bewusste
+    /// Abschaltung zurück. (Optionsname: `GnomeExtensionTexts.refresh`; das Ziel
+    /// `Update` hängt bewusst nicht am Ziel `GnomeExtension`.)
+    public static func extensionRefreshFailed(exit: Int32) -> String {
+        "The GNOME extension was not brought up to date (exit \(exit)). "
+            + "Run `claude-monitor-tray --refresh-gnome-extension` to do it by hand."
+    }
+
     /// Kein Neustart — der Nutzer startet den Tray selbst neu.
     public static func restartTheTray(version: String) -> String {
         "Restart the tray to use \(version) — a tray that is running right now keeps the old version until then."

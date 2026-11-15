@@ -186,4 +186,7 @@ public enum UpdateDecision {
     public static let tarballTimeoutSeconds = 600
     /// Gesamtzeit der Ladeprobe (Schritt 10).
     public static let probeTimeoutSeconds = 30
+    /// Gesamtzeit des Extension-Abgleichs nach dem Austausch (CM-43, FE-4).
+    /// Die Summe 120 + 600 + 30 + 30 = 780 s bleibt unter `TimeoutStartSec=30min`.
+    public static let extensionRefreshTimeoutSeconds = 30
 }
