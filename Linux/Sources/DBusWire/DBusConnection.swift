@@ -247,6 +247,11 @@ public final class DBusConnection {
             arguments: arguments
         )
         let deadline = Date().addingTimeInterval(timeout)
+        // Lokal sammeln, erst beim Verlassen an `deferred` hängen: Läge die
+        // Nicht-Antwort schon während des Wartens in `deferred`, liefe `pump`
+        // mit 0 ms (Busy-Wait bis zur Frist, CM-AUF-19).
+        var held: [DBusMessage] = []
+        defer { deferred = held + deferred }
         while Date() < deadline {
             var reply: DBusMessage?
             for message in try pump(timeoutMilliseconds: 100) {
@@ -258,7 +263,7 @@ public final class DBusConnection {
                     // im selben Stapel —, gehört dem nächsten `pump`. Eine
                     // Reihenfolge der Startaufrufe schlösse nur einem von
                     // zwei Namen das Fenster.
-                    deferred.append(message)
+                    held.append(message)
                 }
             }
             if let reply {
