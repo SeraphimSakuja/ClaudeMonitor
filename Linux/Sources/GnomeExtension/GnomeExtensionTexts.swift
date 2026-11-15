@@ -17,6 +17,9 @@ public enum GnomeExtensionTexts {
     public static let noDataDirectory = "Cannot work out where your data directory is: neither XDG_DATA_HOME "
         + "nor HOME is an absolute path. Nothing was changed."
 
+    public static let payloadUnreadable = "The extension files built into this program are unreadable "
+        + "(metadata.json has no uuid). Nothing was changed."
+
     public static func toolNotRunnable(tool: String, reason: String) -> String {
         "Cannot run \(tool): \(reason)\nNothing was changed."
     }

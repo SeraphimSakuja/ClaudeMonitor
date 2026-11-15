@@ -39,8 +39,7 @@ struct GnomeExtensionInstaller {
     // MARK: - Befehle
 
     func install() -> TrayExit {
-        // Leere UUID (unlesbares eingebettetes metadata.json): Ziel wäre `extensions/` selbst.
-        guard !GnomeExtensionPayload.uuid.isEmpty else { return .autostartUnavailable }
+        guard payloadReadable() else { return .autostartUnavailable }
         guard let dataHome = resolveDataHome() else { return .autostartUnavailable }
         let settings: Settings
         switch readSettings(includeDisabled: true) {
@@ -72,6 +71,7 @@ struct GnomeExtensionInstaller {
     }
 
     func uninstall() -> TrayExit {
+        guard payloadReadable() else { return .autostartUnavailable }
         guard let dataHome = resolveDataHome() else { return .autostartUnavailable }
         let settings: Settings
         switch readSettings(includeDisabled: false) {
@@ -125,6 +125,7 @@ struct GnomeExtensionInstaller {
     }
 
     func refresh() -> TrayExit {
+        guard payloadReadable() else { return .autostartUnavailable }
         guard let dataHome = resolveDataHome() else { return .autostartUnavailable }
         let target = GnomeExtensionPaths.target(dataHome: dataHome)
 
@@ -147,6 +148,14 @@ struct GnomeExtensionInstaller {
         if let exit = putInPlace(dataHome: dataHome, target: target, existing: true, command: GnomeExtensionTexts.refresh) { return exit }
         emit(GnomeExtensionTexts.refreshed)
         return .ok
+    }
+
+    /// Leere UUID (unlesbares eingebettetes metadata.json): Ziel wäre `extensions/`
+    /// selbst. Gemeinsame Vorprüfung aller drei Befehle, meldet die Ursache.
+    private func payloadReadable() -> Bool {
+        guard GnomeExtensionPayload.uuid.isEmpty else { return true }
+        emit(GnomeExtensionTexts.payloadUnreadable)
+        return false
     }
 
     // MARK: - Einstellungen
