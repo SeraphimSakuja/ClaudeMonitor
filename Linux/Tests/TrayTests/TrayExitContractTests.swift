@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import Autostart
 import Crypto
+import GnomeExtension
 import Update
 @testable import claude_monitor_tray
 #if canImport(Glibc)
@@ -1230,7 +1231,8 @@ struct TrayExitContractTests {
         let dateien = FileManager.default
         let paket = verzeichnis.appendingPathComponent("claude-monitor-tray-9.9.9", isDirectory: true)
         try dateien.createDirectory(at: paket, withIntermediateDirectories: true)
-        let skript = Data("#!/bin/sh\necho \"\(versionsZeile)\"\n".utf8)
+        // CM-43: jeder Aufruf steht im Protokoll der `systemctl`-Attrappe (Reihenfolge ablesbar).
+        let skript = Data("#!/bin/sh\n[ -n \"$CM_STUB_LOG\" ] && printf '%s\\n' \"$*\" >> \"$CM_STUB_LOG\"\necho \"\(versionsZeile)\"\n".utf8)
         let binaer = paket.appendingPathComponent("claude-monitor-tray")
         try skript.write(to: binaer)
         try dateien.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaer.path)
@@ -1599,5 +1601,59 @@ struct TrayExitContractTests {
             Self.pfadVorhanden(kopie.deletingLastPathComponent().appendingPathComponent(".claude-monitor-tray.update-new").path) == false
         )
         #expect(try dateien.contentsOfDirectory(atPath: temp.path).isEmpty)
+
+        // CM-43 · T2: der Abgleich der Extension läuft nach dem Ersatz und vor der Neustart-Messung.
+        let protokoll = attrappe.aufrufe()
+        let abgleich = protokoll.indices.filter { protokoll[$0] == "--refresh-gnome-extension" }
+        #expect(abgleich.count == 1, "Aufrufe: \(protokoll)")
+        if let stelle = abgleich.first, let neustartMessung = protokoll.indices.first(where: { $0 > stelle && protokoll[$0].hasPrefix("--user") }) {
+            #expect(stelle < neustartMessung)
+        } else {
+            Issue.record("keine systemctl-Messung nach dem Abgleich: \(protokoll)")
+        }
+    }
+
+    // MARK: - CM-43 · GNOME-Extension
+
+    /// Die Extension einrichten, nach älterer Fassung abgleichen, entfernen — fremde Einträge bleiben.
+    @Test("CM-43: Extension einrichten, abgleichen, entfernen — fremde Listeneinträge bleiben")
+    func CM43_extension_einrichtenAbgleichenEntfernen() throws {
+        let dateien = FileManager.default
+        let home = try Self.temporaeresHome()
+        defer { try? dateien.removeItem(at: home) }
+        let attrappe = try AutostartSystemctlStub(home: home)
+        let gnome = try attrappe.gnomeAttrappen(startwerte: [
+            "enabled-extensions": "['x']",
+            "disabled-extensions": "@as []",
+            "disable-user-extensions": "false",
+            "allow-extension-installation": "true"
+        ])
+        let umgebung = attrappe.umgebung(isEnabled: "enabled", zusaetzlich: gnome.umgebung)
+        let uuid = GnomeExtensionPayload.uuid
+        let ziel = home.appendingPathComponent(".local/share/gnome-shell/extensions/\(uuid)", isDirectory: true)
+        let eigeneListe = "['x', '\(uuid)']"
+
+        // Schritt 1: einrichten.
+        let einrichten = try Self.autostartLauf(["--install-gnome-extension"], umgebung: umgebung)
+        #expect(einrichten.code == 0, "Meldung: \(einrichten.ausgabe)")
+        for datei in GnomeExtensionPayload.files {
+            #expect(dateien.contents(atPath: ziel.appendingPathComponent(datei.relativePath).path) == Data(datei.bytes), "Datei \(datei.relativePath)")
+        }
+        #expect(Self.pfadVorhanden(ziel.appendingPathComponent("schemas/gschemas.compiled").path), "gschemas.compiled fehlt")
+        #expect(gnome.wert("enabled-extensions") == eigeneListe, "enabled-extensions: \(gnome.wert("enabled-extensions") ?? "–")")
+        #expect(Self.pfadVorhanden(home.appendingPathComponent(".local/share/gnome-shell/.claudemonitor-extension-staging").path) == false)
+
+        // Schritt 2: ältere Fassung der Datei ⇒ Abgleich stellt sie her, die Liste bleibt.
+        try Data("alt".utf8).write(to: ziel.appendingPathComponent("extension.js"))
+        let abgleich = try Self.autostartLauf(["--refresh-gnome-extension"], umgebung: umgebung)
+        #expect(abgleich.code == 0, "Meldung: \(abgleich.ausgabe)")
+        #expect(dateien.contents(atPath: ziel.appendingPathComponent("extension.js").path) == Data(GnomeExtensionPayload.files[0].bytes))
+        #expect(gnome.wert("enabled-extensions") == eigeneListe, "enabled-extensions: \(gnome.wert("enabled-extensions") ?? "–")")
+
+        // Schritt 3: entfernen.
+        let entfernen = try Self.autostartLauf(["--uninstall-gnome-extension"], umgebung: umgebung)
+        #expect(entfernen.code == 0, "Meldung: \(entfernen.ausgabe)")
+        #expect(Self.pfadVorhanden(ziel.path) == false, "Ziel-Ordner steht noch")
+        #expect(gnome.wert("enabled-extensions") == "['x']", "enabled-extensions: \(gnome.wert("enabled-extensions") ?? "–")")
     }
 }

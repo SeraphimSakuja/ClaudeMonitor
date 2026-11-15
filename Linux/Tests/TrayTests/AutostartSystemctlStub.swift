@@ -170,6 +170,62 @@ struct AutostartSystemctlStub {
     }
 }
 
+extension AutostartSystemctlStub {
+
+    // MARK: - gsettings und glib-compile-schemas (CM-43)
+
+    /// Legt eine zustandsbehaftete `gsettings`- und eine `glib-compile-schemas`-Attrappe neben `systemctl`.
+    ///
+    /// `gsettings get org.gnome.shell <key>` gibt den Inhalt der Datei `<key>` aus, `set … <key> <wert>`
+    /// schreibt sie; jeder Aufruf steht im Protokoll. `glib-compile-schemas <ordner>` legt
+    /// `<ordner>/gschemas.compiled` an.
+    func gnomeAttrappen(startwerte: [String: String]) throws -> GnomeAttrappen {
+        let zustand = binVerzeichnis.deletingLastPathComponent().appendingPathComponent("gsettings-zustand", isDirectory: true)
+        try FileManager.default.createDirectory(at: zustand, withIntermediateDirectories: true)
+        let attrappen = GnomeAttrappen(zustand: zustand)
+        for (schluessel, wert) in startwerte { try attrappen.setzen(schluessel, wert) }
+        let gsettings = """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "$CM_STUB_LOG"
+            case "$1" in
+              get) cat "$CM_STUB_GS_DIR/$3" 2>/dev/null || exit 1 ;;
+              set) printf '%s\\n' "$4" > "$CM_STUB_GS_DIR/$3" ;;
+            esac
+            exit 0
+
+            """
+        let kompilieren = """
+            #!/bin/sh
+            : > "$1/gschemas.compiled"
+            exit 0
+
+            """
+        for (name, text) in [("gsettings", gsettings), ("glib-compile-schemas", kompilieren)] {
+            let pfad = binVerzeichnis.appendingPathComponent(name)
+            try text.write(to: pfad, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pfad.path)
+        }
+        return attrappen
+    }
+}
+
+/// Zustand der `gsettings`-Attrappe.
+struct GnomeAttrappen {
+    let zustand: URL
+
+    var umgebung: [String: String] { ["CM_STUB_GS_DIR": zustand.path] }
+
+    func setzen(_ schluessel: String, _ wert: String) throws {
+        try Data((wert + "\n").utf8).write(to: zustand.appendingPathComponent(schluessel))
+    }
+
+    /// Der gespeicherte Wert ohne Zeilenende.
+    func wert(_ schluessel: String) -> String? {
+        guard let text = try? String(contentsOf: zustand.appendingPathComponent(schluessel), encoding: .utf8) else { return nil }
+        return text.trimmingCharacters(in: .newlines)
+    }
+}
+
 /// Protokolle und Antworten der `curl`-/`wget`-Attrappe.
 struct AbrufAttrappen {
     let curlProtokoll: String
