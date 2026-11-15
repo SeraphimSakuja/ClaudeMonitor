@@ -60,7 +60,9 @@ public enum TrayPopoverInterface {
 ///
 /// Alle Texte sind fertig, die Extension rechnet nichts. Die einzige Zahl, die
 /// sie weiterverarbeiten darf, ist ``Window/fraction`` (Balkenbreite).
-/// Schlüssel sind sortiert. Das Diagnose-Detail des Hinweisbalkens steht
+/// Schlüssel sind sortiert. Additiv (CM-42, Protokoll 1 bleibt): `contentText`,
+/// `Issue.isSevere`, `Panel.title`, `PanelMode.label` — Texte und Schweregrad,
+/// die die Extension sonst selbst erfinden müsste. Das Diagnose-Detail des Hinweisbalkens steht
 /// bewusst nicht darin — wie im Menü gehen nur Titel und Erklärung hinaus.
 ///
 /// Gebaut wird aus **denselben** Shared-Typen wie ``TrayPresentation/menu(for:now:autostart:autoUpdate:updateCheck:)``;
@@ -73,6 +75,8 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
     public struct Issue: Codable, Equatable, Sendable {
         public let title: String
         public let explanation: String
+        /// Schwerer Fall (Symbolfarbe rot statt orange), `TrayTexts.isSevere`.
+        public let isSevere: Bool
     }
 
     /// Eine Fensterzeile eines Accounts.
@@ -160,11 +164,15 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
         /// `green`, `yellow`, `red`, `neutral` oder `noData`.
         public let icon: String
         public let accessibleText: String
+        /// Beschriftung des Umschalters („Active account", „Overview").
+        public let label: String
     }
 
     /// Beide Modi sind **immer** vorhanden — der Umschalter gehört der
     /// Extension, der Tray speichert nichts.
     public struct Panel: Codable, Equatable, Sendable {
+        /// Beschriftung der Modus-Zeile („Panel").
+        public let title: String
         public let activeAccount: PanelMode
         public let overview: PanelMode
     }
@@ -198,6 +206,8 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
     public let issue: Issue?
     /// `loading`, `empty`, `issueOnly` oder `accounts`.
     public let content: String
+    /// Zeile für `loading` („Loading…") und `empty`, sonst `null`.
+    public let contentText: String?
     /// In Menüreihenfolge (nach Account-Nummer).
     public let accounts: [Account]
     public let panel: Panel
@@ -210,6 +220,7 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
         try container.encode(header, forKey: .header)
         try container.encode(issue, forKey: .issue)
         try container.encode(content, forKey: .content)
+        try container.encode(contentText, forKey: .contentText)
         try container.encode(accounts, forKey: .accounts)
         try container.encode(panel, forKey: .panel)
         try container.encode(footer, forKey: .footer)
@@ -239,18 +250,27 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
         updateCheck: TrayUpdateCheck?
     ) -> TrayPopoverState {
         let content: String
+        let contentText: String?
         var accounts: [Account] = []
         switch PopoverContent.make(for: state, now: now) {
-        case .loading: content = "loading"
-        case .empty: content = "empty"
-        case .issueOnly: content = "issueOnly"
+        case .loading:
+            content = "loading"
+            contentText = TrayTexts.loading
+        case .empty:
+            content = "empty"
+            contentText = TrayTexts.noAccounts
+        case .issueOnly:
+            content = "issueOnly"
+            contentText = nil
         case .accounts(let sorted):
             content = "accounts"
+            contentText = nil
             accounts = sorted.map { account(for: $0, now: now) }
         }
 
         let issue = state.issue.map {
-            Issue(title: TrayTexts.issueTitle(for: $0), explanation: TrayTexts.issueExplanation(for: $0))
+            Issue(title: TrayTexts.issueTitle(for: $0), explanation: TrayTexts.issueExplanation(for: $0),
+                  isSevere: TrayTexts.isSevere($0))
         }
         let controls = TrayPresentation.settingsItems(autostart: autostart, autoUpdate: autoUpdate, updateCheck: updateCheck)
             + [TrayPresentation.refreshItem, TrayPresentation.quitItem]
@@ -260,8 +280,10 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
             header: TrayTexts.header,
             issue: issue,
             content: content,
+            contentText: contentText,
             accounts: accounts,
             panel: Panel(
+                title: TrayTexts.panelModeTitle,
                 activeAccount: panelMode(for: state, mode: .activeAccount, now: now),
                 overview: panelMode(for: state, mode: .overview, now: now)
             ),
@@ -322,7 +344,8 @@ public struct TrayPopoverState: Codable, Equatable, Sendable {
                 )
             },
             icon: iconName(TrayIconAggregation.icon(for: display)),
-            accessibleText: TraySNIProperties.accessibleDescription(spokenLabelText: spoken)
+            accessibleText: TraySNIProperties.accessibleDescription(spokenLabelText: spoken),
+            label: mode == .activeAccount ? TrayTexts.activeAccountMode : TrayTexts.overviewMode
         )
     }
 

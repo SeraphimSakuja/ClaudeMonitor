@@ -121,6 +121,12 @@ public enum TrayTexts {
     public static let noAccounts = "No accounts in claude-swap"
     public static let noUsableData = "No usable data"
 
+    /// Modus-Zeile der Panel-Anzeige im Popover (CM-42). „Panel" ersetzt das
+    /// „Menu bar" der macOS-Fassung (`MonitorPopoverView.swift:140`).
+    public static let panelModeTitle = "Panel"
+    public static let activeAccountMode = "Active account"
+    public static let overviewMode = "Overview"
+
     /// Globale Fußzeile („Checked … ago", `MonitorPopoverView.swift:284-288`).
     public static func checked(ago age: String) -> String { "Checked \(age) ago" }
 
