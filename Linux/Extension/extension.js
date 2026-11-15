@@ -164,7 +164,9 @@ class PanelSegment {
         this._marker = makeLabel('cm-panel-marker cm-bold');
         this._dot = new St.Widget({style_class: 'cm-dot cm-panel-dot', y_align: Clutter.ActorAlign.CENTER});
         this._numbers = makeLabel('cm-panel-numbers');
-        this._reset = makeLabel('cm-panel-reset cm-dim');
+        this._reset = makeLabel('cm-panel-reset');
+        // abgeblendet relativ zur geerbten Panel-Farbe (Übersicht: dunkler Hintergrund, auch im hellen Modus)
+        this._reset.opacity = 150;
         for (const child of [this._marker, this._dot, this._numbers, this._reset])
             this.actor.add_child(child);
     }
