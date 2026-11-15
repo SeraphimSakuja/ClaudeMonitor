@@ -582,9 +582,9 @@ placeholder.
 The Linux baseline is **three** numbers now:
 
 ```sh
-( cd Core && swift test )     # 153 tests
-( cd Shared && swift test )   # 125 tests
-( cd Linux && swift test )    # 34 tests — TrayTests, the CM-20/CM-26/CM-27 slot
+( cd Core && swift test )     # 148 tests
+( cd Shared && swift test )   # 112 tests
+( cd Linux && swift test )    # 40 tests — TrayTests, the CM-20/CM-26/CM-27 slot
 ```
 
 `scripts/release-linux.sh` runs all three and treats these numbers as a **lower bound**: a green run

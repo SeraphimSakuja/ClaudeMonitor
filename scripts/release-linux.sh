@@ -165,13 +165,13 @@ EXPECTED_SONAMES="$(printf '%s\n' \
   'linux-vdso.so.1' | sort)"
 
 # ---------------------------------------------------------------------------
-# Testbestand — zuletzt bekannter Stand, gemessen am 17.09.2026 (Anker 9eb7ef6).
+# Testbestand — zuletzt bekannter Stand, gemessen am 15.11.2026 (Anker c5452ba).
 # Der Lauf misst frisch; diese Zahlen sind die UNTERGRENZE. Ein Rückgang heißt,
 # dass Tests verschwunden sind — ein grüner Lauf mit weniger Tests ist kein
 # Beleg, sondern ein Befund.
-BASELINE_CORE=153
-BASELINE_SHARED=125
-BASELINE_LINUX=34
+BASELINE_CORE=148
+BASELINE_SHARED=112
+BASELINE_LINUX=40
 
 # Größenfenster des fertigen Binarys. `--static-swift-stdlib` bindet die
 # Swift-Laufzeit ein; gemessen rund 70 MB. Deutlich darunter heißt, dass statisch
