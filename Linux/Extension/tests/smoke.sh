@@ -71,6 +71,12 @@ if [ -n "${EXT_INSTALLER:-}" ]; then
         cmp -s "$EXT_DIR/$f" "$p" \
             || { echo "ROT 0: $f im Binary weicht vom Quellbaum ab (Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
     done < <(find "$ZIEL" -type f -print0)
+    # Gegenrichtung: jede Quelldatei (ohne tests/) muss das Binary installiert haben — sonst fehlt eine neue Datei in der Nutzlast.
+    while IFS= read -r -d '' p; do
+        f="${p#"$EXT_DIR"/}"
+        [ -f "$ZIEL/$f" ] \
+            || { echo "ROT 0: $f fehlt im Binary (Nutzlast unvollständig, Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
+    done < <(find "$EXT_DIR" -type f -not -path "$EXT_DIR/tests/*" -print0)
 else
     gnome-extensions install --force "$EXT_ZIP" || exit 1
     gsettings set org.gnome.shell enabled-extensions "['$EXT_UUID']"
