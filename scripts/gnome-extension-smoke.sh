@@ -2,7 +2,7 @@
 # CM-42: Gate der GNOME-Extension — nur auf dem Wirt (nicht im Container), rc 0 = grün.
 #   1. gjs-Tests der Shell-freien Regeln (Linux/Extension/tests/*.test.js, je Datei `gjs -m`).
 #   2. Rauchtest: gnome-shell --headless in Wegwerf-HOME mit privatem Bus, installierte Extension,
-#      Ersatz-Gegenstelle Linux/Extension/tests/smoke.sh (bekommt EXT_UUID, EXT_WORK, EXT_SHELL_LOG).
+#      Ersatz-Gegenstelle Linux/Extension/tests/smoke.sh (bekommt EXT_UUID, EXT_WORK, EXT_ZIP, EXT_DIR).
 # Nie gegen die laufende Sitzung: eigener Bus, eigenes HOME/XDG_*.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -146,7 +146,7 @@ class AccountCard {
         setStatusClass(this._dot, account.status);
         setVisibleText(this._marker, account.marker);
         this._name.text = account.name ?? '';
-        this._name.style_class = account.isActive ? 'cm-card-name cm-bold' : 'cm-card-name';
+        this._name.style_class = 'cm-card-name cm-bold';
         this._number.text = account.number ?? '';
         this._binding.text = account.binding ?? '';
         this._binding.style_class = account.binding === '–' ? 'cm-card-binding cm-dim' : 'cm-card-binding';

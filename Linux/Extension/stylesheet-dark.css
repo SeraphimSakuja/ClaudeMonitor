@@ -10,7 +10,7 @@
 .cm-yellow { color: rgb(255, 149, 0); }
 .cm-red { color: rgb(255, 59, 48); }
 .cm-neutral { color: rgb(142, 142, 147); }
-.cm-dim { opacity: 150; }
+.cm-dim { color: rgba(255,255,255, 0.55); }
 .cm-bold { font-weight: bold; }
 .cm-small { font-size: 0.85em; }
 
@@ -52,9 +52,9 @@
 .cm-window-row { spacing: 6px; }
 .cm-window-name { width: 62px; }
 .cm-window-percent { width: 36px; text-align: right; font-weight: 600; font-feature-settings: "tnum"; }
-.cm-window-reset { width: 48px; text-align: right; opacity: 150; font-size: 0.85em; }
+.cm-window-reset { width: 48px; text-align: right; color: rgba(255,255,255, 0.55); font-size: 0.85em; }
 .cm-bar-track { height: 6px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.20); }
-.cm-bar-fill { border-radius: 3px; }
+.cm-bar-fill { height: 6px; border-radius: 3px; }
 .cm-bar-fill.cm-green { background-color: rgb(52, 199, 89); }
 .cm-bar-fill.cm-yellow { background-color: rgb(255, 149, 0); }
 .cm-bar-fill.cm-red { background-color: rgb(255, 59, 48); }
