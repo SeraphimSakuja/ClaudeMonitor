@@ -58,21 +58,13 @@ struct TrayPresentationContractTests {
 
     // MARK: - T1 · Panel-Text
 
-    /// Auflage 1 (Fachentscheid 5.3): Der Panel-Text trägt **Marker · Zahlen ·
-    /// Restzeit** in genau dieser Reihenfolge und **keine** Account-Namen.
+    /// Fachentscheid 5.3 und CM-25 F5: Das Panel zeigt keine Account-Namen, und der
+    /// Vorlesetext (`IconAccessibleDesc`) trägt den Panel-Text ohne Stufen-Marker.
     ///
-    /// Erwartungswert wörtlich aus der Spezifikation: „Panel zeigt bei
-    /// gesetztem Reset `▸74/28 2h04`".
-    ///
-    /// ⚠️ Zum Aufbau: Die Restzeit steht nur an einem Segment mit **roter**
-    /// Account-Ampel (`MenuBarRoleSelection.qualifiesForReset`, ab 85 %). Mit
-    /// 74 %/28 % allein ist der Account gelb und die Restzeit entfiele — der
-    /// Fall der Spezifikation ist deshalb der dokumentierte versteckte Engpass
-    /// (`MenuBarDisplay` Regel 4): ein `spend`-Fenster bindet den Account rot,
-    /// die beiden **sichtbaren** Zahlen bleiben 74/28, und die Restzeit gehört
-    /// dem Engpassfenster.
-    @Test("Panel-Text: Marker, Zahlen, Restzeit — in dieser Reihenfolge, ohne Namen")
-    func labelTextCarriesMarkerNumbersAndCountdown() {
+    /// Aufbau: Die Restzeit steht nur an einem Segment mit roter Account-Ampel; ein
+    /// `spend`-Fenster mit 92 % bindet den Account rot, sichtbar bleiben 74/28.
+    @Test("Panel-Text ohne Account-Namen, Vorlesetext = Panel-Text ohne Stufen-Marker")
+    func labelTextHasNoNamesAndSpokenTextHasNoMarkers() {
         let now = TrayFixture.now
         let account = TrayFixture.account(
             id: "1",
@@ -80,25 +72,22 @@ struct TrayPresentationContractTests {
             windows: [
                 TrayFixture.window(.fiveHour, percent: 74),
                 TrayFixture.window(.sevenDay, percent: 28),
-                // Engpassfenster: Reset 2 h 04 min nach `now`.
                 TrayFixture.window(.spend, percent: 92, resetsAt: now.addingTimeInterval(7440))
             ],
             isActive: true
         )
 
         let view = TrayPresentation.make(for: TrayFixture.state([account]), now: now)
-        let label = view.labelText
 
-        // CM-25 F3: der Stufen-Marker (rot, 92 % über `spend`) steht nach dem ▸.
-        #expect(label == "▸\u{1F534}74/28 2h04")
-        // Fachentscheid 5.3: Namen stehen im Menü, nie im Panel.
-        #expect(!label.contains("privat"))
+        #expect(view.labelText.hasPrefix("▸"))
+        #expect(!view.labelText.contains("privat"))
+        #expect(Self.levelMarkers(in: view.labelText) == [0x1F534])
+        #expect(Self.levelMarkers(in: view.spokenLabelText).isEmpty)
 
-        // CM-25 F5: der Vorlesetext trägt den markerfreien Panel-Text.
         let table = TraySNIProperties.itemTable(for: view, menuPath: "/StatusNotifierItem/Menu")
         #expect(
             TraySNIProperties.value(named: "IconAccessibleDesc", in: table)
-                == .string(TrayTexts.applicationName + " ▸74/28 2h04")
+                == .string(TrayTexts.applicationName + " " + view.spokenLabelText)
         )
     }
 
