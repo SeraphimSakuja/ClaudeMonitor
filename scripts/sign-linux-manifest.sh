@@ -8,9 +8,11 @@
 #   sign    braucht den privaten Schlüssel — läuft dort, wo er liegt (heute der
 #           Mac), nie in einem Container. Ergebnis: build/linux/linux-latest.signed.json
 #           (Gegenprobe a eingeschlossen). docs/ bleibt unberührt.
-#   verify  braucht KEINEN Schlüssel, nur den Kandidaten und das gebaute Binary
-#           (Gegenprobe b). Auf Linux nativ, auf macOS im Bauimage swift:6.3.3.
-#           Erst nach Exit 0 schreibt es docs/linux-latest.json.
+#   verify  braucht KEINEN Schlüssel, nur Kandidat, unsigniertes Dokument und das
+#           gebaute Binary. Prüft der Reihe nach: der Kandidat gehört zum
+#           unsignierten Dokument (B2) und sein Build zum Binary (B3, volle
+#           Versionszeile), dann Gegenprobe b. Auf Linux nativ, auf macOS im
+#           Bauimage swift:6.3.3. Erst nach Exit 0 schreibt es docs/linux-latest.json.
 #
 # Aufruf je Rechner — Bau auf dem Linux-Wirt, Schlüssel auf dem Mac:
 #
@@ -39,6 +41,7 @@
 #           `openssl@3`. macOS bringt LibreSSL mit; das signiert kein Ed25519
 #           über rohe Bytes (`brew install openssl@3`).
 #   verify  --candidate <Datei>  build/linux/linux-latest.signed.json
+#           --unsigned <Datei>   build/linux/linux-latest.unsigned.json
 #           --binary <Datei>     build/linux/scratch/release/claude-monitor-tray
 #           --out <Datei>        docs/linux-latest.json
 #
@@ -71,7 +74,7 @@ fail() { printf '\n\033[31m✘ %s\033[0m\n' "$1" >&2; exit 1; }
 ok() { echo "  ✓ $1"; }
 
 usage() {
-  sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,56p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -194,7 +197,8 @@ cmd_sign() {
   ok "Gegenprobe a: Signatur im Kandidaten gültig für UpdateEndpoints.manifestPublicKey"
 
   mkdir -p "$(dirname "$out")"
-  cp "$work/candidate" "$out.tmp.$$" && mv "$out.tmp.$$" "$out"
+  cp "$work/candidate" "$out.tmp.$$" || { rm -f "$out.tmp.$$"; fail "$out nicht geschrieben (cp gescheitert)."; }
+  mv "$out.tmp.$$" "$out" || { rm -f "$out.tmp.$$"; fail "$out nicht geschrieben (mv gescheitert)."; }
   ok "$out"
   echo
   echo "  Weiter: $(basename "$out") auf den Linux-Wirt bringen (falls dies nicht er ist) und dort"
@@ -220,11 +224,13 @@ cp "$CM_CANDIDATE" "$out"'
 
 cmd_verify() {
   local candidate="$BUILD_DIR/linux-latest.signed.json"
+  local unsigned="$BUILD_DIR/linux-latest.unsigned.json"
   local binary="$BUILD_DIR/scratch/release/claude-monitor-tray"
   local out="$PROJECT_DIR/docs/linux-latest.json"
   while [ $# -gt 0 ]; do
     case "$1" in
       --candidate) candidate="$2"; shift 2 ;;
+      --unsigned) unsigned="$2"; shift 2 ;;
       --binary) binary="$2"; shift 2 ;;
       --out) out="$2"; shift 2 ;;
       *) fail "Unbekanntes Argument für verify: $1" ;;
@@ -233,8 +239,49 @@ cmd_verify() {
 
   echo "▸ verify"
   [ -r "$candidate" ] || fail "Signierter Kandidat fehlt: $candidate (entsteht mit: sign)"
+  [ -r "$unsigned" ] || fail "Unsigniertes Manifest fehlt: $unsigned
+  Es entsteht in Schritt 7/7 von scripts/release-linux.sh."
   [ -f "$binary" ] && [ -x "$binary" ] || fail "Gebautes Binary fehlt oder ist nicht ausführbar: $binary
   Es entsteht in Schritt 2/7 von scripts/release-linux.sh."
+
+  # B2 — Der Kandidat gehört zu DIESEM Dokument: ohne Trailer + "\n}\n" ist er
+  # byte-gleich der unsignierten Datei. Sonst wäre ein Manifest eines früheren
+  # Baus (andere Datei, andere Prüfsumme) mit gültiger Signatur durchgegangen.
+  local csize
+  csize="$(file_size "$candidate")"
+  [ "$csize" -gt "$TRAILER_LENGTH" ] || fail "Der Kandidat ist kürzer als der Signatur-Trailer: $candidate"
+  cmp -s <(head -c "$((csize - TRAILER_LENGTH))" "$candidate"; printf '\n}\n') "$unsigned" \
+    || fail "B2: Der Kandidat gehört nicht zum unsignierten Dokument dieses Baus.
+  Kandidat:     $candidate
+  unsigniert:   $unsigned
+  Der Kandidat wurde aus einem anderen Dokument signiert. Neu bauen und neu signieren (sign)."
+  ok "B2: Kandidat gehört zum unsignierten Dokument"
+
+  # B3 — Der Kandidat gehört zu DIESEM Binary: volle Versionszeile
+  # „<product> <version> (build <n>)", wie der Client sie vergleicht. Nur stdout
+  # (wie release-linux.sh version_probe); stderr trüge sonst eine Docker-Warnung ein.
+  # POSIX-BRE, damit BSD-sed (macOS) dasselbe liest wie GNU-sed.
+  local c_product c_version c_build expected line
+  c_product="$(sed -n 's/.*"product"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$candidate" | head -n 1)"
+  c_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$candidate" | head -n 1)"
+  c_build="$(sed -n 's/.*"buildVersion"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$candidate" | head -n 1)"
+  [ -n "$c_product" ] && [ -n "$c_version" ] && [ -n "$c_build" ] \
+    || fail "B3: Im Kandidaten fehlen product, version oder buildVersion: $candidate"
+  expected="$c_product $c_version (build $c_build)"
+  if [ "$(uname -s)" = "Linux" ]; then
+    line="$(env -u DBUS_SESSION_BUS_ADDRESS "$binary" --version 2>/dev/null)" || line="(Aufruf gescheitert)"
+  else
+    command -v docker >/dev/null || fail "verify braucht auf $(uname -s) Docker mit dem Bauimage $REF_IMAGE.
+  Alternative: den Kandidaten auf den Linux-Wirt bringen und verify dort ausführen."
+    line="$(docker run --rm --platform linux/amd64 \
+      -v "$(cd "$(dirname "$binary")" && pwd)/$(basename "$binary"):/in/claude-monitor-tray:ro" \
+      "$REF_IMAGE" /in/claude-monitor-tray --version 2>/dev/null)" || line="(Aufruf gescheitert)"
+  fi
+  [ "$line" = "$expected" ] || fail "B3: Der Kandidat gehört nicht zu diesem Binary.
+  Binary meldet:   $line
+  Kandidat erwartet: $expected
+  Binary und Manifest stammen aus verschiedenen Bauten. docs/linux-latest.json bleibt unverändert."
+  ok "B3: $line"
 
   # Gegenprobe b — mit dem AUSGELIEFERTEN Binary: Es holt den Kandidaten über
   # die curl-Attrappe, prüft Signatur und Felder und vergleicht die
@@ -270,7 +317,8 @@ cmd_verify() {
   ok "Gegenprobe b: $(basename "$binary") --check-update nimmt den Kandidaten an (Exit 0)"
 
   mkdir -p "$(dirname "$out")"
-  cp "$candidate" "$out.tmp.$$" && mv "$out.tmp.$$" "$out"
+  cp "$candidate" "$out.tmp.$$" || { rm -f "$out.tmp.$$"; fail "$out nicht geschrieben (cp gescheitert)."; }
+  mv "$out.tmp.$$" "$out" || { rm -f "$out.tmp.$$"; fail "$out nicht geschrieben (mv gescheitert)."; }
   ok "$out"
 }
 

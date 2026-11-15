@@ -154,8 +154,10 @@ every run because of ASLR) against exactly those six.
 `scripts/release-linux.sh` turns this binary into a downloadable tarball with a checksum and an
 **unsigned** manifest under `build/linux/`. It is the twin of `scripts/release.sh` and, like it,
 uploads nothing. The signing key never enters the build container: `scripts/sign-linux-manifest.sh
-sign` signs the manifest on the machine that holds the key, `… verify` lets the built binary accept
-it (`--check-update`, exit 0) and only then writes `docs/linux-latest.json` (CM-36).
+sign` signs the manifest on the machine that holds the key, `… verify` checks that the candidate
+belongs to this build's unsigned document and to this binary's full version line, lets the built
+binary accept it (`--check-update`, exit 0) and only then writes `docs/linux-latest.json`
+(CM-36, CM-40).
 
 The compatibility floor it promises is **`glibc ≥ 2.38`** and **`GLIBCXX ≥ 3.4.32`** — the highest
 symbol versions the release binary actually requires, measured, not estimated. That floor is a
