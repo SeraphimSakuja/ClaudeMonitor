@@ -144,7 +144,7 @@ struct UnitMessages: Sendable {
     /// Statusmeldungen erhalten den Pfad der eingeschalteten Unit.
     let statusEnabled: @Sendable (_ unitPath: String) -> String
     let statusDisabled: @Sendable (_ unitPath: String) -> String
-    /// `nil`: der Status prüft nicht auf eine fremde Unit (Update-Timer).
+    /// `nil`: der Status prüft nicht auf eine fremde Unit.
     let statusShadowed: (@Sendable (_ fragmentPath: String, _ unitPath: String) -> String)?
 
     static let autostart = UnitMessages(
@@ -212,7 +212,7 @@ struct UnitMessages: Sendable {
         nothingToRemove: { UpdateTexts.nothingToRemove(timerPath: $0[1]) },
         statusEnabled: { UpdateTexts.statusEnabled(timerPath: $0) },
         statusDisabled: { UpdateTexts.statusDisabled(timerPath: $0) },
-        statusShadowed: nil
+        statusShadowed: { UpdateTexts.statusShadowed(fragmentPath: $0, timerPath: $1) }
     )
 }
 
@@ -306,6 +306,13 @@ struct AutostartInstaller {
         guard reading == .known(.enabled),
               case .success(let layout) = AutostartPaths.layout(environment: environment) else { return nil }
         return shadowingFragment(unitName: AutostartPaths.unitName, unitPath: layout.unitPath)
+    }
+
+    /// Wie ``shadowingUnit(reading:)``, für den Update-Timer (CM-AUF-27).
+    func autoUpdateShadowingUnit(reading: AutostartStatus.Reading) -> String? {
+        guard reading == .known(.enabled),
+              case .success(let layout) = ManagedUnitSet.autoUpdate.primary.layout(environment) else { return nil }
+        return shadowingFragment(unitName: UpdateUnits.timerName, unitPath: layout.unitPath)
     }
 
     private func shadowingFragment(unitName: String, unitPath: String) -> String? {

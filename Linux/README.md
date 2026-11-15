@@ -318,7 +318,9 @@ autostart unit reads `enabled`, `--autostart-status` and the menu also look at F
 `daemon-reload` plus `show`, ≈ 0.3 s per menu open, silent). If systemd loads another file, the
 status names that file instead of the own path (and no started binary), and the menu entry is
 unticked and greyed out with a hint line naming the file. A failed measurement falls back to the
-plain reading. The update timer is not checked this way.
+plain reading. CM-AUF-27: the same for the update timer — `--auto-update-status` names the other
+file instead of the own path, and the "Automatic updates" entry is unticked and greyed out with a
+hint line naming it (precedence: masked > not measurable > other unit > failed attempt).
 
 ### Auto-update units (`--install-auto-update`, CM-29)
 

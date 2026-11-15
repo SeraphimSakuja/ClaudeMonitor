@@ -293,7 +293,11 @@ final class TrayProcess {
             shadowedBy: installer.shadowingUnit(reading: autostartReading)
         )
         self.autostart = autostart
-        let autoUpdate = TrayAutoUpdateDisplay(reading: installer.autoUpdateReading())
+        let autoUpdateReading = installer.autoUpdateReading()
+        let autoUpdate = TrayAutoUpdateDisplay(
+            reading: autoUpdateReading,
+            shadowedBy: installer.autoUpdateShadowingUnit(reading: autoUpdateReading)
+        )
         self.autoUpdate = autoUpdate
 
         let view = Self.makeView(
@@ -428,7 +432,11 @@ final class TrayProcess {
                 binary: installer.binaryMatch(),
                 shadowedBy: installer.shadowingUnit(reading: reading)
             )
-            autoUpdate = autoUpdate.afterRequery(reading: installer.autoUpdateReading())
+            let updateReading = installer.autoUpdateReading()
+            autoUpdate = autoUpdate.afterRequery(
+                reading: updateReading,
+                shadowedBy: installer.autoUpdateShadowingUnit(reading: updateReading)
+            )
             publish(makeView(now: Date()))
         }
 
@@ -631,10 +639,12 @@ final class TrayProcess {
         let word = attempt == .install ? "install" : "uninstall"
         log.always("autoupdate=\(word) started")
         let exit = attempt == .install ? installer.installAutoUpdate() : installer.uninstallAutoUpdate()
+        let updateReading = installer.autoUpdateReading()
         autoUpdate = autoUpdate.afterAttempt(
             attempt,
             succeeded: exit == .ok,
-            reading: installer.autoUpdateReading()
+            reading: updateReading,
+            shadowedBy: installer.autoUpdateShadowingUnit(reading: updateReading)
         )
         log.always("autoupdate=\(word) exit=\(exit.rawValue)")
 

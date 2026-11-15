@@ -260,6 +260,13 @@ public enum UpdateTexts {
         "Automatic updates are not set up (\(timerPath))."
     }
 
+    /// CM-AUF-27: systemd lädt für den Timer-Namen eine andere Datei — „enabled"
+    /// gilt dann für diese, nicht für den eigenen Pfad.
+    public static func statusShadowed(fragmentPath: String, timerPath: String) -> String {
+        "Automatic updates are not set up by this program: systemd uses \(fragmentPath) for "
+            + "\(UpdateUnits.timerName), not \(timerPath). Move \(fragmentPath) aside to manage automatic updates here."
+    }
+
     /// 2b-Auflage 9: Der letzte Lauf endete mit 12 oder 13.
     public static func lastRunFailed(exitStatus: Int, timestamp: String) -> String {
         let when = timestamp.isEmpty ? "" : " at \(timestamp)"

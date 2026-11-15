@@ -83,13 +83,17 @@ public enum TrayTexts {
     /// (`UpdateTexts.swift:190`).
     public static let automaticUpdates = "Automatic updates"
 
-    /// Hinweiszeilen unter „Automatic updates" (FE 5). Keine Pfade im Menü.
+    /// Hinweiszeilen unter „Automatic updates" (FE 5). Pfade nur bei fremder Unit (CM-AUF-27).
     public static var automaticUpdatesMasked: String {
         "Masked in systemd — undo with: "
             + AutostartTexts.unmaskCommand(unitName: UpdateUnits.timerName)
     }
     public static let automaticUpdatesUnavailable =
         "Automatic update state unknown — run claude-monitor-tray --auto-update-status for details"
+    /// CM-AUF-27: systemd lädt eine fremde Unit gleichen Namens.
+    public static func automaticUpdatesShadowed(path: String) -> String {
+        "Automatic updates are controlled by another unit: \(path)"
+    }
     public static let automaticUpdatesInstallFailed =
         "Could not set up automatic updates — run claude-monitor-tray --install-auto-update for details"
     public static let automaticUpdatesUninstallFailed =

@@ -13,13 +13,18 @@ public struct TrayAutoUpdateDisplay: Equatable, Sendable {
 
     public let toggle: TrayUnitToggle
 
-    public init(toggle: TrayUnitToggle) {
+    /// Pfad der fremden Unit, die systemd für den Timer-Namen lädt (CM-AUF-27) —
+    /// `nil`, wenn die eigene geladen wird oder nichts gemessen wurde.
+    public let shadowedBy: String?
+
+    public init(toggle: TrayUnitToggle, shadowedBy: String? = nil) {
         self.toggle = toggle
+        self.shadowedBy = shadowedBy
     }
 
     /// Anfangszustand aus einer Messung.
-    public init(reading: AutostartStatus.Reading) {
-        self.init(toggle: TrayUnitToggle(reading: reading))
+    public init(reading: AutostartStatus.Reading, shadowedBy: String? = nil) {
+        self.init(toggle: TrayUnitToggle(reading: reading), shadowedBy: shadowedBy)
     }
 
     public var status: TrayUnitToggle.Status { toggle.status }
@@ -29,24 +34,34 @@ public struct TrayAutoUpdateDisplay: Equatable, Sendable {
     public func afterAttempt(
         _ attempt: TrayUnitToggle.Attempt,
         succeeded: Bool,
-        reading: AutostartStatus.Reading
+        reading: AutostartStatus.Reading,
+        shadowedBy: String? = nil
     ) -> TrayAutoUpdateDisplay {
-        TrayAutoUpdateDisplay(toggle: toggle.afterAttempt(attempt, succeeded: succeeded, reading: reading))
+        TrayAutoUpdateDisplay(
+            toggle: toggle.afterAttempt(attempt, succeeded: succeeded, reading: reading),
+            shadowedBy: shadowedBy
+        )
     }
 
     /// Nach einem Neu-Erfragen ohne Versuch (Menü geöffnet).
-    public func afterRequery(reading: AutostartStatus.Reading) -> TrayAutoUpdateDisplay {
-        TrayAutoUpdateDisplay(toggle: toggle.afterRequery(reading: reading))
+    public func afterRequery(reading: AutostartStatus.Reading, shadowedBy: String? = nil) -> TrayAutoUpdateDisplay {
+        TrayAutoUpdateDisplay(toggle: toggle.afterRequery(reading: reading), shadowedBy: shadowedBy)
     }
 
-    /// Stellung und Bedienbarkeit des Eintrags (FE 2).
-    public var checkmark: TrayMenuItem.Checkmark { toggle.checkmark }
+    /// Stellung und Bedienbarkeit des Eintrags (FE 2). Bei fremder Unit
+    /// (CM-AUF-27) weder gesetzt noch bedienbar — ein „an" gälte der fremden
+    /// Unit, nicht diesem Programm.
+    public var checkmark: TrayMenuItem.Checkmark {
+        if shadowedBy != nil { return TrayMenuItem.Checkmark(isOn: false, isToggleable: false) }
+        return toggle.checkmark
+    }
 
-    /// Höchstens EINE Hinweiszeile; Vorrang Maske > nicht messbar >
-    /// Fehlversuch (FE 5).
+    /// Höchstens EINE Hinweiszeile; Vorrang Maske > nicht messbar > fremde
+    /// Unit (CM-AUF-27) > Fehlversuch (FE 5).
     public var hint: String? {
         if status == .known(.requiresApproval) { return TrayTexts.automaticUpdatesMasked }
         if status == .unavailable { return TrayTexts.automaticUpdatesUnavailable }
+        if let shadowedBy { return TrayTexts.automaticUpdatesShadowed(path: shadowedBy) }
         switch failedAttempt {
         case .install: return TrayTexts.automaticUpdatesInstallFailed
         case .uninstall: return TrayTexts.automaticUpdatesUninstallFailed
