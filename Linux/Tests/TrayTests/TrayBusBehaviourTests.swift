@@ -33,14 +33,14 @@ struct TrayBusBehaviourTests {
     /// Überschreibt die Store-Ablage des temporären Homes mit **einem**
     /// Account. Schema wie im echten Store (`schemaVersion 2`, `lastGood`,
     /// `fetchedAt` als Unix-Zeit).
-    private func schreibeEinenAccount(in home: URL, fetchedAt: Date) throws {
+    private func schreibeEinenAccount(in home: URL, fetchedAt: Date, fuenfStundenProzent: Int = 10) throws {
         let json = """
         {
           "schemaVersion": 2,
           "accounts": {
             "1": {
               "email": "user1@example.com",
-              "lastGood": { "five_hour": { "pct": 10.0 } },
+              "lastGood": { "five_hour": { "pct": \(fuenfStundenProzent).0 } },
               "fetchedAt": \(fetchedAt.timeIntervalSince1970)
             }
           }
@@ -55,6 +55,7 @@ struct TrayBusBehaviourTests {
 
     private static let registerRuf = "org.kde.StatusNotifierWatcher.RegisterStatusNotifierItem"
     private static let layoutRuf = "com.canonical.dbusmenu.LayoutUpdated"
+    private static let eigenschaftenAenderungRuf = "org.freedesktop.DBus.Properties.PropertiesChanged"
     private static let eigenschaftenRuf = "com.canonical.dbusmenu.ItemsPropertiesUpdated"
 
     /// R-002 — der Watcher kommt zurück, der Tray meldet sich erneut an; und
@@ -186,6 +187,39 @@ struct TrayBusBehaviourTests {
         #expect(
             bus.gesehen(ruf: Self.eigenschaftenRuf).isEmpty,
             "ItemsPropertiesUpdated begleitete die Struktur-Änderung: \(bus.gesehen(ruf: Self.eigenschaftenRuf).count)"
+        )
+
+        // R-008 (CM1): dieselben Accounts, nur andere Prozentwerte ⇒ der
+        // Panel-Text zieht über genau ein `PropertiesChanged` nach, ohne
+        // Struktur-Änderung.
+        let vorher = bus.gesehen(ruf: Self.eigenschaftenAenderungRuf).count
+        try schreibeEinenAccount(in: home, fetchedAt: t0, fuenfStundenProzent: 55)
+        prozess.refresh(now: t0.addingTimeInterval(32))
+        #expect(
+            warteBis { bus.gesehen(ruf: Self.eigenschaftenAenderungRuf).count == vorher + 1 },
+            "erwartet: genau ein weiteres PropertiesChanged, gezählt: \(bus.gesehen(ruf: Self.eigenschaftenAenderungRuf).count - vorher)"
+        )
+        _ = warteBis(1) { bus.gesehen(ruf: Self.eigenschaftenAenderungRuf).count > vorher + 1 }
+        let aenderungen = bus.gesehen(ruf: Self.eigenschaftenAenderungRuf)
+        #expect(aenderungen.count == vorher + 1, "PropertiesChanged: \(aenderungen.count - vorher) statt 1")
+        if let letzte = aenderungen.last, aenderungen.count == vorher + 1 {
+            #expect(letzte.path == TrayProcess.itemPath)
+            var leser = letzte.bodyReader()
+            _ = try? leser.readString()             // Interface
+            let eintraege = try? leser.readArray(elementSignature: "{sv}") { paar -> (String, String?) in
+                try paar.align(to: 8)
+                let name = try paar.readString()
+                let signatur = try paar.readSignature()
+                if signatur == "s" { return (name, try paar.readString()) }
+                try paar.skipValue(signatur)
+                return (name, nil)
+            }
+            let label = eintraege?.first { $0.0 == "XAyatanaLabel" }?.1
+            #expect(label?.contains("55") == true, "XAyatanaLabel nach der Änderung: \(String(describing: label))")
+        }
+        #expect(
+            bus.gesehen(ruf: Self.layoutRuf).count == 1,
+            "LayoutUpdated bei reiner Wertänderung: \(bus.gesehen(ruf: Self.layoutRuf).count)"
         )
         #expect(bus.wachhundSchlug == false)
     }
@@ -500,6 +534,28 @@ struct TrayBusBehaviourTests {
         #expect(menue.indices.contains(nachVierzehn + 1)
                 && menue[nachVierzehn + 1].label?.contains("newer version is available") == true,
                 "Zeile unter dem Eintrag: \(menue)")
+
+        // (6) CM-36 · FE-9, Suche ab Werk abgeschaltet: die Umgebungsvariable
+        // stoppt nur die Suche, nicht „Check for updates now“.
+        let abgeschaltet = StarterAttrappe()
+        let stumm = TrayProcess(
+            connection: verbindung,
+            homeDirectory: home,
+            log: TrayLog(homeDirectory: home),
+            now: t0,
+            environment: ["HOME": home.path, "CLAUDE_MONITOR_NO_UPDATE_CHECK": "1"],
+            runner: SystemctlAttrappe(isEnabled: "disabled"),
+            starter: abgeschaltet
+        )
+        stumm.pollAutomaticCheck(now: t0.addingTimeInterval(900))
+        stumm.pollAutomaticCheck(now: t0.addingTimeInterval(10 * 86_400))
+        #expect(abgeschaltet.starts.isEmpty, "Suche trotz Abschalter: \(abgeschaltet.starts)")
+        menue = try layoutLesen(bus, verbindung, stumm)
+        let stummEintrag = try #require(menue.first { $0.label == "Check for updates now" }, "Menü: \(menue)")
+        try ereignis(bus, verbindung, stumm, id: stummEintrag.id, art: "clicked")
+        _ = stumm.handleMenuEvents()
+        #expect(abgeschaltet.starts.count == 1, "Starts nach dem Klick: \(abgeschaltet.starts)")
+        #expect(abgeschaltet.starts.first?.arguments == ["--update"], "Starts nach dem Klick: \(abgeschaltet.starts)")
     }
 
     /// T2 — maskiert: gesperrt, mit unmask-Hinweis, Klick ohne Wirkung.
