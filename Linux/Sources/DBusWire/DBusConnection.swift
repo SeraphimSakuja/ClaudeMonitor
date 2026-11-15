@@ -334,7 +334,8 @@ public final class DBusConnection {
     /// beim Warten beiseitegelegt hat.
     public func pump(timeoutMilliseconds: Int32) throws -> [DBusMessage] {
         var descriptorSet = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
-        let ready = poll(&descriptorSet, 1, timeoutMilliseconds)
+        // Hält `deferred` schon Nachrichten, nicht warten: sie gehen sofort zurück.
+        let ready = poll(&descriptorSet, 1, deferred.isEmpty ? timeoutMilliseconds : 0)
         if ready > 0 {
             var buffer = [UInt8](repeating: 0, count: 65536)
             let count = readSome(into: &buffer)
