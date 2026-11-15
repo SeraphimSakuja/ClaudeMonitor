@@ -56,7 +56,7 @@ struct GnomeExtensionInstaller {
         case .failure(let exit): return exit
         }
 
-        if let exit = putInPlace(dataHome: dataHome, target: target, existing: state == .directory) { return exit }
+        if let exit = putInPlace(dataHome: dataHome, target: target, existing: state == .directory, command: GnomeExtensionTexts.install) { return exit }
 
         if let exit = switchOn(settings: settings) { return exit }
 
@@ -142,7 +142,7 @@ struct GnomeExtensionInstaller {
         if state == .absent { return .ok }
         if isUpToDate(target) { return .ok }
 
-        if let exit = putInPlace(dataHome: dataHome, target: target, existing: true) { return exit }
+        if let exit = putInPlace(dataHome: dataHome, target: target, existing: true, command: GnomeExtensionTexts.refresh) { return exit }
         emit(GnomeExtensionTexts.refreshed)
         return .ok
     }
@@ -362,8 +362,9 @@ struct GnomeExtensionInstaller {
     // MARK: - Staging und Austausch (FE-1 (4)–(5))
 
     /// Baut die Extension im Staging auf und tauscht sie ins Ziel. `nil` bei
-    /// Erfolg, sonst der Exit; bei jedem Fehler ist das Staging entfernt.
-    private func putInPlace(dataHome: String, target: String, existing: Bool) -> TrayExit? {
+    /// Erfolg, sonst der Exit; bei jedem Fehler ist das Staging entfernt. `command`
+    /// ist der Befehl des Aufrufers, den `partlyReplaced` als Rat nennt.
+    private func putInPlace(dataHome: String, target: String, existing: Bool, command: String) -> TrayExit? {
         let staging = GnomeExtensionPaths.staging(dataHome: dataHome)
         let extensions = GnomeExtensionPaths.shellDirectory(dataHome: dataHome) + "/extensions"
 
@@ -416,7 +417,7 @@ struct GnomeExtensionInstaller {
                     emit(GnomeExtensionTexts.replaceFailed(path: target, reason: AutostartInstaller.errnoName(code)))
                 } else {
                     // (c)
-                    emit(GnomeExtensionTexts.partlyReplaced)
+                    emit(GnomeExtensionTexts.partlyReplaced(command: command))
                 }
                 return .autostartBlocked
             }

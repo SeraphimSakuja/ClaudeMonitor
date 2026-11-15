@@ -64,8 +64,9 @@ public enum GnomeExtensionTexts {
         "Cannot put the extension in place at \(path): \(reason). Nothing was changed."
     }
 
-    public static let partlyReplaced = "The GNOME extension was partly replaced — run "
-        + "claude-monitor-tray \(install) again."
+    public static func partlyReplaced(command: String) -> String {
+        "The GNOME extension was partly replaced — run claude-monitor-tray \(command) again."
+    }
 
     public static let settingDidNotStick = "The extension files are in place, but the setting did not stick "
         + "— no session bus? Switch it on with the Extensions app or run the command again in a desktop session."
