@@ -169,6 +169,8 @@ EXPECTED_SONAMES="$(printf '%s\n' \
 # Der Lauf misst frisch; diese Zahlen sind die UNTERGRENZE. Ein Rückgang heißt,
 # dass Tests verschwunden sind — ein grüner Lauf mit weniger Tests ist kein
 # Beleg, sondern ein Befund.
+# Rückgang gegenüber dem Vorstand: Core −5 (40bfbb8), Shared −13 (1b2fd50 4,
+# 38f9b2e 5, b81d210 3, 740c190 1), Rückbauten R-010/R-011.
 BASELINE_CORE=148
 BASELINE_SHARED=112
 BASELINE_LINUX=40

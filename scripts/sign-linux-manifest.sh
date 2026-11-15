@@ -74,7 +74,7 @@ fail() { printf '\n\033[31m✘ %s\033[0m\n' "$1" >&2; exit 1; }
 ok() { echo "  ✓ $1"; }
 
 usage() {
-  sed -n '3,56p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR>=3 { if (!/^#/) exit; print }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -254,7 +254,7 @@ cmd_verify() {
     || fail "B2: Der Kandidat gehört nicht zum unsignierten Dokument dieses Baus.
   Kandidat:     $candidate
   unsigniert:   $unsigned
-  Der Kandidat wurde aus einem anderen Dokument signiert. Neu bauen und neu signieren (sign)."
+  Die aktuelle linux-latest.unsigned.json neu signieren (sign)."
   ok "B2: Kandidat gehört zum unsignierten Dokument"
 
   # B3 — Der Kandidat gehört zu DIESEM Binary: volle Versionszeile
@@ -269,7 +269,7 @@ cmd_verify() {
     || fail "B3: Im Kandidaten fehlen product, version oder buildVersion: $candidate"
   expected="$c_product $c_version (build $c_build)"
   if [ "$(uname -s)" = "Linux" ]; then
-    line="$(env -u DBUS_SESSION_BUS_ADDRESS "$binary" --version 2>/dev/null)" || line="(Aufruf gescheitert)"
+    line="$(timeout 30 env -u DBUS_SESSION_BUS_ADDRESS "$binary" --version 2>/dev/null)" || line="(Aufruf gescheitert)"
   else
     command -v docker >/dev/null || fail "verify braucht auf $(uname -s) Docker mit dem Bauimage $REF_IMAGE.
   Alternative: den Kandidaten auf den Linux-Wirt bringen und verify dort ausführen."
@@ -284,9 +284,10 @@ cmd_verify() {
   ok "B3: $line"
 
   # Gegenprobe b — mit dem AUSGELIEFERTEN Binary: Es holt den Kandidaten über
-  # die curl-Attrappe, prüft Signatur und Felder und vergleicht die
-  # Build-Nummer. Manifest-Build = Binary-Build ⇒ „up to date" ⇒ Exit 0. Jeder
-  # andere Code heißt: Ein installierter Client nähme dieses Manifest nicht an.
+  # die curl-Attrappe und prüft Signatur und Felder. Die Gleichheit der
+  # Build-Nummer sichern B2/B3; Exit 0 heißt hier „gleich“, weil B3 „kleiner“
+  # schon ausschließt. Jeder andere Code heißt: Ein installierter Client nähme
+  # dieses Manifest nicht an.
   local code=0 output
   if [ "$(uname -s)" = "Linux" ]; then
     # Global, nicht `local`: der EXIT-Trap läuft nach dem Ende dieser Funktion.
@@ -313,7 +314,7 @@ cmd_verify() {
   fi
   printf '%s\n' "$output" | sed 's/^/    /'
   [ "$code" -eq 0 ] || fail "Gegenprobe b: Das gebaute Binary nimmt den Kandidaten nicht an (Exit $code).
-  0 wäre „up to date\" (Manifest-Build = Binary-Build). docs/linux-latest.json bleibt unverändert."
+  Exit 0 heißt „gleich“, weil B3 „kleiner“ ausschließt. docs/linux-latest.json bleibt unverändert."
   ok "Gegenprobe b: $(basename "$binary") --check-update nimmt den Kandidaten an (Exit 0)"
 
   mkdir -p "$(dirname "$out")"
