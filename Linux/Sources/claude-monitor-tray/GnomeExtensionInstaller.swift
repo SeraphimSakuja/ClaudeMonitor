@@ -39,6 +39,8 @@ struct GnomeExtensionInstaller {
     // MARK: - Befehle
 
     func install() -> TrayExit {
+        // Leere UUID (unlesbares eingebettetes metadata.json): Ziel wäre `extensions/` selbst.
+        guard !GnomeExtensionPayload.uuid.isEmpty else { return .autostartUnavailable }
         guard let dataHome = resolveDataHome() else { return .autostartUnavailable }
         let settings: Settings
         switch readSettings(includeDisabled: true) {
