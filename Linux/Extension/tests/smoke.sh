@@ -64,11 +64,13 @@ if [ -n "${EXT_INSTALLER:-}" ]; then
     ZIEL="$XDG_DATA_HOME/gnome-shell/extensions/$EXT_UUID"
     [ -f "$ZIEL/schemas/gschemas.compiled" ] || { echo "ROT 0: $ZIEL/schemas/gschemas.compiled fehlt" >&2; exit 1; }
     # Die Nutzlast des Binaries muss der Quellbaum sein — sonst prüft der Lauf ein veraltetes Binary.
-    for f in extension.js metadata.json popoverState.js stylesheet.css stylesheet-dark.css stylesheet-light.css \
-             schemas/org.gnome.shell.extensions.claudemonitor.gschema.xml; do
-        cmp -s "$EXT_DIR/$f" "$ZIEL/$f" \
+    # Abgeglichen wird alles, was der Installer schreibt, außer dem beim Einrichten erzeugten Schema-Kompilat.
+    while IFS= read -r -d '' p; do
+        f="${p#"$ZIEL"/}"
+        [ "$f" = "schemas/gschemas.compiled" ] && continue
+        cmp -s "$EXT_DIR/$f" "$p" \
             || { echo "ROT 0: $f im Binary weicht vom Quellbaum ab (Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
-    done
+    done < <(find "$ZIEL" -type f -print0)
 else
     gnome-extensions install --force "$EXT_ZIP" || exit 1
     gsettings set org.gnome.shell enabled-extensions "['$EXT_UUID']"
@@ -82,7 +84,12 @@ trap 'kill "$SHELL_PID" "$PEER_PID" 2>/dev/null' EXIT
 
 fail=0
 warte_auf_log 'popover=shown' 40 || { cat "$LOG" | tail -20 >&2; exit 1; }
-[ "$(haelt_name)" = "(true,)" ] || { echo "ROT 1: Popover-Name nach popover=shown nicht besessen: $(haelt_name)" >&2; fail=1; }
+# Der Name kann kurz nach der Kennmarke erst übernommen werden — Frist 5 s wie warte_auf_log.
+for ((i = 0; i < 10; i++)); do
+    [ "$(haelt_name)" = "(true,)" ] && break
+    sleep 0.5
+done
+[ "$(haelt_name)" = "(true,)" ] || { echo "ROT 1: Popover-Name 5 s nach popover=shown nicht besessen: $(haelt_name)" >&2; fail=1; }
 
 : > "$EXT_WORK/senden"
 warte_auf_log 'reason=shape' 20 || fail=1
