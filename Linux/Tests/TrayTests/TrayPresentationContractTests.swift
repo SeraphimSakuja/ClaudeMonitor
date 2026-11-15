@@ -335,6 +335,16 @@ struct TrayPresentationContractTests {
         #expect(wurzel["protocol"] as? Int == 1)
         #expect(wurzel["issue"] is NSNull, "issue: \(String(describing: wurzel["issue"]))")
 
+        // CM-42 (FE-10/FE-11): additive Schlüssel für die Extension.
+        #expect(wurzel.keys.contains("contentText"))
+        #expect(wurzel["contentText"] is NSNull, "contentText: \(String(describing: wurzel["contentText"]))")
+        let tafel = try #require(wurzel["panel"] as? [String: Any])
+        #expect(tafel["title"] as? String == TrayTexts.panelModeTitle)
+        let aktivModus = try #require(tafel["activeAccount"] as? [String: Any])
+        #expect(aktivModus["label"] as? String == TrayTexts.activeAccountMode)
+        let uebersicht = try #require(tafel["overview"] as? [String: Any])
+        #expect(uebersicht["label"] as? String == TrayTexts.overviewMode)
+
         let konten = try #require(wurzel["accounts"] as? [[String: Any]])
         #expect(konten.compactMap { $0["id"] as? String } == ["1", "2"])
         let zwei = try #require(konten.last)
