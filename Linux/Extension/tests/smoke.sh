@@ -75,7 +75,7 @@ if [ -n "${EXT_INSTALLER:-}" ]; then
     while IFS= read -r -d '' p; do
         f="${p#"$EXT_DIR"/}"
         [ -f "$ZIEL/$f" ] \
-            || { echo "ROT 0: $f fehlt im Binary (Nutzlast unvollständig, Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
+            || { echo "ROT 0: $f fehlt im Binary (Nutzlast unvollständig: Datei in Linux/Package.swift und GnomeExtensionPayload.files eintragen, dann Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
     done < <(find "$EXT_DIR" -type f -not -path "$EXT_DIR/tests/*" -print0)
 else
     gnome-extensions install --force "$EXT_ZIP" || exit 1
