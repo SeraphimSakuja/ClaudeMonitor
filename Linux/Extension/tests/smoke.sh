@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Die Extension übernimmt das Popover erst nach dem Zeichnen und gibt es bei einem kaputten Tray-Zustand frei, sodass das Tray-Menü zurückkommt.
-# Läuft unter scripts/gnome-extension-smoke.sh (dbus-run-session, Wegwerf-HOME). Nutzt EXT_UUID, EXT_WORK, EXT_ZIP, EXT_DIR.
+# Läuft unter scripts/gnome-extension-smoke.sh (dbus-run-session, Wegwerf-HOME). Nutzt EXT_UUID, EXT_WORK, EXT_ZIP, EXT_DIR, EXT_INSTALLER.
+# EXT_INSTALLER gesetzt ⇒ Einrichten über `<Binary> --install-gnome-extension` statt über das Zip.
 set -u
 LOG="$EXT_WORK/shell.log"
 PEER="$EXT_WORK/peer.py"
@@ -57,9 +58,21 @@ warte_auf_log() {
     return 1
 }
 
-gnome-extensions install --force "$EXT_ZIP" || exit 1
 gsettings set org.gnome.shell disable-user-extensions false
-gsettings set org.gnome.shell enabled-extensions "['$EXT_UUID']"
+if [ -n "${EXT_INSTALLER:-}" ]; then
+    "$EXT_INSTALLER" --install-gnome-extension || { echo "ROT 0: --install-gnome-extension rc $?" >&2; exit 1; }
+    ZIEL="$XDG_DATA_HOME/gnome-shell/extensions/$EXT_UUID"
+    [ -f "$ZIEL/schemas/gschemas.compiled" ] || { echo "ROT 0: $ZIEL/schemas/gschemas.compiled fehlt" >&2; exit 1; }
+    # Die Nutzlast des Binaries muss der Quellbaum sein — sonst prüft der Lauf ein veraltetes Binary.
+    for f in extension.js metadata.json popoverState.js stylesheet.css stylesheet-dark.css stylesheet-light.css \
+             schemas/org.gnome.shell.extensions.claudemonitor.gschema.xml; do
+        cmp -s "$EXT_DIR/$f" "$ZIEL/$f" \
+            || { echo "ROT 0: $f im Binary weicht vom Quellbaum ab (Binary neu bauen): $EXT_INSTALLER" >&2; exit 1; }
+    done
+else
+    gnome-extensions install --force "$EXT_ZIP" || exit 1
+    gsettings set org.gnome.shell enabled-extensions "['$EXT_UUID']"
+fi
 
 python3 "$PEER" "$EXT_WORK/senden" > "$EXT_WORK/peer.log" 2>&1 &
 PEER_PID=$!

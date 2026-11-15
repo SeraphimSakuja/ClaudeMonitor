@@ -544,7 +544,11 @@ The mode shown in the panel (`Active account` or `Overview`) is switched in the 
 GSettings (`org.gnome.shell.extensions.claudemonitor panel-mode`). The extension logs only scalar
 lines (`[ClaudeMonitor] popover=shown …`, `popover=hidden reason=<trayAbsent|call|parse|protocol|shape|render|disabled>`,
 `name=owned|released|lost`). The check on the host (not in the container):
-`bash scripts/gnome-extension-smoke.sh`.
+`bash scripts/gnome-extension-smoke.sh`. It runs the smoke test twice: once with the zip packed from
+the source tree, once through `claude-monitor-tray --install-gnome-extension`, so the folder the
+installer lays out loads in a real shell. That second run needs the static release binary
+(`build/linux/scratch/x86_64-unknown-linux-gnu/release/claude-monitor-tray`, or `CM_TRAY_BIN`); it
+fails when the binary's payload differs from `Linux/Extension/`.
 
 ## What the tray process never prints
 
