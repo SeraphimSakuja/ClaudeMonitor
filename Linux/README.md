@@ -313,9 +313,12 @@ written, enabled, disabled or unlinked; `enable`/`disable`/`is-enabled` act on t
 would switch that other unit. If the file cannot be determined (`daemon-reload` or `show` failing,
 a value that is not absolute) the commands exit with 11 and change nothing. A masked unit is not
 checked this way — its FragmentPath is the mask link itself; instead removal refuses (exit 10) when
-a `.wants` link points at an existing file other than the own unit file. `--autostart-status` and
-the menu checkmark do not run this check (`--autostart-status` does name the binary the unit
-starts when it is enabled, CM-34, but still does not look for a shadowing unit).
+a `.wants` link points at an existing file other than the own unit file. CM-AUF-1: when the
+autostart unit reads `enabled`, `--autostart-status` and the menu also look at FragmentPath (one
+`daemon-reload` plus `show`, ≈ 0.3 s per menu open, silent). If systemd loads another file, the
+status names that file instead of the own path (and no started binary), and the menu entry is
+unticked and greyed out with a hint line naming the file. A failed measurement falls back to the
+plain reading. The update timer is not checked this way.
 
 ### Auto-update units (`--install-auto-update`, CM-29)
 
@@ -424,7 +427,7 @@ installer's messages go through a `TrayLog` whose redaction prefix is `$HOME`, l
   it out as unticked with "Autostart state unknown" — never as a switchable "off". CM-34: When the
   menu opens, the unit file at the target path is also compared with the running binary (the file
   only, no `systemctl`). If it points at another or a missing binary, one hint line appears and the
-  checkmark stays; precedence: masked > not measurable > failed attempt > binary. `--autostart-status`
+  checkmark stays; precedence: masked > not measurable > other unit (CM-AUF-1) > failed attempt > binary. `--autostart-status`
   names the started path when enabled.
 * **When it is asked:** once at start, after **every** attempt, and whenever the shell sends
   `opened` for the root (id 0) — so a change made in a terminal shows up on the next open. The

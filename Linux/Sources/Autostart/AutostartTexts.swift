@@ -70,6 +70,13 @@ public enum AutostartTexts {
         "Autostart is enabled (\(unitPath))."
     }
 
+    /// CM-AUF-1: systemd lädt für den Namen eine andere Datei — „enabled"
+    /// gilt dann für diese, nicht für den eigenen Pfad.
+    public static func statusShadowed(fragmentPath: String, unitPath: String) -> String {
+        "Autostart is not set up by this program: systemd uses \(fragmentPath) for "
+            + "\(AutostartPaths.unitName), not \(unitPath). Move \(fragmentPath) aside to manage autostart here."
+    }
+
     /// CM-34: der Pfad, den die Unit beim Login startet.
     public static func statusExecutable(path: String) -> String {
         "It starts \(path)."

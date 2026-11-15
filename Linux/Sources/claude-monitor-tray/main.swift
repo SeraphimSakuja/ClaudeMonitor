@@ -286,7 +286,12 @@ final class TrayProcess {
             emit: { autostartLog.always($0) }
         )
         self.installer = installer
-        let autostart = TrayAutostartDisplay(reading: installer.reading(), binary: installer.binaryMatch())
+        let autostartReading = installer.reading()
+        let autostart = TrayAutostartDisplay(
+            reading: autostartReading,
+            binary: installer.binaryMatch(),
+            shadowedBy: installer.shadowingUnit(reading: autostartReading)
+        )
         self.autostart = autostart
         let autoUpdate = TrayAutoUpdateDisplay(reading: installer.autoUpdateReading())
         self.autoUpdate = autoUpdate
@@ -417,7 +422,12 @@ final class TrayProcess {
         // zeitabhängigen Zeilen („Checked … ago", Restzeiten) werden dabei
         // neu berechnet.
         if menu.takeMenuOpened() {
-            autostart = autostart.afterRequery(reading: installer.reading(), binary: installer.binaryMatch())
+            let reading = installer.reading()
+            autostart = autostart.afterRequery(
+                reading: reading,
+                binary: installer.binaryMatch(),
+                shadowedBy: installer.shadowingUnit(reading: reading)
+            )
             autoUpdate = autoUpdate.afterRequery(reading: installer.autoUpdateReading())
             publish(makeView(now: Date()))
         }
@@ -591,11 +601,13 @@ final class TrayProcess {
         // zuordenbar ist.
         log.always("autostart=\(word) started")
         let exit = attempt == .install ? installer.install() : installer.uninstall()
+        let reading = installer.reading()
         autostart = autostart.afterAttempt(
             attempt,
             succeeded: exit == .ok,
-            reading: installer.reading(),
-            binary: installer.binaryMatch()
+            reading: reading,
+            binary: installer.binaryMatch(),
+            shadowedBy: installer.shadowingUnit(reading: reading)
         )
         log.always("autostart=\(word) exit=\(exit.rawValue)")
 

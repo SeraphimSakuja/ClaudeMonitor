@@ -144,6 +144,8 @@ struct UnitMessages: Sendable {
     /// Statusmeldungen erhalten den Pfad der eingeschalteten Unit.
     let statusEnabled: @Sendable (_ unitPath: String) -> String
     let statusDisabled: @Sendable (_ unitPath: String) -> String
+    /// `nil`: der Status prüft nicht auf eine fremde Unit (Update-Timer).
+    let statusShadowed: (@Sendable (_ fragmentPath: String, _ unitPath: String) -> String)?
 
     static let autostart = UnitMessages(
         managerUnavailable: AutostartTexts.managerUnavailable,
@@ -175,7 +177,8 @@ struct UnitMessages: Sendable {
         removed: { AutostartTexts.removed(unitPath: $0[0]) },
         nothingToRemove: { AutostartTexts.nothingToRemove(unitPath: $0[0]) },
         statusEnabled: { AutostartTexts.statusEnabled(unitPath: $0) },
-        statusDisabled: { AutostartTexts.statusDisabled(unitPath: $0) }
+        statusDisabled: { AutostartTexts.statusDisabled(unitPath: $0) },
+        statusShadowed: { AutostartTexts.statusShadowed(fragmentPath: $0, unitPath: $1) }
     )
 
     /// Pfade in Schreibreihenfolge von ``ManagedUnitSet/autoUpdate``:
@@ -208,7 +211,8 @@ struct UnitMessages: Sendable {
         removed: { UpdateTexts.removed(timerPath: $0[1], servicePath: $0[0]) },
         nothingToRemove: { UpdateTexts.nothingToRemove(timerPath: $0[1]) },
         statusEnabled: { UpdateTexts.statusEnabled(timerPath: $0) },
-        statusDisabled: { UpdateTexts.statusDisabled(timerPath: $0) }
+        statusDisabled: { UpdateTexts.statusDisabled(timerPath: $0) },
+        statusShadowed: nil
     )
 }
 
@@ -292,6 +296,31 @@ struct AutostartInstaller {
     /// FE 2) — dieselbe Vorbedingung und derselbe Weg wie ``reading()``.
     func autoUpdateReading() -> AutostartStatus.Reading {
         silentReading(unitName: UpdateUnits.timerName)
+    }
+
+    /// Der Pfad der fremden Unit, die systemd für den Autostart-Namen lädt
+    /// (CM-AUF-1) — `nil`, wenn die eigene geladen wird, die Messung nicht
+    /// gelingt oder der Zustand nicht `enabled` ist (nur dann sagt das Häkchen
+    /// etwas über die geladene Unit). Stumm wie ``reading()``.
+    func shadowingUnit(reading: AutostartStatus.Reading) -> String? {
+        guard reading == .known(.enabled),
+              case .success(let layout) = AutostartPaths.layout(environment: environment) else { return nil }
+        return shadowingFragment(unitName: AutostartPaths.unitName, unitPath: layout.unitPath)
+    }
+
+    private func shadowingFragment(unitName: String, unitPath: String) -> String? {
+        let reading = AutostartStatus.fragmentReading(
+            reload: answer(systemctl(["daemon-reload"])),
+            show: { answer(systemctl(["show", "-p", "FragmentPath", "--value", unitName])) }
+        )
+        guard case .path(let fragmentPath) = reading,
+              case .shadowed(let path) = AutostartEffectiveUnit.compare(
+                  fragmentPath: fragmentPath,
+                  unitPath: unitPath,
+                  fragmentIdentity: fileIdentity(followingLinks: fragmentPath),
+                  unitIdentity: regularFileIdentity(unitPath)
+              ) else { return nil }
+        return path
     }
 
     private func silentReading(unitName: String) -> AutostartStatus.Reading {
@@ -640,6 +669,14 @@ struct AutostartInstaller {
         }
         switch state {
         case .enabled:
+            // CM-AUF-1: Lädt systemd eine andere Datei, gilt „enabled" ihr —
+            // nie den eigenen Pfad nennen. Kein Zustand zurück, damit der
+            // Aufrufer keine Binary-Auskunft zur eigenen Unit anhängt.
+            if let statusShadowed = set.messages.statusShadowed,
+               let fragmentPath = shadowingFragment(unitName: primary.name, unitPath: layout.unitPath) {
+                emit(statusShadowed(fragmentPath, layout.unitPath))
+                return (.ok, nil)
+            }
             emit(set.messages.statusEnabled(layout.unitPath))
         case .disabled:
             emit(set.messages.statusDisabled(layout.unitPath))

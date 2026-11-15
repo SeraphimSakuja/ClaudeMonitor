@@ -59,8 +59,8 @@ public enum TrayTexts {
     /// dessen deutsche Übersetzung.
     public static let startAtLogin = "Start at login"
 
-    /// Hinweiszeilen unter „Start at login" (F10). Keine Pfade im Menü —
-    /// die Details liefert der genannte Befehl.
+    /// Hinweiszeilen unter „Start at login" (F10). Pfade nur bei fremder
+    /// Unit (CM-AUF-1), sonst liefert der genannte Befehl die Details.
     public static var startAtLoginMasked: String {
         "Masked in systemd — undo with: "
             + AutostartTexts.unmaskCommand(unitName: AutostartPaths.unitName)
@@ -69,6 +69,10 @@ public enum TrayTexts {
         "Autostart state unknown — run claude-monitor-tray --autostart-status for details"
     public static let startAtLoginOtherBinary =
         "Autostart starts another binary — untick and tick again; details: claude-monitor-tray --autostart-status"
+    /// CM-AUF-1: systemd lädt eine fremde Unit gleichen Namens.
+    public static func startAtLoginShadowed(path: String) -> String {
+        "Autostart is controlled by another unit: \(path)"
+    }
     public static let startAtLoginInstallFailed =
         "Could not set up autostart — run claude-monitor-tray --install-autostart for details"
     public static let startAtLoginUninstallFailed =
