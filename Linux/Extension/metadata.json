@@ -1,0 +1,7 @@
+{
+  "uuid": "claudemonitor@markusfricke.at",
+  "name": "ClaudeMonitor",
+  "description": "Panel display and popover for ClaudeMonitor, drawn from the state of the claude-monitor-tray process (org.claudemonitor.Popover, protocol 1). The extension calculates nothing itself.",
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.claudemonitor"
+}

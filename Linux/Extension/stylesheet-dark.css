@@ -1,0 +1,66 @@
+/* ClaudeMonitor-Extension (CM-42). Dunkel-Variante; der Lader nimmt zuerst
+   stylesheet-dark.css bzw. stylesheet-light.css (shell:extensionSystem.js:130-143).
+   Alle drei Dateien tragen dieselben cm-Regeln; sie unterscheiden sich nur in der
+   Tönung der Kärtchen, Balken und Trennlinien (St-CSS kennt weder currentColor noch
+   color-mix). Stufenfarben = Linux-Tray-Symbol (TrayIconPixmap.swift:83-89);
+   Maße nach MonitorPopoverView.swift:32,39-50 · AccountCardView.swift:23-85 ·
+   LimitWindowRowView.swift:25-55 · IssueBannerView.swift:11-41. */
+
+.cm-green { color: rgb(52, 199, 89); }
+.cm-yellow { color: rgb(255, 149, 0); }
+.cm-red { color: rgb(255, 59, 48); }
+.cm-neutral { color: rgb(142, 142, 147); }
+.cm-dim { opacity: 150; }
+.cm-bold { font-weight: bold; }
+.cm-small { font-size: 0.85em; }
+
+/* Punkte: Farbe der Stufe als Hintergrund, der Ring (noData) nur als Rand */
+.cm-dot { width: 8px; height: 8px; border-radius: 4px; margin-right: 3px; }
+.cm-dot.cm-green { background-color: rgb(52, 199, 89); }
+.cm-dot.cm-yellow { background-color: rgb(255, 149, 0); }
+.cm-dot.cm-red { background-color: rgb(255, 59, 48); }
+.cm-dot.cm-neutral { background-color: rgb(142, 142, 147); }
+.cm-dot.cm-ring { background-color: transparent; border: 1px solid rgb(142, 142, 147); }
+
+/* Panel */
+.cm-panel { spacing: 0; }
+.cm-segment { margin-right: 8px; }
+.cm-segment:last-child { margin-right: 0; }
+.cm-panel-marker { margin-right: 1px; }
+.cm-panel-dot { margin-right: 3px; }
+.cm-panel-numbers { font-feature-settings: "tnum"; }
+.cm-panel-reset { margin-left: 4px; font-size: 0.85em; }
+
+/* Popover */
+.cm-popover { width: 296px; padding: 12px; spacing: 10px; }
+.cm-head { spacing: 6px; }
+.cm-icon-button { padding: 2px 6px; border-radius: 6px; }
+.cm-icon-button:hover { background-color: rgba(255, 255, 255, 0.15); }
+.cm-separator { background-color: rgba(255, 255, 255, 0.20); }
+
+.cm-banner { padding: 10px; spacing: 4px; border-radius: 8px; background-color: rgba(255, 255, 255, 0.10); }
+.cm-banner-head { spacing: 6px; }
+.cm-banner-title { font-weight: 600; }
+
+.cm-scroll { padding: 0; }
+.cm-cards { spacing: 10px; }
+.cm-card { padding: 8px; spacing: 6px; border-radius: 8px; background-color: rgba(255, 255, 255, 0.10); }
+.cm-card-head { spacing: 4px; }
+.cm-card-name { max-width: 150px; }
+.cm-card-binding { font-weight: bold; }
+.cm-windows { spacing: 6px; }
+.cm-window-row { spacing: 6px; }
+.cm-window-name { width: 62px; }
+.cm-window-percent { width: 36px; text-align: right; font-weight: 600; font-feature-settings: "tnum"; }
+.cm-window-reset { width: 48px; text-align: right; opacity: 150; font-size: 0.85em; }
+.cm-bar-track { height: 6px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.20); }
+.cm-bar-fill { border-radius: 3px; }
+.cm-bar-fill.cm-green { background-color: rgb(52, 199, 89); }
+.cm-bar-fill.cm-yellow { background-color: rgb(255, 149, 0); }
+.cm-bar-fill.cm-red { background-color: rgb(255, 59, 48); }
+.cm-bar-fill.cm-neutral { background-color: rgb(142, 142, 147); }
+
+.cm-mode-row { spacing: 6px; }
+.cm-mode-button { padding: 2px 10px; border-radius: 6px; }
+.cm-mode-button:checked { background-color: rgba(255, 255, 255, 0.25); font-weight: bold; }
+.cm-footer { spacing: 6px; }

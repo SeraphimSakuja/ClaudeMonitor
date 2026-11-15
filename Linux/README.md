@@ -491,6 +491,41 @@ doc comment of `TrayPopoverInterface`.
 busctl --user call org.claudemonitor.Tray /Popover org.claudemonitor.Tray.Popover1 GetState
 ```
 
+Protocol 1 grew four keys in CM-42, all additive and always present: `contentText` (`"Loading…"` /
+`"No accounts in claude-swap"` for `loading`/`empty`, else `null`), `issue.isSevere`, `panel.title`
+and `panel.<mode>.label`. The extension invents no text of its own.
+
+## The GNOME extension (CM-42)
+
+`Linux/Extension/` holds the GNOME 50 extension `claudemonitor@markusfricke.at`. It draws the panel
+display and the popover after the macOS model from the state the tray hands over, and calculates
+nothing itself. It claims `org.claudemonitor.Popover` only once the popover stands in the panel; from
+then on the tray hides its own icon. With the extension off, broken or the tray too old (no
+`/Popover`, unknown protocol) the name is free and the tray icon and menu are back.
+
+Install (the schema is compiled by `install`; a plain copy without `glib-compile-schemas` leaves the
+extension in `ERROR` and the tray icon stays visible):
+
+```sh
+gnome-extensions pack Linux/Extension --force \
+    --extra-source=popoverState.js \
+    --extra-source=stylesheet-dark.css --extra-source=stylesheet-light.css \
+    --schema=schemas/org.gnome.shell.extensions.claudemonitor.gschema.xml -o /tmp/cm-ext
+unzip -l /tmp/cm-ext/claudemonitor@markusfricke.at.shell-extension.zip   # 8 entries incl. both stylesheets
+gnome-extensions install --force /tmp/cm-ext/claudemonitor@markusfricke.at.shell-extension.zip
+gnome-extensions enable claudemonitor@markusfricke.at
+```
+
+On Wayland the running shell only finds a newly installed extension after a log-out and log-in; then
+run the `enable` line again if the extension is not listed as enabled. Off again:
+`gnome-extensions disable claudemonitor@markusfricke.at`.
+
+The mode shown in the panel (`Active account` or `Overview`) is switched in the popover and kept in
+GSettings (`org.gnome.shell.extensions.claudemonitor panel-mode`). The extension logs only scalar
+lines (`[ClaudeMonitor] popover=shown …`, `popover=hidden reason=<trayAbsent|call|parse|protocol|shape|render|disabled>`,
+`name=owned|released|lost`). The check on the host (not in the container):
+`bash scripts/gnome-extension-smoke.sh`.
+
 ## What the tray process never prints
 
 The same print contract as the smoke tool, with one addition and one tightening.

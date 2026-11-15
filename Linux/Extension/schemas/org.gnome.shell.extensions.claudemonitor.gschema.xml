@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.claudemonitor" path="/org/gnome/shell/extensions/claudemonitor/">
+    <key name="panel-mode" type="s">
+      <choices>
+        <choice value="activeAccount"/>
+        <choice value="overview"/>
+      </choices>
+      <default>'activeAccount'</default>
+      <summary>Panel display mode</summary>
+      <description>Which of the two modes of the tray state the panel shows: the active account or the overview of all accounts.</description>
+    </key>
+  </schema>
+</schemalist>
