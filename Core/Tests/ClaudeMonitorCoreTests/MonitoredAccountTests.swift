@@ -63,7 +63,7 @@ struct MonitoredAccountTests {
 
     @Test("overallStatus ist gelb, wenn kein Fenster rot ist")
     func overallStatusYellow() {
-        let account = TestSupport.account("a", fiveHour: 10, sevenDay: 60)
+        let account = TestSupport.account("a", fiveHour: 10, sevenDay: 80)
         #expect(account.overallStatus == .yellow)
     }
 

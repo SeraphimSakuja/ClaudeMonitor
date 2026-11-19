@@ -6,12 +6,13 @@ import Foundation
 ///
 /// | Bereich | Stufe |
 /// |---|---|
-/// | `percent < 50` | ``green`` |
-/// | `50 <= percent < 85` | ``yellow`` |
-/// | `percent >= 85` | ``red`` |
+/// | `percent < 70` | ``green`` |
+/// | `70 <= percent < 90` | ``yellow`` |
+/// | `percent >= 90` | ``red`` |
 ///
 /// Die Schwellenwerte selbst gehören also jeweils zur *höheren* Stufe:
-/// exakt 50 % ist gelb, exakt 85 % ist rot.
+/// exakt 70 % ist gelb, exakt 90 % ist rot.
+/// Gleiche Bänder wie cswap (`claude_swap/tui/theme.py` `WARN_PCT`/`CRIT_PCT`), Entscheid CM-44.
 public enum StatusLevel: String, Sendable, Codable, Equatable, CaseIterable {
     /// Reichlich Kontingent frei.
     case green
@@ -21,9 +22,9 @@ public enum StatusLevel: String, Sendable, Codable, Equatable, CaseIterable {
     case red
 
     /// Ab diesem Prozentwert (einschließlich) gilt ``yellow``.
-    public static let yellowThreshold: Double = 50
+    public static let yellowThreshold: Double = 70
     /// Ab diesem Prozentwert (einschließlich) gilt ``red``.
-    public static let redThreshold: Double = 85
+    public static let redThreshold: Double = 90
 
     /// Stuft einen Prozentwert ein.
     ///

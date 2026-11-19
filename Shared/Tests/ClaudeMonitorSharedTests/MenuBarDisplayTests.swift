@@ -45,13 +45,13 @@ struct MenuBarDisplayTests {
         let binding = AccountBindingDisplay.make(for: account)
 
         #expect(binding.text == "88%")
-        #expect(binding.status == .red)
+        #expect(binding.status == .yellow)
         #expect(MenuBarDisplay.segment(for: account).visibleBinding?.text == "88%")
     }
 
     @Test("Text und Farbe stammen immer vom selben Fenster")
     func textAndColorNeverDisagree() {
-        let percents: [Double] = [0, 49.4, 49.6, 50, 84.9, 85, 99, 100, 130]
+        let percents: [Double] = [0, 69.4, 69.6, 70, 89.9, 90, 99, 100, 130]
         for percent in percents {
             // Das zweite Fenster liegt bei 0 — der geprüfte Wert ist damit
             // immer der Spitzenwert, und Text wie Farbe müssen ihm folgen.
@@ -286,10 +286,10 @@ struct MenuBarDisplayTests {
 
     @Test("Ohne roten Account bleibt die Reset-Rolle unbesetzt")
     func resetRoleStaysEmptyWithoutRedAccount() {
-        // 84 % ist gelb, 85 % wäre rot: Bei entspannter Lage wartet niemand auf
+        // 89 % ist gelb, 90 % wäre rot: Bei entspannter Lage wartet niemand auf
         // einen Reset — die Zahl stünde nur da und bedeutete nichts.
         let accounts = [
-            account("1", percent: 84, resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
+            account("1", percent: 89,resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
             account("2", percent: 10, resetsAt: Fixture.now.addingTimeInterval(60))
         ]
         let display = MenuBarDisplay.make(for: state(accounts), mode: .overview, now: Fixture.now)
@@ -298,7 +298,7 @@ struct MenuBarDisplayTests {
 
         // Eine Stufe höher besetzt derselbe Account die Rolle.
         let red = [
-            account("1", percent: 85, resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
+            account("1", percent: 90,resetsAt: Fixture.now.addingTimeInterval(1800), isActive: true),
             account("2", percent: 10, resetsAt: Fixture.now.addingTimeInterval(60))
         ]
         let redDisplay = MenuBarDisplay.make(for: state(red), mode: .overview, now: Fixture.now)

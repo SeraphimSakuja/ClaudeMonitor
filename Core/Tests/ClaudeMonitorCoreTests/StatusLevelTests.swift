@@ -9,19 +9,19 @@ struct StatusLevelTests {
     func levels() {
         #expect(StatusLevel(percent: 0) == .green)
         #expect(StatusLevel(percent: 25) == .green)
-        #expect(StatusLevel(percent: 60) == .yellow)
+        #expect(StatusLevel(percent: 80) == .yellow)
         #expect(StatusLevel(percent: 90) == .red)
         #expect(StatusLevel(percent: 100) == .red)
     }
 
-    @Test("Grenzwert gelb: 50 gehört zur höheren Stufe")
+    @Test("Grenzwert gelb: 70 gehört zur höheren Stufe")
     func yellowBoundary() {
         #expect(StatusLevel(percent: StatusLevel.yellowThreshold - 0.0001) == .green)
         #expect(StatusLevel(percent: StatusLevel.yellowThreshold) == .yellow)
         #expect(StatusLevel(percent: StatusLevel.yellowThreshold + 0.0001) == .yellow)
     }
 
-    @Test("Grenzwert rot: 85 gehört zur höheren Stufe")
+    @Test("Grenzwert rot: 90 gehört zur höheren Stufe")
     func redBoundary() {
         #expect(StatusLevel(percent: StatusLevel.redThreshold - 0.0001) == .yellow)
         #expect(StatusLevel(percent: StatusLevel.redThreshold) == .red)
@@ -30,8 +30,8 @@ struct StatusLevelTests {
 
     @Test("Schwellen sind benannte Konstanten mit den erwarteten Werten")
     func thresholdConstants() {
-        #expect(StatusLevel.yellowThreshold == 50)
-        #expect(StatusLevel.redThreshold == 85)
+        #expect(StatusLevel.yellowThreshold == 70)
+        #expect(StatusLevel.redThreshold == 90)
         #expect(StatusLevel.yellowThreshold < StatusLevel.redThreshold)
     }
 

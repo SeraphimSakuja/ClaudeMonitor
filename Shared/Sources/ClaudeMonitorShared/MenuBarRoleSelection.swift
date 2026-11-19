@@ -147,10 +147,10 @@ public struct MenuBarRoleSelection: Equatable, Sendable {
     /// den bekannten Reset gäbe es nichts zu zeigen.
     ///
     /// **Warum die Ampel und keine eigene Schwelle:** ``StatusLevel/red``
-    /// (ab 85 %) ist die im Projekt bereits kalibrierte Grenze für „hier wird
+    /// (ab 90 %) ist die im Projekt bereits kalibrierte Grenze für „hier wird
     /// es eng". Die Restzeit erbt damit genau die Bedeutung, die der rote Punkt
     /// ohnehin trägt; eine zweite Schwelle daneben wäre eine zweite Wahrheit.
-    /// Bewusst 85 % und nicht erst 100 %: Bei 85 % kann man noch entscheiden,
+    /// Bewusst 90 % und nicht erst 100 %: Bei 90 % kann man noch entscheiden,
     /// ob man weitermacht oder wechselt — bei 100 % ist die Entscheidung
     /// gefallen. Nicht-endliche Werte gelten über ``StatusLevel`` konservativ
     /// als rot, was hier genau richtig ist.

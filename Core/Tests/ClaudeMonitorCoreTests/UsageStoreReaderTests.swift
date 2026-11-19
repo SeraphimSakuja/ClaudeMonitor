@@ -76,7 +76,7 @@ struct UsageStoreReaderTests {
         #expect(scoped.count == 2)
         #expect(scoped.map(\.label).sorted() == ["Fable", "Sonnet"])
         #expect(account.window(kind: .scoped(name: "Fable"))?.percent == 88.0)
-        #expect(account.window(kind: .scoped(name: "Fable"))?.status == .red)
+        #expect(account.window(kind: .scoped(name: "Fable"))?.status == .yellow)
         #expect(account.window(kind: .scoped(name: "Sonnet"))?.status == .green)
     }
 
