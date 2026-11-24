@@ -31,7 +31,7 @@ public enum TrayTexts {
     /// gibt es keines. Die Quelle ist `MARKETING_VERSION` im Xcode-Projekt;
     /// `scripts/release-linux.sh` bricht ab, wenn beide auseinanderlaufen
     /// (Zwillingswächter, `CM-22`).
-    public static let version = "1.0.2"
+    public static let version = "1.0.3"
 
     /// Build-Nummer des Tray-Prozesses — die einzige Vergleichsgröße des
     /// Linux-Auto-Updates (CM-29, FE 2).
@@ -40,9 +40,9 @@ public enum TrayTexts {
     /// `scripts/release-linux.sh` ab, wenn beide auseinanderlaufen. Eine zu
     /// kleine Zahl ließe den Client jedes Release erneut anbieten, eine zu
     /// große keines mehr.
-    public static let buildVersion = 3
+    public static let buildVersion = 4
 
-    /// Kopfzeile des Menüs: „ClaudeMonitor 1.0.2".
+    /// Kopfzeile des Menüs: „ClaudeMonitor 1.0.3".
     ///
     /// Warum überhaupt (Auflage 8): Bei automatischen Updates ist die
     /// Versionszeile die einzige Stelle, an der Nutzer und Support feststellen
