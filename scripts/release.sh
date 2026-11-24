@@ -607,6 +607,11 @@ cp -f "$DMG" "$RELEASES_DIR/"
 #
 # Preis: keine Delta-Updates mehr (die bräuchten das Vorgängerarchiv am selben
 # Ort). Bei rund 2 MB Gesamtgröße ist das kein Verlust.
+#
+# `--maximum-versions 0`: ohne die Angabe behält generate_appcast nur die drei
+# neuesten Einträge und streicht ältere (gemessen 24.11.2026 beim 1.0.3-Lauf:
+# „removed 1 old update“, Eintrag 1.0 weg) — der Verlust-Wächter unten bricht
+# dann ab. 0 bewahrt alle Einträge.
 mkdir -p "$RELEASES_DIR/old_updates"
 STALE=0
 while IFS= read -r stale; do
@@ -621,6 +626,7 @@ done < <(find "$RELEASES_DIR" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.d
 "$SPARKLE_BIN/generate_appcast" \
   --account ClaudeMonitor \
   --ed-key-file "$SPARKLE_KEY_FILE" \
+  --maximum-versions 0 \
   --download-url-prefix "$DOWNLOAD_URL_BASE/v$SHORT_VERSION/" \
   --link "$PROJECT_URL" \
   "$RELEASES_DIR" \
