@@ -180,8 +180,10 @@ you want to change it.
 **v1.0** — macOS 14+. Verified against claude-swap 0.22.0 (cache `schemaVersion` 2).
 
 The Linux panel process `claude-monitor-tray` builds and passes its tests, and its packaging is in
-place (`scripts/release-linux.sh`); it needs `glibc ≥ 2.38` and `GLIBCXX ≥ 3.4.32`. No Linux release
-has been published yet — until one is, the tarball exists only as a local build result.
+place (`scripts/release-linux.sh`); it needs `glibc ≥ 2.38` and `GLIBCXX ≥ 3.4.32`. The Linux
+release v1.0.2 (build 3) is published as a tarball at
+<https://github.com/SeraphimSakuja/ClaudeMonitor/releases/tag/v1.0.2>; setup and checksum are in
+[`Linux/INSTALL.md`](Linux/INSTALL.md).
 
 ## License
 
