@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "claude-monitor-tray",
   "platform": "linux-x86_64",
-  "version": "1.0.2",
-  "buildVersion": 3,
-  "url": "https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0.2/claude-monitor-tray-1.0.2-linux-x86_64.tar.gz",
-  "sha256": "f4b1e6d0a3462562b154e50782ffccc89494193abf2d06611ac9d5e9379f735f",
-  "size": 30132950,
+  "version": "1.0.3",
+  "buildVersion": 4,
+  "url": "https://github.com/SeraphimSakuja/ClaudeMonitor/releases/download/v1.0.3/claude-monitor-tray-1.0.3-linux-x86_64.tar.gz",
+  "sha256": "081fc9d20e19a645d8ae604c0a9d70c1ad4a1bec0ed67f3338bee90cd6d3142b",
+  "size": 30140474,
   "minimum": {
     "glibc": "2.38",
     "glibcxx": "3.4.32"
@@ -16,9 +16,9 @@
     "glibcxx": "3.4.32",
     "cxxabi": "1.3.11",
     "gcc": "3.3.1",
-    "binarySize": 88103280,
+    "binarySize": 88146424,
     "builtOn": "ubuntu 24.04, glibc 2.39, Swift 6.3.3"
   },
   "projectUrl": "https://github.com/SeraphimSakuja/ClaudeMonitor",
-  "signature": "Fde6fQeCKbw7cwFBkS447v+cXy/f7b3J2hnWzIGZAgOgedjVN151CXJMTcOhd62Dh4ojdC8qQTT81jSB7fHZAg=="
+  "signature": "gplHq0zQs8hj2Vl6rMN6S4qKnwWBLU5/GDcQldXIJOMRuP80vhKtW6jHorCQ6ivGOwXz5Pmk4MsLGszL1TI0Dg=="
 }
